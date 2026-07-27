@@ -15,11 +15,19 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from research_shared.adapters.academic_torrents import AcademicTorrentsAdapter
+from research_shared.adapters.annas_archive import AnnasArchiveAdapter
+from research_shared.adapters.base import SourceSearchResult
+from research_shared.adapters.dedup import deduplicate
+from research_shared.adapters.internet_archive import InternetArchiveAdapter
+from research_shared.adapters.libgen import LibGenAdapter
+from research_shared.adapters.scihub import SciHubAdapter
 from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.db import DatabaseError, DatabasePool
 from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.lifespan import build_lifespan
+from research_shared.shadow_registry import ShadowRegistry
 
 # ---------------------------------------------------------------------------
 # application factory
@@ -27,6 +35,39 @@ from research_shared.lifespan import build_lifespan
 
 _lifespan = build_lifespan("search-mcp", db_pool_ref=lambda: _db_pool)
 app = FastAPI(title="search-mcp", version="0.1.0", lifespan=_lifespan)
+
+# ---------------------------------------------------------------------------
+# shadow library registry
+# ---------------------------------------------------------------------------
+
+_shadow_registry = ShadowRegistry()
+
+# Register all Tier S + A adapters
+_shadow_registry.register(AnnasArchiveAdapter())
+_shadow_registry.register(LibGenAdapter())
+_shadow_registry.register(SciHubAdapter())
+_shadow_registry.register(InternetArchiveAdapter())
+_shadow_registry.register(AcademicTorrentsAdapter())
+
+_SHADOW_LABELS: dict[str, str] = {
+    "annas_archive": "Anna's Archive",
+    "libgen": "Library Genesis (LibGen)",
+    "scihub": "Sci-Hub / SciDB",
+    "internet_archive": "Internet Archive",
+    "academic_torrents": "Academic Torrents",
+}
+
+
+def _get_shadow_adapters(source_indexes: list[str] | None = None) -> list:
+    """Return adapters filtered by optional source_indexes list."""
+    if source_indexes:
+        return [
+            a for a in _shadow_registry.list_all()
+            if a.name in source_indexes
+        ]
+    # Default: all Tier S + A adapters
+    return _shadow_registry.filter(tier="S") + _shadow_registry.filter(tier="A")
+
 
 # ---------------------------------------------------------------------------
 # backend injection
@@ -96,6 +137,23 @@ _TOOLS = [
         "name": "search_web",
         "description": "Search external web sources (placeholder).",
         "parameters": {"query": "str"},
+    },
+    {
+        "name": "search_shadow_libraries",
+        "description": (
+            "Search shadow library source indexes (Anna's Archive, LibGen, "
+            "Sci-Hub/SciDB, Internet Archive, Academic Torrents) for "
+            "academic papers, books, and datasets. Returns ranked "
+            "SourceReferences with DOIs, abstracts, and source index "
+            "attribution."
+        ),
+        "parameters": {
+            "query": "str (required)",
+            "source_indexes": "list[str] (optional, default: all Tier S + A)",
+            "limit": "int (optional, default 10, max 50)",
+            "offset": "int (optional, default 0)",
+            "sort_by": "str (optional, 'relevance' | 'year', default 'relevance')",
+        },
     },
     {
         "name": "list_source_indexes",
@@ -251,6 +309,91 @@ async def search_web(
 
 
 # ---------------------------------------------------------------------------
+# tool: search_shadow_libraries
+# ---------------------------------------------------------------------------
+
+@app.post("/tools/search_shadow_libraries")
+async def search_shadow_libraries(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    """Search shadow library source indexes for academic papers, books, and datasets."""
+    _require_auth(request)
+
+    query = payload.parameters.get("query")
+    if not query:
+        resp = _ok(
+            trace_id=payload.trace_id,
+            data={"query": "", "total_results": 0, "results": []},
+        )
+        return resp
+
+    requested_indexes: list[str] | None = payload.parameters.get("source_indexes")
+    limit = min(int(payload.parameters.get("limit", 10)), 50)
+    offset = int(payload.parameters.get("offset", 0))
+
+    logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
+    logger.log_request(
+        content_type=payload.content_type,
+        tool="search_shadow_libraries",
+        query=query,
+        source_indexes=requested_indexes,
+    )
+
+    # Get adapters (filtered or all S+A tier)
+    adapters = _get_shadow_adapters(requested_indexes)
+
+    if not adapters:
+        resp = _ok(
+            trace_id=payload.trace_id,
+            data={"query": query, "total_results": 0, "results": []},
+        )
+        logger.log_response(status=resp.status)
+        return resp
+
+    # Query all selected adapters in parallel, gracefully handling failures
+    all_results: list[SourceSearchResult] = []
+    degraded = False
+
+    for adapter in adapters:
+        try:
+            results = await adapter.search(query, limit=limit, offset=offset)
+            all_results.extend(results)
+        except Exception:  # noqa: BLE001 — each adapter may fail independently
+            degraded = True
+            continue
+
+    # Deduplicate across source indexes
+    deduped = deduplicate(all_results)
+
+    # Apply limit
+    deduped = deduped[:limit]
+
+    # Serialize
+    results_data = []
+    citations: list[str] = []
+    for r in deduped:
+        results_data.append(r.model_dump())
+        if r.doi:
+            citations.append(f"doi:{r.doi}")
+        else:
+            citations.append(r.identifier)
+
+    status = "degraded" if degraded else "success"
+    resp = ResearchResponse(
+        trace_id=payload.trace_id,
+        status=status,
+        data={
+            "query": query,
+            "total_results": len(results_data),
+            "results": results_data,
+        },
+        citations=citations,
+    )
+    logger.log_response(status=resp.status, citations_count=len(citations))
+    return resp
+
+
+# ---------------------------------------------------------------------------
 # tool: list_source_indexes (primary)
 # ---------------------------------------------------------------------------
 
@@ -273,23 +416,43 @@ async def list_source_indexes(
             rows = await _db_pool.fetch(
                 "SELECT type, identifier, label FROM sources ORDER BY type, identifier"
             )
-            source_indexes = [dict(r) for r in rows] if rows else [
+            source_indexes_db: list[dict[str, Any]] = [dict(r) for r in rows] if rows else [
                 {"type": "knowledge_graph", "identifier": "kg-root", "label": "Root node"},
                 {"type": "knowledge_graph", "identifier": "kg-concepts", "label": "Concepts"},
                 {"type": "web_page", "identifier": "web-index", "label": "Web index"},
             ]
-            resp = _ok(trace_id=payload.trace_id, data={"source_indexes": source_indexes})
+            for adapter in _shadow_registry.list_all():
+                source_indexes_db.append({
+                    "type": "shadow_library",
+                    "identifier": adapter.name,
+                    "label": _SHADOW_LABELS.get(adapter.name, adapter.name),
+                    "tier": adapter.tier,
+                    "trust_model": adapter.trust_model,
+                    "status": "available",
+                })
+            resp = _ok(trace_id=payload.trace_id, data={"source_indexes": source_indexes_db})
             logger.log_response(status=resp.status)
             return resp
         except (DatabaseError, NotImplementedError):
             pass
 
     # ── fallback ──
-    source_indexes = [
+    source_indexes: list[dict[str, Any]] = [
         {"type": "knowledge_graph", "identifier": "kg-root", "label": "Root node"},
         {"type": "knowledge_graph", "identifier": "kg-concepts", "label": "Concepts"},
         {"type": "web_page", "identifier": "web-index", "label": "Web index"},
     ]
+
+    # Add shadow library adapters
+    for adapter in _shadow_registry.list_all():
+        source_indexes.append({
+            "type": "shadow_library",
+            "identifier": adapter.name,
+            "label": _SHADOW_LABELS.get(adapter.name, adapter.name),
+            "tier": adapter.tier,
+            "trust_model": adapter.trust_model,
+            "status": "available",
+        })
 
     resp = _ok(trace_id=payload.trace_id, data={"source_indexes": source_indexes})
     logger.log_response(status=resp.status)

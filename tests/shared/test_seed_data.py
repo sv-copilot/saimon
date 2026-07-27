@@ -4,13 +4,13 @@ import pytest
 
 from research_shared.seed_data import (
     CONTENT_TYPES,
-    VOICE_PROFILES,
-    SEED_REQUESTS,
     SEED_DATA_VERSION,
+    SEED_REQUESTS,
+    VOICE_PROFILES,
     get_all_definitions,
     load_content_types,
-    load_voice_profiles,
     load_seed_requests,
+    load_voice_profiles,
 )
 
 # ---------------------------------------------------------------------------

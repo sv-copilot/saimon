@@ -116,6 +116,7 @@ git merge slice/PARENT   # bring in unmerged dependency
 | MCP-INTEGRATION-1 | `slice/MCP-INTEGRATION-1` | ✅ merged | Wire MCPs to real backends: LLM, DB, seed_data; 333 tests + 26 integration tests |
 | SELF-EXTEND-2 | `slice/SELF-EXTEND-2` | ✅ merged | `seed_loader.py` + generate-mcp self-extend wiring; 358 tests |
 | DEPLOY-HARDEN-1 | `slice/DEPLOY-HARDEN-1` | ✅ merged | Secrets management, graceful shutdown, deep health checks, CI/CD, prod compose; 432 tests |
+| LIVE-INTEGRATION-1 | `slice/LIVE-INTEGRATION-1` | ✅ built | Real LLM (DeepSeek via openai), real DB (asyncpg), live E2E integration tests (17 tests); 432 tests |
 
 ## Session Startup Protocol
 
@@ -241,6 +242,7 @@ Then follow TDD: RED → GREEN → REFACTOR → PROVE.
 | MCP-INTEGRATION-1 | `slice/MCP-INTEGRATION-1` | ✅ merged | Wire MCPs to real backends: LLM, DB, seed_data; 333 tests + 26 integration tests |
 | SELF-EXTEND-2 | `slice/SELF-EXTEND-2` | ✅ merged | `seed_loader.py` + generate-mcp self-extend wiring; 358 tests |
 | DEPLOY-HARDEN-1 | `slice/DEPLOY-HARDEN-1` | ✅ merged | Secrets management, graceful shutdown, deep health checks, CI/CD, prod compose; 432 tests |
+| LIVE-INTEGRATION-1 | `slice/LIVE-INTEGRATION-1` | ✅ built | Real LLM (DeepSeek via openai), real DB (asyncpg), live E2E integration tests (17 tests); 432 tests |
 
 ## Recursive Prompt for New Sessions
 

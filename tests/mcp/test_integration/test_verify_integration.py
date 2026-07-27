@@ -7,9 +7,6 @@ fact-checking instead of placeholder verifications.
 from __future__ import annotations
 
 import sys
-from unittest.mock import AsyncMock
-
-import pytest
 
 
 def _fresh_verify_app(monkeypatch, api_key):
@@ -60,6 +57,7 @@ class TestLLMBackendInjection:
             },
             headers={"X-Saimon-API-Key": api_key},
         )
+        assert response.status_code == 200
         mock_llm.generate.assert_called_once()
 
     def test_verify_claim_degraded_without_llm(

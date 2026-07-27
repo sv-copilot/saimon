@@ -1,6 +1,7 @@
 """Tests for research_shared.llm — DeepSeek LLM client abstraction."""
 
 import pytest
+
 from research_shared.llm import LLMClient, LLMConfig, LLMError
 
 
@@ -21,7 +22,7 @@ class TestLLMConfig:
         """Custom env vars override defaults."""
         monkeypatch.setenv("SAIMON_API_KEY", "sk-custom")
         monkeypatch.setenv("SAIMON_LLM_MODEL", "deepseek-reasoner")
-        monkeypatch.setenv("SAIMON_LLM_BASE_URL", "https://custom.api.com/v1")
+        monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://custom.api.com/v1")
         monkeypatch.setenv("SAIMON_LLM_TIMEOUT", "45")
         monkeypatch.setenv("SAIMON_LLM_MAX_TOKENS", "8192")
 

@@ -1,7 +1,9 @@
 """Tests for research_shared.envelope — typed request/response contracts."""
 
 import uuid
+
 import pytest
+
 from research_shared.envelope import (
     ErrorCode,
     ResearchRequest,

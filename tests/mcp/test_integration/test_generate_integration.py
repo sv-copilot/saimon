@@ -7,10 +7,7 @@ that content types are sourced from seed_data.py.
 from __future__ import annotations
 
 import sys
-from unittest.mock import AsyncMock, patch
-
-import pytest
-
+from unittest.mock import AsyncMock
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -197,8 +194,9 @@ class TestLLMBackendInjection:
         self, monkeypatch, api_key, sample_trace_id
     ):
         """LLM errors are caught and returned as error responses."""
+        from unittest.mock import MagicMock
+
         from fastapi.testclient import TestClient
-        from unittest.mock import AsyncMock, MagicMock
 
         sys.modules.pop("mcp.generate.server", None)
         monkeypatch.setenv("SAIMON_API_KEY", api_key)

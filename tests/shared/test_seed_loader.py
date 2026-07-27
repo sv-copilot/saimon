@@ -4,10 +4,9 @@ import pytest
 
 from research_shared.seed_data import (
     CONTENT_TYPES,
-    VOICE_PROFILES,
     SEED_REQUESTS,
+    VOICE_PROFILES,
 )
-
 
 # ---------------------------------------------------------------------------
 # SeedLoader exists and has expected interface

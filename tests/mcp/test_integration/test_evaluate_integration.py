@@ -7,9 +7,6 @@ quality scoring instead of heuristic placeholders.
 from __future__ import annotations
 
 import sys
-from unittest.mock import AsyncMock
-
-import pytest
 
 
 def _fresh_evaluate_app(monkeypatch, api_key):

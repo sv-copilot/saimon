@@ -302,20 +302,22 @@ has been built and what comes next.
 Current state:
 - research_shared/ is built (6 modules: envelope, llm, db, auth,
   resilience, audit).
-- 6 of 6 MCPs are merged: search, generate, export, evaluate,
-  verify.
-- MCP-EXPLORE-1 is built but not yet merged — consolidate and merge first.
-- 190 tests passing, ruff clean, compileall OK.
+- 7 of 7 slices merged: all 6 MCPs + shared-lib
+- 190 tests passing, ruff clean, compileall OK
+- No pending slices
+
+Next phase: Docker, PostgreSQL schema, self-extension flow, domain tools.
+See .docs/project_intake.json for success criteria.
 
 Follow the PR & Merge Workflow in AGENTS.md: start a new slice branch
 from ai-dev, merge any unmerged dependencies via `git merge`, then
 follow TDD (RED → GREEN → REFACTOR → PROVE).
 
-Branch: slice/MCP-EXPLORE-1
+Branch: ai-dev
 Python: /Users/simon/.pyenv/versions/3.11.8/bin/python
 
-Begin by reading AGENTS.md, then tell me what slice you'll start
-and why.
+Begin by reading AGENTS.md, then tell me what you see and what
+you'll build next.
 ```
 
 - Docker (single image, CMD override per MCP)

@@ -113,6 +113,7 @@ git merge slice/PARENT   # bring in unmerged dependency
 | MCP-EXPLORE-1 | `slice/MCP-EXPLORE-1` | ✅ merged | `mcp/explore/`: discovery MCP |
 | DOCKER-1 | `slice/DOCKER-1` | ✅ merged | Dockerfile, docker-compose (7 svc + PG16), entrypoint, .dockerignore, schema.sql |
 | DOMAIN-BOOTSTRAP-1 | `slice/DOMAIN-BOOTSTRAP-1` | ✅ merged | `research_shared/seed_data.py`: 13 content types, 5 voice profiles, 15 seed requests; updated schema.sql |
+| MCP-INTEGRATION-1 | `slice/MCP-INTEGRATION-1` | 🔨 building | Wire MCPs to real backends: LLM, DB, seed_data; 333 tests + 26 integration tests |
 
 ## Session Startup Protocol
 
@@ -235,6 +236,7 @@ Then follow TDD: RED → GREEN → REFACTOR → PROVE.
 | MCP-EXPLORE-1 | `slice/MCP-EXPLORE-1` | ✅ merged | `mcp/explore/`: discovery MCP |
 | DOCKER-1 | `slice/DOCKER-1` | ✅ merged | Dockerfile, docker-compose (7 svc + PG16), entrypoint, .dockerignore, schema.sql |
 | DOMAIN-BOOTSTRAP-1 | `slice/DOMAIN-BOOTSTRAP-1` | ✅ merged | `research_shared/seed_data.py`: 13 content types, 5 voice profiles, 15 seed requests; updated schema.sql |
+| MCP-INTEGRATION-1 | `slice/MCP-INTEGRATION-1` | 🔨 building | Wire MCPs to real backends: LLM, DB, seed_data; 333 tests + 26 integration tests |
 
 ## Recursive Prompt for New Sessions
 
@@ -280,15 +282,14 @@ RED → GREEN → REFACTOR → PROVE.
 
 ## 4. Current state (auto-updated)
 
-- 9 of 9 slices merged: shared-lib + 6 MCPs + Docker + self-extend
-- DOMAIN-BOOTSTRAP-1 built (PR #9 pending): 13 content types,
-  5 voice profiles, 15 seed requests
-- 307 tests passing, ruff clean, compileall OK
-- research_shared/: envelope, llm, db, auth, resilience, audit,
-  self_extend, seed_data (8 modules)
-- All 6 MCPs structurally complete but return synthetic/stub
-  responses — not yet wired to real backends
-- Next: MCP-INTEGRATION-1 — wire to DB, LLM, SelfExtender
+- 10 of 10 slices merged: shared-lib + 6 MCPs + Docker + self-extend + domain-bootstrap
+- MCP-INTEGRATION-1 in progress: all 6 MCPs wired to LLM/DB backends with dependency injection
+- 333 tests passing, ruff clean, compileall OK
+- 26 integration tests verifying backend wiring across all MCPs
+- research_shared/: envelope, llm, db, auth, resilience, audit, self_extend, seed_data (8 modules)
+- All 6 MCPs support set_llm_client() / set_db_pool() injection; degrade gracefully without backends
+- Content types sourced from seed_data.py (13 types, 5 voice profiles)
+- Next: complete MCP-INTEGRATION-1 (remaining tests, PR, merge)
 
 ## 5. Environment
 

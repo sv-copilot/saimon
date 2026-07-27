@@ -4,10 +4,14 @@ Provides fact-checking tools that verify claims against sources using
 multiple verification methods (source corroboration, logical consistency,
 authority check).  Every tool endpoint accepts a ResearchRequest envelope
 and returns a ResearchResponse envelope.  Authentication is fail-closed.
+
+Supports LLM injection via set_llm_client() for AI-powered verification.
+Without an LLM, falls back to heuristic-based verification.
 """
 
 from __future__ import annotations
 
+import json as _json
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -15,6 +19,7 @@ from fastapi import FastAPI, HTTPException, Request
 from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.envelope import ResearchRequest, ResearchResponse
+from research_shared.llm import LLMClient, LLMError
 
 # ---------------------------------------------------------------------------
 # application factory
@@ -38,6 +43,19 @@ def _require_auth(request: Request) -> None:
             _auth.validate(key)
         except AuthError as exc:
             raise HTTPException(status_code=401, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# backend injection
+# ---------------------------------------------------------------------------
+
+_llm_client: LLMClient | None = None
+
+
+def set_llm_client(client: LLMClient | None) -> None:
+    """Inject an LLMClient for AI-powered fact-checking."""
+    global _llm_client
+    _llm_client = client
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +155,39 @@ def _error(trace_id: str, message: str) -> ResearchResponse:
 
 
 # ---------------------------------------------------------------------------
+# LLM verification
+# ---------------------------------------------------------------------------
+
+_VERIFY_PROMPT = """You are a fact-checker. Verify the following claim using
+these methods: {methods}.
+
+Claim: {claim}
+Sources provided: {source_summary}
+
+Return ONLY a JSON object with:
+- "verifications": array of {{ "method": "...", "verdict": "supported|refuted|inconclusive", "confidence": 0.0-1.0, "explanation": "..." }}
+- "overall_verdict": "supported|refuted|inconclusive"
+"""
+
+
+async def _llm_verify(
+    method_names: list[str], claim: str, sources: Any
+) -> list[dict[str, Any]]:
+    """Verify a claim via the injected LLM."""
+    source_summary = (
+        f"{len(sources)} sources provided" if sources else "no sources"
+    )
+    prompt = _VERIFY_PROMPT.format(
+        methods=", ".join(method_names),
+        claim=claim,
+        source_summary=source_summary,
+    )
+    raw = await _llm_client.generate(prompt)  # type: ignore[union-attr]
+    result = _json.loads(raw)
+    return result.get("verifications", [])
+
+
+# ---------------------------------------------------------------------------
 # verification engine
 # ---------------------------------------------------------------------------
 
@@ -145,7 +196,7 @@ def _verify_method(
 ) -> dict[str, Any]:
     """Return a verification result for a single method.
 
-    Placeholder — in production this uses the LLM via
+    Placeholder -- in production this uses the LLM via
     research_shared.llm to fact-check claims against sources.
     """
     source_count = len(sources) if sources else 0
@@ -283,10 +334,18 @@ async def verify_claim(
         methods_count=len(method_names),
     )
 
-    # Verify using each method
-    verifications = [
-        _verify_method(m, claim, sources) for m in method_names
-    ]
+    # Verify using each method — try LLM first, fall back to heuristic
+    if _llm_client is not None:
+        try:
+            verifications = await _llm_verify(method_names, claim, sources)
+        except (LLMError, NotImplementedError, _json.JSONDecodeError):
+            verifications = [
+                _verify_method(m, claim, sources) for m in method_names
+            ]
+    else:
+        verifications = [
+            _verify_method(m, claim, sources) for m in method_names
+        ]
 
     # Compute overall verdict
     overall = _compute_overall_verdict(verifications)

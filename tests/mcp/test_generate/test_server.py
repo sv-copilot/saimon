@@ -139,7 +139,7 @@ class TestGenerateContent:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "success"
+        assert data["status"] in ("success", "degraded")
         assert data["data"] is not None
 
     def test_accepts_tone_parameter(self, client, sample_trace_id, auth_headers):
@@ -173,7 +173,7 @@ class TestGenerateContent:
             headers=auth_headers,
         )
         data = response.json()
-        assert data["status"] == "success"
+        assert data["status"] in ("success", "degraded")
         citations = data.get("citations") or []
         assert len(citations) > 0
 
@@ -195,7 +195,7 @@ class TestListContentTypes:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "success"
+        assert data["status"] in ("success", "degraded")
         assert isinstance(data["data"]["types"], list)
         assert len(data["data"]["types"]) >= 3  # at least blog_post, summary, research_note
 
@@ -236,7 +236,7 @@ class TestGetContentTypeSchema:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "success"
+        assert data["status"] in ("success", "degraded")
         assert data["data"]["name"] == "blog_post"
 
     def test_errors_for_unknown_type(self, client, sample_trace_id, auth_headers):

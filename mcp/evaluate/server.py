@@ -3,12 +3,14 @@
 Provides quality-gate evaluation over generated content.  Scores
 content against criteria (clarity, completeness, coherence,
 conciseness, tone_match) and returns an overall quality score.
-Every tool endpoint accepts a ResearchRequest envelope and returns
-a ResearchResponse envelope.  Authentication is fail-closed.
+
+Supports LLM injection via set_llm_client() for AI-powered scoring.
+Without an LLM, falls back to heuristic-based scoring.
 """
 
 from __future__ import annotations
 
+import json as _json
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -16,6 +18,7 @@ from fastapi import FastAPI, HTTPException, Request
 from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.envelope import ResearchRequest, ResearchResponse
+from research_shared.llm import LLMClient, LLMError
 
 # ---------------------------------------------------------------------------
 # application factory
@@ -39,6 +42,19 @@ def _require_auth(request: Request) -> None:
             _auth.validate(key)
         except AuthError as exc:
             raise HTTPException(status_code=401, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# backend injection
+# ---------------------------------------------------------------------------
+
+_llm_client: LLMClient | None = None
+
+
+def set_llm_client(client: LLMClient | None) -> None:
+    """Inject an LLMClient for AI-powered evaluation scoring."""
+    global _llm_client
+    _llm_client = client
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +151,12 @@ def _ok(
     )
 
 
+def _degraded(trace_id: str, data: Any = None) -> ResearchResponse:
+    return ResearchResponse(
+        trace_id=trace_id, status="degraded", data=data,
+    )
+
+
 def _error(trace_id: str, message: str) -> ResearchResponse:
     return ResearchResponse(
         trace_id=trace_id,
@@ -147,15 +169,35 @@ def _error(trace_id: str, message: str) -> ResearchResponse:
 # scoring engine
 # ---------------------------------------------------------------------------
 
+_EVAL_PROMPT = """You are a content quality evaluator. Score the following content
+against these criteria: {criteria}.
+
+Content: {content}
+Tone requested: {tone}
+
+Return ONLY a JSON object with keys:
+- "scores": array of {{ "criterion": "...", "score": 0.0-1.0, "justification": "..." }}
+- "overall_score": weighted average (0.0-1.0)"""
+
+
+async def _llm_evaluate(
+    criteria_names: list[str], content: str, tone: str | None
+) -> list[dict[str, Any]]:
+    """Evaluate content via the injected LLM."""
+    prompt = _EVAL_PROMPT.format(
+        criteria=", ".join(criteria_names),
+        content=content[:3000],
+        tone=tone or "neutral",
+    )
+    raw = await _llm_client.generate(prompt)  # type: ignore[union-attr]
+    result = _json.loads(raw)
+    return result.get("scores", [])
+
+
 def _score_criterion(
     criterion: str, content: str, tone: str | None = None
 ) -> dict[str, Any]:
-    """Return a score for a single criterion.
-
-    Placeholder — in production this uses the LLM via
-    research_shared.llm to evaluate content quality.
-    """
-    # Base scores derived from simple heuristics on content length
+    """Return a score for a single criterion (heuristic fallback)."""
     word_count = len(content.split())
     char_count = len(content)
 
@@ -163,39 +205,26 @@ def _score_criterion(
         "clarity": lambda: {
             "score": 0.75,
             "justification": (
-                f"Content is {word_count} words. Placeholder clarity "
-                "score — production evaluation would use LLM analysis."
+                f"Content is {word_count} words. Heuristic clarity score."
             ),
         },
         "completeness": lambda: {
             "score": 0.70,
             "justification": (
-                f"Content length: {char_count} chars. Placeholder completeness "
-                "score — production evaluation would use LLM analysis."
+                f"Content length: {char_count} chars. Heuristic completeness score."
             ),
         },
         "coherence": lambda: {
             "score": 0.80,
-            "justification": (
-                "Placeholder coherence score — production evaluation "
-                "would use LLM to assess logical flow."
-            ),
+            "justification": "Heuristic coherence score.",
         },
         "conciseness": lambda: {
             "score": 0.85 if word_count < 500 else 0.65,
-            "justification": (
-                f"Content is {word_count} words. "
-                "Placeholder conciseness score — production evaluation "
-                "would use LLM analysis."
-            ),
+            "justification": f"Content is {word_count} words. Heuristic conciseness score.",
         },
         "tone_match": lambda: {
             "score": 0.72,
-            "justification": (
-                f"Requested tone: {tone or 'neutral'}. "
-                "Placeholder tone_match score — production evaluation "
-                "would use LLM analysis."
-            ),
+            "justification": f"Requested tone: {tone or 'neutral'}. Heuristic tone_match score.",
         },
     }
 
@@ -275,8 +304,14 @@ async def evaluate_content(
         criteria_count=len(criteria_names),
     )
 
-    # Score each criterion
-    scores = [_score_criterion(c, content, tone) for c in criteria_names]
+    # Score each criterion — try LLM first, fall back to heuristic
+    if _llm_client is not None:
+        try:
+            scores = await _llm_evaluate(criteria_names, content, tone)
+        except (LLMError, NotImplementedError, _json.JSONDecodeError):
+            scores = [_score_criterion(c, content, tone) for c in criteria_names]
+    else:
+        scores = [_score_criterion(c, content, tone) for c in criteria_names]
 
     # Compute overall score
     overall = _compute_overall(scores)

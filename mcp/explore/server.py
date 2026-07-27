@@ -14,13 +14,28 @@ from fastapi import FastAPI, HTTPException, Request
 
 from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
+from research_shared.db import DatabaseError, DatabasePool
 from research_shared.envelope import ResearchRequest, ResearchResponse
+from research_shared.seed_data import CONTENT_TYPES as SEED_CONTENT_TYPES
 
 # ---------------------------------------------------------------------------
 # application factory
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="explore-mcp", version="0.1.0")
+
+# ---------------------------------------------------------------------------
+# backend injection
+# ---------------------------------------------------------------------------
+
+_db_pool: DatabasePool | None = None
+
+
+def set_db_pool(pool: DatabasePool | None) -> None:
+    """Inject a DatabasePool for live knowledge-graph queries."""
+    global _db_pool
+    _db_pool = pool
+
 
 # ---------------------------------------------------------------------------
 # auth (fail-closed)
@@ -41,35 +56,16 @@ def _require_auth(request: Request) -> None:
 
 
 # ---------------------------------------------------------------------------
-# content type registry (placeholder)
+# content type registry (from seed_data)
 # ---------------------------------------------------------------------------
 
 _CONTENT_TYPES: list[dict[str, Any]] = [
     {
-        "name": "article",
-        "description": "Long-form article or blog post.",
-        "item_count": 12,
-    },
-    {
-        "name": "research_note",
-        "description": "Atomic research finding or observation.",
-        "item_count": 34,
-    },
-    {
-        "name": "source",
-        "description": "External source citation with metadata.",
-        "item_count": 8,
-    },
-    {
-        "name": "concept",
-        "description": "Abstract concept node in the knowledge graph.",
-        "item_count": 21,
-    },
-    {
-        "name": "claim",
-        "description": "Verifiable factual claim.",
-        "item_count": 15,
-    },
+        "name": ct["name"],
+        "description": ct["description"],
+        "item_count": 0,
+    }
+    for ct in SEED_CONTENT_TYPES
 ]
 
 # ---------------------------------------------------------------------------
@@ -136,6 +132,12 @@ async def list_tools(request: Request) -> dict[str, Any]:
 # helpers
 # ---------------------------------------------------------------------------
 
+def _degraded(trace_id: str, data: Any = None, citations: list[str] | None = None) -> ResearchResponse:
+    return ResearchResponse(
+        trace_id=trace_id, status="degraded", data=data, citations=citations,
+    )
+
+
 def _ok(
     trace_id: str,
     data: Any = None,
@@ -181,8 +183,30 @@ async def explore_content(
         limit=limit,
     )
 
-    # Placeholder — in production this queries the knowledge graph via
-    # research_shared.db with vector similarity search.
+    # ── try DB backend ──
+    if _db_pool is not None:
+        try:
+            rows = await _db_pool.fetch(
+                "SELECT id, title, content_type, relevance, summary "
+                "FROM knowledge_graph_nodes "
+                "WHERE title ILIKE $1 OR content ILIKE $1 "
+                "ORDER BY relevance DESC LIMIT $2",
+                f"%{query}%", limit,
+            )
+            results = [dict(r) for r in rows]
+            resp = _ok(
+                trace_id=payload.trace_id,
+                data={"query": query, "results": results, "total": len(results)},
+                citations=[r["id"] for r in results],
+            )
+            logger.log_response(
+                status=resp.status, citations_count=len(resp.citations or [])
+            )
+            return resp
+        except (DatabaseError, NotImplementedError):
+            pass
+
+    # ── fallback ──
     results: list[dict[str, Any]] = [
         {
             "id": f"kg-{i:03d}",
@@ -197,7 +221,7 @@ async def explore_content(
         for i in range(min(limit, 8))
     ]
 
-    resp = _ok(
+    resp = _degraded(
         trace_id=payload.trace_id,
         data={
             "query": query,
@@ -244,8 +268,35 @@ async def browse_by_type(
         offset=offset,
     )
 
-    # Placeholder — in production this queries PostgreSQL filtered by
-    # content_type column via research_shared.db.
+    # ── try DB backend ──
+    if _db_pool is not None:
+        try:
+            rows = await _db_pool.fetch(
+                "SELECT id, title, content_type, summary, created_at "
+                "FROM knowledge_graph_nodes "
+                "WHERE content_type = $1 "
+                "ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+                content_type, limit, offset,
+            )
+            items = [dict(r) for r in rows]
+            resp = _ok(
+                trace_id=payload.trace_id,
+                data={
+                    "content_type": content_type,
+                    "items": items,
+                    "total": len(items),
+                    "offset": offset,
+                },
+                citations=[item["id"] for item in items],
+            )
+            logger.log_response(
+                status=resp.status, citations_count=len(resp.citations or [])
+            )
+            return resp
+        except (DatabaseError, NotImplementedError):
+            pass
+
+    # ── fallback ──
     items: list[dict[str, Any]] = [
         {
             "id": f"{content_type}-{offset + i:03d}",
@@ -259,7 +310,7 @@ async def browse_by_type(
         for i in range(min(limit, 6))
     ]
 
-    resp = _ok(
+    resp = _degraded(
         trace_id=payload.trace_id,
         data={
             "content_type": content_type,
@@ -305,8 +356,31 @@ async def get_related(
         item_id=item_id,
     )
 
-    # Placeholder — in production this traverses the knowledge graph edge
-    # table via research_shared.db to find connected nodes.
+    # ── try DB backend ──
+    if _db_pool is not None:
+        try:
+            rows = await _db_pool.fetch(
+                "SELECT n.id, n.title, e.relationship_type AS relationship, n.summary "
+                "FROM knowledge_graph_edges e "
+                "JOIN knowledge_graph_nodes n ON e.target_id = n.id "
+                "WHERE e.source_id = $1 "
+                "LIMIT 10",
+                item_id,
+            )
+            related = [dict(r) for r in rows]
+            resp = _ok(
+                trace_id=payload.trace_id,
+                data={"item_id": item_id, "related": related},
+                citations=[r["id"] for r in related],
+            )
+            logger.log_response(
+                status=resp.status, citations_count=len(resp.citations or [])
+            )
+            return resp
+        except (DatabaseError, NotImplementedError):
+            pass
+
+    # ── fallback ──
     known_ids = {"kg-001", "kg-002", "kg-003", "kg-004", "kg-005"}
     if item_id not in known_ids:
         related: list[dict[str, Any]] = []
@@ -324,7 +398,7 @@ async def get_related(
             for j in range(3)
         ]
 
-    resp = _ok(
+    resp = _degraded(
         trace_id=payload.trace_id,
         data={"item_id": item_id, "related": related},
         citations=[r["id"] for r in related],
@@ -368,8 +442,33 @@ async def discover_connections(
         target_id=target_id,
     )
 
-    # Placeholder — in production this runs a graph traversal (BFS/DFS)
-    # over the knowledge graph edge table via research_shared.db.
+    # ── try DB backend ──
+    if _db_pool is not None:
+        try:
+            rows = await _db_pool.fetch(
+                "SELECT source_id AS from_id, target_id AS to_id, "
+                "relationship_type AS type "
+                "FROM knowledge_graph_edges "
+                "WHERE source_id = $1 AND target_id = $2 "
+                "LIMIT 5",
+                source_id, target_id,
+            )
+            edges = [dict(r) for r in rows]
+            paths = [{"edges": edges, "length": len(edges)}] if edges else []
+            resp = _ok(
+                trace_id=payload.trace_id,
+                data={
+                    "source_id": source_id,
+                    "target_id": target_id,
+                    "paths": paths,
+                },
+            )
+            logger.log_response(status=resp.status)
+            return resp
+        except (DatabaseError, NotImplementedError):
+            pass
+
+    # ── fallback ──
     isolated = {"isolated-node", "another-isolated"}
     if source_id in isolated or target_id in isolated:
         paths: list[dict[str, Any]] = []

@@ -272,7 +272,13 @@ Once consolidated, read the Slice Inventory to pick the next slice.
 Create a new branch from ai-dev, merge any unmerged dependencies,
 then follow TDD: RED → GREEN → REFACTOR → PROVE.
 
-## 4. Environment
+## 4. Current state (auto-updated)
+
+- 5 of 6 MCPs merged: search, generate, export, evaluate (plus shared-lib)
+- 143 tests passing, ruff clean, compileall OK
+- 2 MCPs remain: verify, explore
+
+## 5. Environment
 
 - Branch: slice/<next-slice-name>
 - Python: /Users/simon/.pyenv/versions/3.11.8/bin/python
@@ -295,11 +301,11 @@ has been built and what comes next.
 
 Current state:
 - research_shared/ is built (6 modules: envelope, llm, db, auth,
-  resilience, audit) with 71 passing tests.
-- mcp/search/ is built (FastAPI server, 5 tool endpoints) with 15
-  passing tests.
-- 5 MCPs remain: generate, export, evaluate, verify, explore.
-- All validation gates (pytest + ruff + compileall) are passing.
+  resilience, audit).
+- 5 of 6 MCPs are built and merged: search, generate, export,
+  evaluate.
+- 2 MCPs remain: verify, explore.
+- 143 tests passing, ruff clean, compileall OK.
 
 Follow the PR & Merge Workflow in AGENTS.md: start a new slice branch
 from ai-dev, merge any unmerged dependencies via `git merge`, then

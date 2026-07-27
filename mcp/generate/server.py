@@ -3,6 +3,10 @@
 Provides LLM-powered content generation. Accepts a ResearchRequest
 with content_type + parameters and returns generated content via
 the ResearchResponse envelope.
+
+Supports dependency injection of an LLMClient via set_llm_client().
+When an LLM is injected, generate_content uses it for real generation.
+When not injected, the MCP degrades gracefully with fallback responses.
 """
 
 from __future__ import annotations
@@ -14,6 +18,8 @@ from fastapi import FastAPI, HTTPException, Request
 from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.envelope import ResearchRequest, ResearchResponse
+from research_shared.llm import LLMClient, LLMError
+from research_shared.seed_data import CONTENT_TYPES as SEED_CONTENT_TYPES
 
 # ---------------------------------------------------------------------------
 # application factory
@@ -39,41 +45,35 @@ def _require_auth(request: Request) -> None:
 
 
 # ---------------------------------------------------------------------------
-# content type registry
+# backend injection
 # ---------------------------------------------------------------------------
 
-_CONTENT_TYPES: dict[str, dict[str, Any]] = {
-    "blog_post": {
-        "name": "blog_post",
-        "description": "A long-form blog article with introduction, body, and conclusion.",
-        "required_params": ["prompt"],
-        "optional_params": ["tone", "max_length", "audience"],
-    },
-    "summary": {
-        "name": "summary",
-        "description": "A concise summary of source material.",
-        "required_params": ["prompt"],
-        "optional_params": ["max_length", "style"],
-    },
-    "research_note": {
-        "name": "research_note",
-        "description": "A structured research note with citations.",
-        "required_params": ["prompt"],
-        "optional_params": ["tone", "depth", "format"],
-    },
-    "social_post": {
-        "name": "social_post",
-        "description": "A short-form social media post.",
-        "required_params": ["prompt"],
-        "optional_params": ["platform", "tone", "max_length"],
-    },
-    "email_draft": {
-        "name": "email_draft",
-        "description": "A polished email draft.",
-        "required_params": ["prompt"],
-        "optional_params": ["tone", "recipient_role"],
-    },
-}
+_llm_client: LLMClient | None = None
+
+
+def set_llm_client(client: LLMClient | None) -> None:
+    """Inject an LLMClient backend for production use.
+
+    When set, generate_content uses the LLM for real generation.
+    When None (default), the MCP degrades gracefully with fallbacks.
+    """
+    global _llm_client
+    _llm_client = client
+
+
+# ---------------------------------------------------------------------------
+# content type registry (from seed_data)
+# ---------------------------------------------------------------------------
+
+def _build_content_types_lookup() -> dict[str, dict[str, Any]]:
+    """Build a name→definition lookup from seed_data.CONTENT_TYPES."""
+    lookup: dict[str, dict[str, Any]] = {}
+    for ct in SEED_CONTENT_TYPES:
+        lookup[ct["name"]] = ct
+    return lookup
+
+
+_CONTENT_TYPES = _build_content_types_lookup()
 
 
 # ---------------------------------------------------------------------------
@@ -128,8 +128,51 @@ def _ok(
     )
 
 
+def _degraded(trace_id: str, data: Any = None, citations: list[str] | None = None) -> ResearchResponse:
+    return ResearchResponse(
+        trace_id=trace_id, status="degraded", data=data, citations=citations,
+    )
+
+
 def _error(trace_id: str, message: str) -> ResearchResponse:
     return ResearchResponse(trace_id=trace_id, status="error", errors=[message])
+
+
+# ---------------------------------------------------------------------------
+# LLM generation helper
+# ---------------------------------------------------------------------------
+
+_GENERATE_PROMPT_TEMPLATE = """You are a content generation assistant.
+
+Generate a {content_type} with the following parameters:
+- Prompt: {prompt}
+- Tone: {tone}
+{extra_params}
+
+Return ONLY the generated content — no preamble, no meta-commentary."""
+
+
+async def _generate_via_llm(
+    prompt: str,
+    content_type: str,
+    tone: str,
+    ct_schema: dict[str, Any] | None,
+) -> str:
+    """Generate content via the injected LLM client."""
+    extra = ""
+    if ct_schema:
+        opts = ct_schema.get("optional_params", [])
+        if isinstance(opts, list) and opts and isinstance(opts[0], dict):
+            extra = "- Options: " + ", ".join(
+                p["name"] for p in opts if isinstance(p, dict)
+            )
+    llm_prompt = _GENERATE_PROMPT_TEMPLATE.format(
+        content_type=content_type.replace("_", " "),
+        prompt=prompt,
+        tone=tone,
+        extra_params=extra,
+    )
+    return await _llm_client.generate(llm_prompt)  # type: ignore[union-attr]
 
 
 # ---------------------------------------------------------------------------
@@ -157,22 +200,51 @@ async def generate_content(
         sources_count=len(payload.sources),
     )
 
-    # Derive citations from provided sources
     citations = [s.identifier for s in payload.sources] if payload.sources else []
-
-    # Placeholder generation — in production this calls the LLM via research_shared.llm
     tone = payload.parameters.get("tone", "neutral")
+
+    # ── try LLM backend ──
+    if _llm_client is not None:
+        try:
+            content = await _generate_via_llm(prompt, content_type, tone, ct_schema)
+            generated: dict[str, Any] = {
+                "content": content,
+                "content_type": content_type,
+                "tone": tone,
+                "word_count": len(content.split()),
+                "backend": "llm",
+            }
+            resp = _ok(
+                trace_id=payload.trace_id,
+                data=generated,
+                citations=citations,
+            )
+            logger.log_response(
+                status=resp.status, citations_count=len(resp.citations or [])
+            )
+            return resp
+        except LLMError as exc:
+            logger.log_response(status="error")
+            return _error(payload.trace_id, f"LLM generation failed: {exc}")
+        except NotImplementedError:
+            pass  # fall through to fallback
+
+    # ── fallback (no LLM, or LLM not implemented) ──
+    fallback_content = (
+        f"[{content_type.replace('_', ' ').title()}] "
+        f"Prompt: {prompt}\n\n"
+        f"(LLM backend not available — degraded mode. "
+        f"Set SAIMON_API_KEY and inject an LLMClient for full generation.)"
+    )
     generated = {
-        "content": f"[Generated {content_type}] Prompt: {prompt}\n\n"
-        f"This is a placeholder response. In production, this would be "
-        f"generated by DeepSeek via research_shared.llm.LLMClient.",
+        "content": fallback_content,
         "content_type": content_type,
         "tone": tone,
-        "word_count": 42,
-        "schema": ct_schema,
+        "word_count": len(fallback_content.split()),
+        "backend": "fallback",
     }
 
-    resp = _ok(
+    resp = _degraded(
         trace_id=payload.trace_id,
         data=generated,
         citations=citations,
@@ -196,11 +268,13 @@ async def list_content_types(
 
     types = [
         {
-            "name": name,
-            "description": schema["description"],
-            "required_params": schema["required_params"],
+            "name": ct["name"],
+            "description": ct["description"],
+            "required_params": ct.get("required_params", []),
+            "optional_params": ct.get("optional_params", []),
+            "voice_profile": ct.get("voice_profile"),
         }
-        for name, schema in _CONTENT_TYPES.items()
+        for ct in SEED_CONTENT_TYPES
     ]
 
     resp = _ok(trace_id=payload.trace_id, data={"types": types})

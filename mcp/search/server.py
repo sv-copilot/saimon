@@ -3,6 +3,9 @@
 Provides search tools over the PostgreSQL knowledge graph and external
 sources.  Every tool endpoint accepts a ResearchRequest envelope and
 returns a ResearchResponse envelope.  Authentication is fail-closed.
+
+Supports DB injection via set_db_pool() for live knowledge-graph queries.
+Without a DB, falls back to synthetic placeholder results.
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ from fastapi import FastAPI, HTTPException, Request
 
 from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
+from research_shared.db import DatabaseError, DatabasePool
 from research_shared.envelope import ResearchRequest, ResearchResponse
 
 # ---------------------------------------------------------------------------
@@ -20,6 +24,19 @@ from research_shared.envelope import ResearchRequest, ResearchResponse
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="search-mcp", version="0.1.0")
+
+# ---------------------------------------------------------------------------
+# backend injection
+# ---------------------------------------------------------------------------
+
+_db_pool: DatabasePool | None = None
+
+
+def set_db_pool(pool: DatabasePool | None) -> None:
+    """Inject a DatabasePool for live knowledge-graph queries."""
+    global _db_pool
+    _db_pool = pool
+
 
 # ---------------------------------------------------------------------------
 # auth (fail-closed)
@@ -101,6 +118,12 @@ def _ok(
     )
 
 
+def _degraded(trace_id: str, data: Any = None, citations: list[str] | None = None) -> ResearchResponse:
+    return ResearchResponse(
+        trace_id=trace_id, status="degraded", data=data, citations=citations,
+    )
+
+
 def _error(trace_id: str, message: str) -> ResearchResponse:
     return ResearchResponse(
         trace_id=trace_id,
@@ -129,8 +152,31 @@ async def search_knowledge_graph(
     query = payload.parameters.get("query", "")
     limit = min(int(payload.parameters.get("limit", 10)), 100)
 
-    # Placeholder — in production this queries PostgreSQL via research_shared.db
-    results: list[dict[str, Any]] = [
+    # ── try DB backend ──
+    if _db_pool is not None:
+        try:
+            rows = await _db_pool.fetch(
+                "SELECT id, title, content_type, relevance "
+                "FROM knowledge_graph_nodes "
+                "WHERE title ILIKE $1 OR content ILIKE $1 "
+                "ORDER BY relevance DESC LIMIT $2",
+                f"%{query}%", limit,
+            )
+            results: list[dict[str, Any]] = [dict(r) for r in rows]
+            resp = _ok(
+                trace_id=payload.trace_id,
+                data={"results": results, "total": len(results)},
+                citations=[r["id"] for r in results],
+            )
+            logger.log_response(
+                status=resp.status, citations_count=len(resp.citations or [])
+            )
+            return resp
+        except (DatabaseError, NotImplementedError):
+            pass  # fall through to fallback
+
+    # ── fallback (no DB, or DB not implemented) ──
+    results = [
         {
             "id": f"kg-{i}",
             "title": f"Knowledge graph result {i} for: {query}",
@@ -139,7 +185,7 @@ async def search_knowledge_graph(
         for i in range(min(limit, 5))
     ]
 
-    resp = _ok(
+    resp = _degraded(
         trace_id=payload.trace_id,
         data={"results": results, "total": len(results)},
         citations=[r["id"] for r in results],
@@ -204,6 +250,24 @@ async def list_sources(
         tool="list_sources",
     )
 
+    # ── try DB backend ──
+    if _db_pool is not None:
+        try:
+            rows = await _db_pool.fetch(
+                "SELECT type, identifier, label FROM sources ORDER BY type, identifier"
+            )
+            sources = [dict(r) for r in rows] if rows else [
+                {"type": "knowledge_graph", "identifier": "kg-root", "label": "Root node"},
+                {"type": "knowledge_graph", "identifier": "kg-concepts", "label": "Concepts"},
+                {"type": "web_page", "identifier": "web-index", "label": "Web index"},
+            ]
+            resp = _ok(trace_id=payload.trace_id, data={"sources": sources})
+            logger.log_response(status=resp.status)
+            return resp
+        except (DatabaseError, NotImplementedError):
+            pass
+
+    # ── fallback ──
     sources = [
         {"type": "knowledge_graph", "identifier": "kg-root", "label": "Root node"},
         {"type": "knowledge_graph", "identifier": "kg-concepts", "label": "Concepts"},
@@ -236,6 +300,23 @@ async def get_source_detail(
         source_id=source_id,
     )
 
+    # ── try DB backend ──
+    if _db_pool is not None:
+        try:
+            row = await _db_pool.fetchrow(
+                "SELECT identifier, type, label, node_count FROM sources "
+                "WHERE identifier = $1",
+                source_id,
+            )
+            if row:
+                detail = dict(row)
+                resp = _ok(trace_id=payload.trace_id, data=detail)
+                logger.log_response(status=resp.status)
+                return resp
+        except (DatabaseError, NotImplementedError):
+            pass
+
+    # ── fallback ──
     detail = {
         "identifier": source_id,
         "type": "knowledge_graph",

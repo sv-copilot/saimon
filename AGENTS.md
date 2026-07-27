@@ -51,4 +51,268 @@ ruff check research_shared/ mcp/
 - Docker (single image, CMD override per MCP)
 - DeepSeek (primary LLM) via OpenAI-compatible API
 
+## PR & Merge Workflow
+
+Every slice completes through four gates before merging to `ai-dev`:
+
+### 1. Pre-PR validation (run from repo root)
+
+```bash
+python3 -m pytest tests/ -q
+python3 -m compileall research_shared/ mcp/
+ruff check research_shared/ mcp/
+```
+
+All three must pass clean. If `ruff` or `pytest-asyncio` are missing,
+install them with `python3 -m pip install ruff pytest-asyncio`.
+
+### 2. Create PR
+
+Push the `slice/*` branch, then create a PR targeting `ai-dev`:
+
+- **Base**: `ai-dev`
+- **Compare**: `slice/<name>`
+- **Title**: slice name + one-line summary
+- **Body**: checklist of what was built, test count, validation results
+
+### 3. Babysit CI
+
+Wait for GitHub Actions (or equivalent) to pass. If something fails:
+- Read the failure log
+- Fix on the `slice/*` branch
+- Push the fix — the PR updates automatically
+
+### 4. Merge
+
+Once CI is green and the PR is approved:
+- Merge to `ai-dev` (squash-merge preferred for clean history)
+- Delete the `slice/*` branch after merge
+
+### Dependency order for slices
+
+Slices may depend on each other. When starting a new slice that depends
+on an unmerged slice, merge the dependency branch into the new branch
+first:
+
+```bash
+git checkout ai-dev && git pull origin ai-dev
+git checkout -b slice/NEXT
+git merge slice/PARENT   # bring in unmerged dependency
+```
+
+## Slice Inventory
+
+| Slice | Branch | Status | What |
+|---|---|---|---|
+| SHARED-LIB-1 | `slice/SHARED-LIB-1` | ✅ built (71 tests) | `research_shared/`: envelope, llm, db, auth, resilience, audit |
+| MCP-SEARCH-1 | `slice/MCP-SEARCH-1` | ✅ built (15 tests) | `mcp/search/`: FastAPI server, 5 tool endpoints |
+| MCP-GENERATE-1 | — | 🔲 next | `mcp/generate/`: LLM content generation MCP |
+| MCP-EXPORT-1 | — | 🔲 pending | `mcp/export/`: output formatting MCP |
+| MCP-EVALUATE-1 | — | 🔲 pending | `mcp/evaluate/`: quality gate MCP |
+| MCP-VERIFY-1 | — | 🔲 pending | `mcp/verify/`: fact-checking MCP |
+| MCP-EXPLORE-1 | — | 🔲 pending | `mcp/explore/`: discovery MCP |
+
+## Session Startup Protocol
+
+Every new session MUST start by consolidating work from prior sessions
+before starting any new slice.  This prevents drift and ensures `ai-dev`
+always reflects merged, tested code.
+
+Follow these steps in order.  Stop at any step if you need the operator
+to review or approve something (e.g., a PR).
+
+### Step 0 — Pull latest
+
+```bash
+git checkout ai-dev && git pull origin ai-dev
+```
+
+### Step 1 — Discover unmerged slice branches
+
+List all remote `slice/*` branches that have **not** been merged into
+`ai-dev`:
+
+```bash
+git branch -r --no-merged origin/ai-dev | grep 'slice/'
+```
+
+For each found branch, inspect its state:
+
+```bash
+git log origin/<branch> --oneline -5
+```
+
+### Step 2 — Create PRs for unmerged branches
+
+For each unmerged `slice/*` branch, use the GitHub CLI or API to check
+if a PR already exists:
+
+```bash
+gh pr list --base ai-dev --head <branch> --json number,state,title
+```
+
+If no PR exists, create one:
+
+```bash
+gh pr create \
+  --base ai-dev \
+  --head <branch> \
+  --title "<slice-name>: <one-line summary>" \
+  --body "## What was built
+- ...
+- ...
+
+## Validation
+- \`N\` tests pass
+- ruff: clean
+- compileall: OK"
+```
+
+### Step 3 — Babysit open PRs
+
+For each open PR, check CI status:
+
+```bash
+gh pr view <PR-number> --json state,statusCheckRollup
+```
+
+If CI is failing:
+- Checkout the branch: `git checkout <branch>`
+- Run validation locally: `python3 -m pytest tests/ -q`
+- Fix the issue, commit, push — the PR updates automatically
+
+Do NOT start a new slice until all open PRs are green or the operator
+decides to defer one.
+
+### Step 4 — Merge ready PRs
+
+Once CI is green and the operator approves:
+
+```bash
+gh pr merge <PR-number> --squash --delete-branch
+```
+
+After merge, pull the updated `ai-dev`:
+
+```bash
+git checkout ai-dev && git pull origin ai-dev
+```
+
+### Step 5 — Update Slice Inventory
+
+After merging, update the Slice Inventory table below:
+- Change the merged slice's status from `✅ built` to `✅ merged`
+- The table is the source of truth for what's in `ai-dev`
+
+### Step 6 — Start next slice
+
+Only after all mergeable slices are consolidated:
+
+```bash
+git checkout -b slice/<NEXT-SLICE>
+```
+
+If the next slice depends on unmerged work, merge the dependency:
+
+```bash
+git merge slice/<PARENT>   # bring in unmerged dependency
+```
+
+Then follow TDD: RED → GREEN → REFACTOR → PROVE.
+
+## Slice Inventory
+
+| Slice | Branch | Status | What |
+|---|---|---|---|
+| SHARED-LIB-1 | `slice/SHARED-LIB-1` | ✅ built (71 tests) | `research_shared/`: envelope, llm, db, auth, resilience, audit |
+| MCP-SEARCH-1 | `slice/MCP-SEARCH-1` | ✅ built (15 tests) | `mcp/search/`: FastAPI server, 5 tool endpoints |
+| MCP-GENERATE-1 | — | 🔲 next | `mcp/generate/`: LLM content generation MCP |
+| MCP-EXPORT-1 | — | 🔲 pending | `mcp/export/`: output formatting MCP |
+| MCP-EVALUATE-1 | — | 🔲 pending | `mcp/evaluate/`: quality gate MCP |
+| MCP-VERIFY-1 | — | 🔲 pending | `mcp/verify/`: fact-checking MCP |
+| MCP-EXPLORE-1 | — | 🔲 pending | `mcp/explore/`: discovery MCP |
+
+## Recursive Prompt for New Sessions
+
+When continuing development in a new session, paste this prompt to
+restore full context.  The agent will follow the **Session Startup
+Protocol** above — consolidating prior work before starting anything
+new.
+
+---
+
+```
+You are working in the Saimon repository (sv-copilot/saimon).
+
+## 1. Read the contract
+
+Read AGENTS.md (the full file — it contains the Session Startup
+Protocol, PR workflow, Slice Inventory, and architecture) and
+.docs/project_intake.json.
+
+## 2. Consolidate prior work
+
+Follow the Session Startup Protocol in AGENTS.md:
+
+a. Pull latest ai-dev.
+b. Discover unmerged slice/* branches (git branch -r --no-merged).
+c. For each: create a PR targeting ai-dev if one doesn't exist.
+   Use `gh pr create` with base=ai-dev, head=<branch>.
+d. Check CI on each PR. If failing, fix on the branch and push.
+e. Merge ready PRs (squash-merge, delete branch).
+f. Update the Slice Inventory table after each merge.
+g. Pull ai-dev again.
+
+Do NOT start a new slice until all prior slices are merged into
+ai-dev or the operator explicitly defers one.
+
+## 3. Start the next slice
+
+Once consolidated, read the Slice Inventory to pick the next slice.
+Create a new branch from ai-dev, merge any unmerged dependencies,
+then follow TDD: RED → GREEN → REFACTOR → PROVE.
+
+## 4. Environment
+
+- Branch: slice/<next-slice-name>
+- Python: /Users/simon/.pyenv/versions/3.11.8/bin/python
+- Validation: python3 -m pytest tests/ -q
+- Lint: python3 -m ruff check research_shared/ mcp/
+- Compile: python3 -m compileall research_shared/ mcp/
+
+Begin by reading AGENTS.md in full, then tell me what you see:
+which slices are unmerged, which PRs need attention, and what
+you'll build next.
+```
+
+
+```
+You are working in the Saimon repository (sv-copilot/saimon).
+
+Read AGENTS.md and .docs/project_intake.json for the full project
+contract. Then read the Slice Inventory table in AGENTS.md to see what
+has been built and what comes next.
+
+Current state:
+- research_shared/ is built (6 modules: envelope, llm, db, auth,
+  resilience, audit) with 71 passing tests.
+- mcp/search/ is built (FastAPI server, 5 tool endpoints) with 15
+  passing tests.
+- 5 MCPs remain: generate, export, evaluate, verify, explore.
+- All validation gates (pytest + ruff + compileall) are passing.
+
+Follow the PR & Merge Workflow in AGENTS.md: start a new slice branch
+from ai-dev, merge any unmerged dependencies via `git merge`, then
+follow TDD (RED → GREEN → REFACTOR → PROVE).
+
+Branch: slice/<next-slice-name>
+Python: /Users/simon/.pyenv/versions/3.11.8/bin/python
+
+Begin by reading AGENTS.md, then tell me what slice you'll start
+and why.
+```
+
+- Docker (single image, CMD override per MCP)
+- DeepSeek (primary LLM) via OpenAI-compatible API
+
 See `docs/getting-started.md` for a minimal adoption path.

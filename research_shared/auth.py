@@ -73,8 +73,12 @@ class AuthValidator:
             raise AuthError("Invalid API key")
 
     def extract_from_headers(self, headers: dict[str, Any]) -> str | None:
-        """Pull the API key from request headers.
+        """Pull the API key from request headers (case-insensitive).
 
         Returns None if the expected header is absent.
         """
-        return headers.get(self._config.header_name)
+        target = self._config.header_name.lower()
+        for key, value in headers.items():
+            if key.lower() == target:
+                return value
+        return None

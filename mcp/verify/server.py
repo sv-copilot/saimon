@@ -29,6 +29,7 @@ from research_shared.llm import LLMClient, LLMError
 # ---------------------------------------------------------------------------
 
 _llm_client: LLMClient | None = None
+_db_pool: Any = None
 
 
 def set_llm_client(client: LLMClient | None) -> None:
@@ -37,11 +38,23 @@ def set_llm_client(client: LLMClient | None) -> None:
     _llm_client = client
 
 
+def set_db_pool(pool: Any | None) -> None:
+    """Inject a DatabasePool for persisting verification results."""
+    global _db_pool
+    _db_pool = pool
+
+
 # ---------------------------------------------------------------------------
 # application factory
 # ---------------------------------------------------------------------------
 
-_lifespan = build_lifespan("verify-mcp", llm_client_ref=lambda: _llm_client, llm_client_setter=set_llm_client)
+_lifespan = build_lifespan(
+    "verify-mcp",
+    llm_client_ref=lambda: _llm_client,
+    llm_client_setter=set_llm_client,
+    db_pool_ref=lambda: _db_pool,
+    db_pool_setter=set_db_pool,
+)
 app = FastAPI(title="verify-mcp", version="0.1.0", lifespan=_lifespan)
 
 # ---------------------------------------------------------------------------
@@ -450,6 +463,32 @@ async def verify_claim(
 
     # Compute overall verdict
     overall = _compute_overall_verdict(verifications)
+
+    # ── persist verification to knowledge graph ──────────────
+    if _db_pool is not None:
+        try:
+            import uuid as _uuid
+            node_id = str(_uuid.uuid4())
+            await _db_pool.execute(
+                "INSERT INTO knowledge_graph_nodes (id, title, content_type, body, metadata) "
+                "VALUES ($1, $2, $3, $4, $5)",
+                node_id,
+                f"Verification: {claim[:80]}",
+                "research_note",
+                _json.dumps({
+                    "claim": claim,
+                    "verdict": overall,
+                    "verifications": verifications,
+                    "shadow_results_count": len(shadow_results),
+                }),
+                _json.dumps({
+                    "source": "verify-mcp",
+                    "methods_used": method_names,
+                    "shadow_sources": bool(shadow_results),
+                }),
+            )
+        except Exception:  # noqa: BLE001
+            pass  # KG write is best-effort
 
     citations = [
         r.get("doi") or r.get("identifier", "")

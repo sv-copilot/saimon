@@ -10,6 +10,7 @@ Without a DB, falls back to synthetic placeholder results.
 
 from __future__ import annotations
 
+import json as _json
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -364,6 +365,28 @@ async def search_shadow_libraries(
 
     # Deduplicate across source indexes
     deduped = deduplicate(all_results)
+
+    # ── cache results in shadow_sources_cache ────────────────
+    if _db_pool is not None:
+        for r in deduped:
+            if r.doi:
+                try:
+                    await _db_pool.execute(
+                        "INSERT INTO shadow_sources_cache (doi, title, authors, year, "
+                        "abstract_snippet, source_index, file_type) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7) "
+                        "ON CONFLICT (doi) DO UPDATE SET "
+                        "title = EXCLUDED.title, last_accessed = now()",
+                        r.doi.strip().lower(),
+                        r.title,
+                        _json.dumps(r.authors),
+                        r.year,
+                        r.abstract_snippet,
+                        r.source_index,
+                        r.file_type,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass  # cache write is best-effort
 
     # Apply limit
     deduped = deduped[:limit]

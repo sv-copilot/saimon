@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
@@ -97,14 +98,14 @@ _TOOLS = [
         "parameters": {"query": "str"},
     },
     {
-        "name": "list_sources",
-        "description": "List available knowledge-graph sources.",
+        "name": "list_source_indexes",
+        "description": "List available source indexes (knowledge graph, shadow libraries, web).",
         "parameters": {},
     },
     {
-        "name": "get_source_detail",
-        "description": "Get metadata for a specific source.",
-        "parameters": {"source_id": "str"},
+        "name": "get_source_index_detail",
+        "description": "Get metadata for a specific source index.",
+        "parameters": {"source_index_id": "str"},
     },
 ]
 
@@ -250,19 +251,20 @@ async def search_web(
 
 
 # ---------------------------------------------------------------------------
-# tool: list_sources
+# tool: list_source_indexes (primary)
 # ---------------------------------------------------------------------------
 
-@app.post("/tools/list_sources")
-async def list_sources(
+@app.post("/tools/list_source_indexes")
+async def list_source_indexes(
     payload: ResearchRequest, request: Request
 ) -> ResearchResponse:
+    """List available source indexes (knowledge graph, shadow libraries, web)."""
     _require_auth(request)
 
     logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
     logger.log_request(
         content_type=payload.content_type,
-        tool="list_sources",
+        tool="list_source_indexes",
     )
 
     # ── try DB backend ──
@@ -271,48 +273,68 @@ async def list_sources(
             rows = await _db_pool.fetch(
                 "SELECT type, identifier, label FROM sources ORDER BY type, identifier"
             )
-            sources = [dict(r) for r in rows] if rows else [
+            source_indexes = [dict(r) for r in rows] if rows else [
                 {"type": "knowledge_graph", "identifier": "kg-root", "label": "Root node"},
                 {"type": "knowledge_graph", "identifier": "kg-concepts", "label": "Concepts"},
                 {"type": "web_page", "identifier": "web-index", "label": "Web index"},
             ]
-            resp = _ok(trace_id=payload.trace_id, data={"sources": sources})
+            resp = _ok(trace_id=payload.trace_id, data={"source_indexes": source_indexes})
             logger.log_response(status=resp.status)
             return resp
         except (DatabaseError, NotImplementedError):
             pass
 
     # ── fallback ──
-    sources = [
+    source_indexes = [
         {"type": "knowledge_graph", "identifier": "kg-root", "label": "Root node"},
         {"type": "knowledge_graph", "identifier": "kg-concepts", "label": "Concepts"},
         {"type": "web_page", "identifier": "web-index", "label": "Web index"},
     ]
 
-    resp = _ok(trace_id=payload.trace_id, data={"sources": sources})
+    resp = _ok(trace_id=payload.trace_id, data={"source_indexes": source_indexes})
     logger.log_response(status=resp.status)
     return resp
 
 
 # ---------------------------------------------------------------------------
-# tool: get_source_detail
+# tool: list_sources (deprecated — backward compat alias)
 # ---------------------------------------------------------------------------
 
-@app.post("/tools/get_source_detail")
-async def get_source_detail(
+@app.post("/tools/list_sources")
+async def list_sources_deprecated(
+    payload: ResearchRequest, request: Request
+) -> JSONResponse:
+    """[DEPRECATED] Use /tools/list_source_indexes instead."""
+    resp = await list_source_indexes(payload, request)
+    return JSONResponse(
+        content=resp.model_dump(),
+        headers={
+            "X-Deprecated": "true",
+            "X-Deprecated-Replacement": "/tools/list_source_indexes",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# tool: get_source_index_detail (primary)
+# ---------------------------------------------------------------------------
+
+@app.post("/tools/get_source_index_detail")
+async def get_source_index_detail(
     payload: ResearchRequest, request: Request
 ) -> ResearchResponse:
+    """Get metadata for a specific source index."""
     _require_auth(request)
 
-    source_id = payload.parameters.get("source_id")
-    if not source_id:
-        return _error(payload.trace_id, "Parameter 'source_id' is required.")
+    source_index_id = payload.parameters.get("source_index_id")
+    if not source_index_id:
+        return _error(payload.trace_id, "Parameter 'source_index_id' is required.")
 
     logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
     logger.log_request(
         content_type=payload.content_type,
-        tool="get_source_detail",
-        source_id=source_id,
+        tool="get_source_index_detail",
+        source_index_id=source_index_id,
     )
 
     # ── try DB backend ──
@@ -321,7 +343,7 @@ async def get_source_detail(
             row = await _db_pool.fetchrow(
                 "SELECT identifier, type, label, node_count FROM sources "
                 "WHERE identifier = $1",
-                source_id,
+                source_index_id,
             )
             if row:
                 detail = dict(row)
@@ -333,12 +355,34 @@ async def get_source_detail(
 
     # ── fallback ──
     detail = {
-        "identifier": source_id,
+        "identifier": source_index_id,
         "type": "knowledge_graph",
-        "label": f"Source: {source_id}",
+        "label": f"Source Index: {source_index_id}",
         "node_count": 42,
     }
 
     resp = _ok(trace_id=payload.trace_id, data=detail)
     logger.log_response(status=resp.status)
     return resp
+
+
+# ---------------------------------------------------------------------------
+# tool: get_source_detail (deprecated — backward compat alias)
+# ---------------------------------------------------------------------------
+
+@app.post("/tools/get_source_detail")
+async def get_source_detail_deprecated(
+    payload: ResearchRequest, request: Request
+) -> JSONResponse:
+    """[DEPRECATED] Use /tools/get_source_index_detail instead."""
+    # Map old parameter name to new
+    if "source_id" in payload.parameters and "source_index_id" not in payload.parameters:
+        payload.parameters["source_index_id"] = payload.parameters.pop("source_id")
+    resp = await get_source_index_detail(payload, request)
+    return JSONResponse(
+        content=resp.model_dump(),
+        headers={
+            "X-Deprecated": "true",
+            "X-Deprecated-Replacement": "/tools/get_source_index_detail",
+        },
+    )

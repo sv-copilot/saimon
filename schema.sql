@@ -101,20 +101,118 @@ CREATE INDEX IF NOT EXISTS idx_audit_service
     ON audit_log(service_name, created_at DESC);
 
 -- ---------------------------------------------------------------------------
--- seed data — bootstraps the platform with default content types
+-- seed data — bootstraps the platform with content types, voice profiles,
+-- and seed requests for platform recovery.
 -- ---------------------------------------------------------------------------
-INSERT INTO content_type_registry (name, description, required_params, optional_params)
+
+-- Content types (bootstrapped + domain)
+INSERT INTO content_type_registry (name, description, required_params, optional_params, voice_profile)
 VALUES
-    ('blog_post',     'Long-form blog article with introduction, body, and conclusion.',  '["prompt"]', '["tone", "max_length", "audience"]'),
-    ('summary',       'Concise summary of source material.',                               '["prompt"]', '["max_length", "style"]'),
-    ('research_note', 'Structured research note with citations.',                          '["prompt"]', '["tone", "depth", "format"]'),
-    ('social_post',   'Short-form social media post.',                                    '["prompt"]', '["platform", "tone", "max_length"]'),
-    ('email_draft',   'Polished email draft.',                                            '["prompt"]', '["tone", "recipient_role"]')
+    ('blog_post',     'Long-form blog article with introduction, body, and conclusion.',
+     '[{"name":"prompt","type":"str","description":"The topic or writing prompt."}]',
+     '[{"name":"tone","type":"str","description":"Desired tone (e.g. analytical, casual)."},{"name":"max_length","type":"int","description":"Maximum word count."},{"name":"audience","type":"str","description":"Target audience description."}]',
+     'spencer-default'),
+    ('summary',       'Concise summary of source material.',
+     '[{"name":"prompt","type":"str","description":"The material to summarise."}]',
+     '[{"name":"max_length","type":"int","description":"Maximum word count for the summary."},{"name":"style","type":"str","description":"Summary style (e.g. bullet, paragraph)."}]',
+     'spencer-default'),
+    ('research_note', 'Structured research note with citations.',
+     '[{"name":"prompt","type":"str","description":"The research question or topic."}]',
+     '[{"name":"tone","type":"str","description":"Desired tone."},{"name":"depth","type":"str","description":"Depth level: brief, standard, comprehensive."},{"name":"format","type":"str","description":"Output format: markdown, outline, bullets."}]',
+     'spencer-technical'),
+    ('social_post',   'Short-form social media post.',
+     '[{"name":"prompt","type":"str","description":"The topic or announcement."}]',
+     '[{"name":"platform","type":"str","description":"Target platform: twitter, linkedin, mastodon."},{"name":"tone","type":"str","description":"Desired tone."},{"name":"max_length","type":"int","description":"Maximum character count."}]',
+     'spencer-casual'),
+    ('email_draft',   'Polished email draft.',
+     '[{"name":"prompt","type":"str","description":"The email topic or intent."}]',
+     '[{"name":"tone","type":"str","description":"Desired tone."},{"name":"recipient_role","type":"str","description":"Role of recipient (e.g. manager, client)."}]',
+     'spencer-default'),
+    ('press_release', 'Formal press release announcing news or a product launch.',
+     '[{"name":"prompt","type":"str","description":"The announcement topic."}]',
+     '[{"name":"embargo_date","type":"str","description":"ISO date before which the release is embargoed."},{"name":"distribution","type":"str","description":"Distribution channel: wire, blog, email."},{"name":"tone","type":"str","description":"Desired tone."}]',
+     'spencer-formal'),
+    ('case_study',    'Customer or project case study with problem, solution, and results.',
+     '[{"name":"prompt","type":"str","description":"The case study topic or subject."}]',
+     '[{"name":"industry","type":"str","description":"Industry vertical."},{"name":"format","type":"str","description":"Output format: narrative, slides, one-pager."},{"name":"tone","type":"str","description":"Desired tone."}]',
+     'spencer-marketing'),
+    ('white_paper',   'In-depth white paper on a technical or strategic topic.',
+     '[{"name":"prompt","type":"str","description":"The white paper topic."}]',
+     '[{"name":"audience","type":"str","description":"Target audience: technical, executive, general."},{"name":"depth","type":"str","description":"Depth: overview, detailed, comprehensive."},{"name":"tone","type":"str","description":"Desired tone."},{"name":"sections","type":"list[str]","description":"Requested section titles."}]',
+     'spencer-technical'),
+    ('job_posting',   'Job posting with role description, qualifications, and responsibilities.',
+     '[{"name":"prompt","type":"str","description":"The role title and brief description."}]',
+     '[{"name":"role","type":"str","description":"Specific role title."},{"name":"company","type":"str","description":"Company name."},{"name":"seniority","type":"str","description":"Seniority level: junior, mid, senior, lead."}]',
+     'spencer-formal'),
+    ('meeting_notes', 'Structured meeting notes with agenda, discussion points, and action items.',
+     '[{"name":"prompt","type":"str","description":"The meeting topic or raw transcription."}]',
+     '[{"name":"attendees","type":"list[str]","description":"List of attendee names."},{"name":"format","type":"str","description":"Output format: bullet, narrative, template."},{"name":"action_items","type":"bool","description":"Whether to extract and list action items."}]',
+     'spencer-default'),
+    ('proposal',      'Business or project proposal with executive summary, scope, timeline, and budget.',
+     '[{"name":"prompt","type":"str","description":"The proposal topic or RFP description."}]',
+     '[{"name":"client","type":"str","description":"Client or stakeholder name."},{"name":"budget","type":"str","description":"Budget range or constraints."},{"name":"timeline","type":"str","description":"Project timeline."},{"name":"format","type":"str","description":"Output format: brief, full, slides."}]',
+     'spencer-formal'),
+    ('tutorial',      'Step-by-step tutorial or how-to guide.',
+     '[{"name":"prompt","type":"str","description":"The tutorial topic."}]',
+     '[{"name":"skill_level","type":"str","description":"Target skill level: beginner, intermediate, advanced."},{"name":"format","type":"str","description":"Output format: markdown, notebook, video script."},{"name":"prerequisites","type":"list[str]","description":"Required knowledge or tools."}]',
+     'spencer-technical'),
+    ('product_review','Structured product or service review with pros, cons, and rating.',
+     '[{"name":"prompt","type":"str","description":"The product or service to review."}]',
+     '[{"name":"rating_scale","type":"str","description":"Rating scale: 5-star, 10-point, letter."},{"name":"pros_cons","type":"bool","description":"Whether to include pros/cons list."},{"name":"tone","type":"str","description":"Desired tone."}]',
+     'spencer-technical')
 ON CONFLICT (name) DO NOTHING;
 
+-- Voice profiles
 INSERT INTO voice_profiles (name, description, tone, style_guide)
 VALUES
     ('spencer-default', 'Default Spencer Varadi voice: direct, analytical, slightly informal.',
      'analytical',
-     'Use short paragraphs. Prefer active voice. Be direct but not blunt. Use bullet points for lists.')
+     'Use short paragraphs. Prefer active voice. Be direct but not blunt. Use bullet points for lists.'),
+    ('spencer-formal', 'Formal Spencer voice: polished, diplomatic, suitable for executive audiences.',
+     'formal',
+     'Use proper grammar and full sentences. Avoid contractions. Maintain a diplomatic tone. Structure with clear headings. Include executive summary for long documents.'),
+    ('spencer-casual', 'Casual Spencer voice: friendly, approachable, conversational.',
+     'casual',
+     'Write like you are talking to a colleague. Use contractions freely. Keep sentences short and punchy. Use em-dashes for asides. One idea per paragraph.'),
+    ('spencer-marketing', 'Marketing Spencer voice: persuasive, benefit-focused, engaging.',
+     'persuasive',
+     'Lead with benefits, not features. Use social proof where possible. Keep the reader moving with short paragraphs and compelling transitions. Include a clear call to action.'),
+    ('spencer-technical', 'Technical Spencer voice: precise, detailed, assumes domain knowledge.',
+     'technical',
+     'Be precise with terminology. Define acronyms on first use. Use code blocks and diagrams where appropriate. Cite sources. Prioritise accuracy over brevity.')
 ON CONFLICT (name) DO NOTHING;
+
+-- Seed requests for platform recovery / re-seeding
+INSERT INTO seed_requests (content_type, prompt, parameters)
+VALUES
+    ('blog_post',     'The future of AI agents in personal productivity: how autonomous agents will reshape daily workflows by 2030.',
+                      '{"tone":"analytical","audience":"tech professionals"}'),
+    ('blog_post',     'Lessons learned from building six microservices that share one knowledge graph.',
+                      '{"tone":"casual","max_length":1200}'),
+    ('summary',       'Summarise the Saimon platform architecture: six atomic MCP services (search, generate, export, evaluate, verify, explore) sharing one PostgreSQL knowledge graph with runtime content type registration.',
+                      '{"style":"bullet","max_length":150}'),
+    ('research_note', 'Retrieval-augmented generation (RAG): how grounding LLM outputs in a knowledge graph improves factuality and reduces hallucination.',
+                      '{"depth":"comprehensive","format":"markdown"}'),
+    ('social_post',   'Announce Saimon v1.0: an open-source, self-extending content platform powered by six MCPs and one knowledge graph. Built for agents, by agents.',
+                      '{"platform":"linkedin","tone":"casual"}'),
+    ('social_post',   'Hot take: the best AI tools are the ones that know when to stay out of your way. Saimon is designed around this principle.',
+                      '{"platform":"twitter","max_length":280}'),
+    ('email_draft',   'Invite the engineering team to adopt AI-assisted development workflows using Saimon''s MCP tools.',
+                      '{"tone":"casual","recipient_role":"engineering team"}'),
+    ('press_release', 'Saimon launches as open-source self-extending content platform: six MCPs, one knowledge graph, runtime type registration.',
+                      '{"tone":"formal","distribution":"wire"}'),
+    ('case_study',    'How a research team reduced content creation time by 60% after adopting Saimon for automated research notes and summaries.',
+                      '{"industry":"technology","format":"narrative"}'),
+    ('white_paper',   'The case for self-extending AI platforms: why static content pipelines fail and how runtime type registration solves the adaptability problem.',
+                      '{"audience":"technical","depth":"comprehensive"}'),
+    ('job_posting',   'Senior Python Engineer — help us build the future of AI-assisted content tooling with FastAPI, PostgreSQL, and MCP.',
+                      '{"seniority":"senior"}'),
+    ('meeting_notes', 'Weekly engineering sync: reviewed Saimon architecture, discussed self-extension flow, planned domain tools sprint, identified need for seed data module.',
+                      '{"format":"bullet","action_items":true}'),
+    ('proposal',      'Proposal for implementing AI governance in enterprise content pipelines: audit trails, quality gates, human-in-the-loop review workflows.',
+                      '{"format":"brief","timeline":"Q1-Q2 2026"}'),
+    ('tutorial',      'Getting started with Saimon: build and register your first custom content type in 10 minutes.',
+                      '{"skill_level":"beginner","format":"markdown"}'),
+    ('product_review','Review of Saimon v1.0 as a content generation platform: architecture, extensibility, developer experience, and limitations.',
+                      '{"rating_scale":"5-star","pros_cons":true}')
+ON CONFLICT DO NOTHING;

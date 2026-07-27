@@ -213,7 +213,14 @@ After merging, update the Slice Inventory table below:
 
 ### Step 6 — Start next slice
 
-Only after all mergeable slices are consolidated:
+Only after all mergeable slices are consolidated.
+
+**Finding the next slice:** Check the Slice Inventory table above for the
+first slice with status `📋 designed`.  Read its design doc under
+`.docs/planning/projects/saimon/<SLICE>-design.md` for the full spec.
+
+If no designed slice exists, check `.docs/project_intake.json` for
+upcoming work.
 
 ```bash
 git checkout -b slice/<NEXT-SLICE>
@@ -245,6 +252,7 @@ Then follow TDD: RED → GREEN → REFACTOR → PROVE.
 | DEPLOY-HARDEN-1 | `slice/DEPLOY-HARDEN-1` | ✅ merged | Secrets management, graceful shutdown, deep health checks, CI/CD, prod compose; 432 tests |
 | LIVE-INTEGRATION-1 | `slice/LIVE-INTEGRATION-1` | ✅ merged | Real LLM (DeepSeek via openai), real DB (asyncpg), live E2E integration tests (17 tests); 432 tests |
 | DOMAIN-TOOLS-1 | `slice/DOMAIN-TOOLS-1` | ✅ merged | Job Hunt domain: 5 content types, 3 voice profiles, 10 seed requests, generate_job_hunt_content tool; 488 tests |
+| SHADOW-SEARCH-1 | `slice/SHADOW-SEARCH-1` | 📋 designed | Shadow library source integration: search tool, verify pipeline, 5 adapters; design doc at `.docs/planning/projects/saimon/SHADOW-SEARCH-1-design.md` |
 
 ## Recursive Prompt for New Sessions
 
@@ -282,24 +290,24 @@ ai-dev or the operator explicitly defers one.
 
 ## 3. Start the next slice
 
-Once consolidated, read the Slice Inventory to pick the next slice.
-The current next is **MCP-INTEGRATION-1** (wire MCPs to real
-backends: DB, LLM, SelfExtender, canonical seed_data). Create a
-new branch from ai-dev, then follow TDD:
+Once consolidated, check the Slice Inventory for the first slice with
+status `📋 designed`.  Read its design doc under
+`.docs/planning/projects/saimon/<SLICE>-design.md` for the full spec
+and TDD outline.  Create a new branch from ai-dev, then follow TDD:
 RED → GREEN → REFACTOR → PROVE.
 
 ## 4. Current state (auto-updated)
 
-- 12 of 12 slices merged: shared-lib + 6 MCPs + Docker + self-extend + domain-bootstrap + integration + runtime-self-extension
+- 15 of 15 slices merged + 1 designed (SHADOW-SEARCH-1)
 - All 6 MCPs wired to LLM/DB backends with dependency injection
-- 358 tests passing, ruff clean, compileall OK
-- 38 integration tests verifying backend wiring + self-extension across all MCPs
+- 493 tests passing, ruff clean, compileall OK
+- Terminology fix applied: list_sources → list_source_indexes
 - research_shared/: envelope, llm, db, auth, resilience, audit, self_extend, seed_data, seed_loader (9 modules)
 - Content types sourced from seed_data.py (13 types, 5 voice profiles)
 - Runtime self-extension: unknown types trigger research → auto-register via SelfExtender
 - DB re-seed resilience: SeedLoader loads canonical data on demand
 - All 4 success criteria from project_intake.json met
-- Next: define next slice from .docs/project_intake.json
+- Next: SHADOW-SEARCH-1 (shadow library source integration)
 
 ## 5. Environment
 
@@ -325,15 +333,15 @@ has been built and what comes next.
 Current state:
 - research_shared/ is built (9 modules: envelope, llm, db, auth,
   resilience, audit, self_extend, seed_data, seed_loader).
-- 12 of 12 slices merged: all 6 MCPs + shared-lib + Docker/Compose
-  + self-extension + domain-bootstrap + integration + runtime-self-extension
-- 358 tests passing, ruff clean, compileall OK
+- 15 of 15 slices merged + 1 designed (SHADOW-SEARCH-1)
 - All 6 MCPs wired to LLM/DB backends with dependency injection
+- 493 tests passing, ruff clean, compileall OK
 - Runtime self-extension: unknown types → research → auto-register via SelfExtender
 - DB re-seed resilience: SeedLoader loads canonical data on demand
 - All 4 success criteria from project_intake.json met
 
-Next: define next slice from .docs/project_intake.json.
+Next: SHADOW-SEARCH-1 — read its design doc at
+.docs/planning/projects/saimon/SHADOW-SEARCH-1-design.md
 
 Follow the PR & Merge Workflow in AGENTS.md: start a new slice branch
 from ai-dev, merge any unmerged dependencies via `git merge`, then

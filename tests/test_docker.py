@@ -166,7 +166,10 @@ class TestDockerCompose:
 
     def test_postgres_image(self, compose_yaml):
         pg = compose_yaml["services"]["postgres"]
-        assert "postgres:16" in pg.get("image", ""), "Must use PostgreSQL 16"
+        image = pg.get("image", "")
+        assert "pgvector" in image or "postgres:16" in image, (
+            f"Must use pgvector/pgvector:pg16 or postgres:16, got: {image}"
+        )
 
     def test_postgres_has_healthcheck(self, compose_yaml):
         pg = compose_yaml["services"]["postgres"]

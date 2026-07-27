@@ -2,26 +2,11 @@
   "servers": {
     "saimon-researcher": {
       "type": "stdio",
-      "command": "python3",
+      "command": "ssh",
       "args": [
-        "tools/saimon-mcp-proxy/proxy.py"
-      ],
-      "env": {
-        "SAIMON_BASE_URL": "",
-        "SAIMON_SEARCH_URL": "http://127.0.0.1:8001",
-        "SAIMON_GENERATE_URL": "http://127.0.0.1:8002",
-        "SAIMON_EXPORT_URL": "http://127.0.0.1:8003",
-        "SAIMON_EVALUATE_URL": "http://127.0.0.1:8004",
-        "SAIMON_VERIFY_URL": "http://127.0.0.1:8005",
-        "SAIMON_EXPLORE_URL": "http://127.0.0.1:8006",
-        "SAIMON_API_KEY": "sk-test-search-key",
-        "SAIMON_SEARCH_KEY": "sk-test-search-key",
-        "SAIMON_GENERATE_KEY": "sk-test-generate-key",
-        "SAIMON_EXPORT_KEY": "sk-test-export-key",
-        "SAIMON_EVALUATE_KEY": "sk-test-evaluate-key",
-        "SAIMON_VERIFY_KEY": "sk-test-verify-key",
-        "SAIMON_EXPLORE_KEY": "sk-test-explore-key"
-      }
+        "staging-rs",
+        "SAIMON_BASE_URL='' SAIMON_SEARCH_URL='http://127.0.0.1:8101' SAIMON_GENERATE_URL='http://127.0.0.1:8102' SAIMON_EXPORT_URL='http://127.0.0.1:8103' SAIMON_EVALUATE_URL='http://127.0.0.1:8104' SAIMON_VERIFY_URL='http://127.0.0.1:8105' SAIMON_EXPLORE_URL='http://127.0.0.1:8106' SAIMON_SEARCH_KEY='sk-test-search-key' SAIMON_GENERATE_KEY='sk-test-generate-key' SAIMON_EXPORT_KEY='sk-test-export-key' SAIMON_EVALUATE_KEY='sk-test-evaluate-key' SAIMON_VERIFY_KEY='sk-test-verify-key' SAIMON_EXPLORE_KEY='sk-test-explore-key' python3 /data/planning/saimon/tools/saimon-mcp-proxy/proxy.py"
+      ]
     }
   }
 }

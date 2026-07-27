@@ -14,7 +14,13 @@
         "SAIMON_EVALUATE_URL": "http://127.0.0.1:8004",
         "SAIMON_VERIFY_URL": "http://127.0.0.1:8005",
         "SAIMON_EXPLORE_URL": "http://127.0.0.1:8006",
-        "SAIMON_API_KEY": "sk-test-search-key"
+        "SAIMON_API_KEY": "sk-test-search-key",
+        "SAIMON_SEARCH_KEY": "sk-test-search-key",
+        "SAIMON_GENERATE_KEY": "sk-test-generate-key",
+        "SAIMON_EXPORT_KEY": "sk-test-export-key",
+        "SAIMON_EVALUATE_KEY": "sk-test-evaluate-key",
+        "SAIMON_VERIFY_KEY": "sk-test-verify-key",
+        "SAIMON_EXPLORE_KEY": "sk-test-explore-key"
       }
     }
   }

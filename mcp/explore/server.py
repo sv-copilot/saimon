@@ -316,6 +316,7 @@ async def browse_by_type(
         {
             "id": f"{content_type}-{offset + i:03d}",
             "title": f"{content_type.replace('_', ' ').title()} Item {offset + i}",
+            "content_type": content_type,
             "summary": (
                 f"A {content_type.replace('_', ' ')} covering important "
                 f"discoveries and insights in the knowledge graph."

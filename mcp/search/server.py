@@ -409,6 +409,12 @@ async def search_shadow_libraries(
             "query": query,
             "total_results": len(results_data),
             "results": results_data,
+            "note": (
+                "Shadow library adapters are in mock/placeholder mode. "
+                "Results show representative metadata structure but not real "
+                "paper data. Live scraping requires adapter HTTP wiring "
+                "(planned for a future slice)."
+            ),
         },
         citations=citations,
     )

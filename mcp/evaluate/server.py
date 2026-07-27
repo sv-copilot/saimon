@@ -22,10 +22,23 @@ from research_shared.lifespan import build_lifespan
 from research_shared.llm import LLMClient, LLMError
 
 # ---------------------------------------------------------------------------
+# backend injection (must be before lifespan)
+# ---------------------------------------------------------------------------
+
+_llm_client: LLMClient | None = None
+
+
+def set_llm_client(client: LLMClient | None) -> None:
+    """Inject an LLMClient for AI-powered evaluation scoring."""
+    global _llm_client
+    _llm_client = client
+
+
+# ---------------------------------------------------------------------------
 # application factory
 # ---------------------------------------------------------------------------
 
-_lifespan = build_lifespan("evaluate-mcp", llm_client_ref=lambda: _llm_client)
+_lifespan = build_lifespan("evaluate-mcp", llm_client_ref=lambda: _llm_client, llm_client_setter=set_llm_client)
 app = FastAPI(title="evaluate-mcp", version="0.1.0", lifespan=_lifespan)
 
 # ---------------------------------------------------------------------------
@@ -47,19 +60,7 @@ def _require_auth(request: Request) -> None:
 
 
 # ---------------------------------------------------------------------------
-# backend injection
-# ---------------------------------------------------------------------------
 
-_llm_client: LLMClient | None = None
-
-
-def set_llm_client(client: LLMClient | None) -> None:
-    """Inject an LLMClient for AI-powered evaluation scoring."""
-    global _llm_client
-    _llm_client = client
-
-
-# ---------------------------------------------------------------------------
 # criteria registry
 # ---------------------------------------------------------------------------
 

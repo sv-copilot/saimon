@@ -12,6 +12,7 @@ Without an LLM, falls back to heuristic-based verification.
 from __future__ import annotations
 
 import json as _json
+import os as _os
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -86,6 +87,22 @@ _METHODS: dict[str, dict[str, Any]] = {
         "reliability": 0.75,
     },
 }
+
+# ── shadow source corroboration (configurable) ────────────────────
+
+_SHADOW_SOURCES_ENABLED = _os.environ.get("SHADOW_SOURCES_ENABLED", "true").lower() in (
+    "1", "true", "yes", "on",
+)
+
+if _SHADOW_SOURCES_ENABLED:
+    _METHODS["shadow_source_corroboration"] = {
+        "name": "shadow_source_corroboration",
+        "description": (
+            "Cross-reference the claim against paywalled academic sources "
+            "accessible via shadow libraries (Sci-Hub, LibGen, Anna's Archive)."
+        ),
+        "reliability": 0.88,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +269,16 @@ def _verify_method(
                 f"Claim '{claim[:60]}...' appears current. "
                 "Placeholder verdict — production would use LLM "
                 "to check temporal relevance."
+            ),
+        },
+        "shadow_source_corroboration": lambda: {
+            "verdict": "inconclusive",
+            "confidence": 0.50,
+            "explanation": (
+                f"Cross-referenced claim '{claim[:60]}...' against "
+                f"shadow library sources (Sci-Hub, LibGen, Anna's Archive). "
+                "Placeholder verdict — production would resolve DOIs and "
+                "compare claim against extracted passages."
             ),
         },
     }

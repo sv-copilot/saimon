@@ -258,6 +258,27 @@ CONTENT_TYPES: list[dict[str, Any]] = [
         ],
         "voice_profile": "spencer-technical",
     },
+    {
+        "name": "bibliography",
+        "description": "Ranked, annotated bibliography with DOIs and "
+                       "source index attribution.",
+        "required_params": [
+            {"name": "prompt", "type": "str",
+             "description": "The research topic or question."},
+        ],
+        "optional_params": [
+            {"name": "source_indexes", "type": "list[str]",
+             "description": "Shadow library source indexes to search."},
+            {"name": "limit", "type": "int",
+             "description": "Maximum number of entries."},
+            {"name": "annotation_style", "type": "str",
+             "description": "Annotation style: descriptive, evaluative, "
+                            "combined."},
+            {"name": "tone", "type": "str",
+             "description": "Desired tone."},
+        ],
+        "voice_profile": "spencer-technical",
+    },
 ]
 
 

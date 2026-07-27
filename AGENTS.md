@@ -109,8 +109,8 @@ git merge slice/PARENT   # bring in unmerged dependency
 | MCP-GENERATE-1 | `slice/MCP-GENERATE-1` | ✅ merged | `mcp/generate/`: LLM content generation MCP |
 | MCP-EXPORT-1 | `slice/MCP-EXPORT-1` | ✅ merged | `mcp/export/`: output formatting MCP |
 | MCP-EVALUATE-1 | `slice/MCP-EVALUATE-1` | ✅ merged | `mcp/evaluate/`: quality gate MCP |
-| MCP-VERIFY-1 | — | 🔲 next | `mcp/verify/`: fact-checking MCP |
-| MCP-EXPLORE-1 | — | 🔲 pending | `mcp/explore/`: discovery MCP |
+| MCP-VERIFY-1 | `slice/MCP-VERIFY-1` | ✅ merged | `mcp/verify/`: fact-checking MCP |
+| MCP-EXPLORE-1 | — | 🔲 next | `mcp/explore/`: discovery MCP |
 
 ## Session Startup Protocol
 
@@ -229,8 +229,8 @@ Then follow TDD: RED → GREEN → REFACTOR → PROVE.
 | MCP-GENERATE-1 | `slice/MCP-GENERATE-1` | ✅ merged | `mcp/generate/`: LLM content generation MCP |
 | MCP-EXPORT-1 | `slice/MCP-EXPORT-1` | ✅ merged | `mcp/export/`: output formatting MCP |
 | MCP-EVALUATE-1 | `slice/MCP-EVALUATE-1` | ✅ merged | `mcp/evaluate/`: quality gate MCP |
-| MCP-VERIFY-1 | — | 🔲 next | `mcp/verify/`: fact-checking MCP |
-| MCP-EXPLORE-1 | — | 🔲 pending | `mcp/explore/`: discovery MCP |
+| MCP-VERIFY-1 | `slice/MCP-VERIFY-1` | ✅ merged | `mcp/verify/`: fact-checking MCP |
+| MCP-EXPLORE-1 | — | 🔲 next | `mcp/explore/`: discovery MCP |
 
 ## Recursive Prompt for New Sessions
 
@@ -269,21 +269,21 @@ ai-dev or the operator explicitly defers one.
 ## 3. Start the next slice
 
 Once consolidated, read the Slice Inventory to pick the next slice.
-Create a new branch from ai-dev, merge any unmerged dependencies,
-then follow TDD: RED → GREEN → REFACTOR → PROVE.
+The current next is **MCP-EXPLORE-1** (discovery MCP). Create a new
+branch from ai-dev, then follow TDD: RED → GREEN → REFACTOR → PROVE.
 
 ## 4. Current state (auto-updated)
 
-- 5 of 6 MCPs merged: search, generate, export, evaluate (plus shared-lib)
-- 143 tests passing, ruff clean, compileall OK
-- 2 MCPs remain: verify, explore
+- 6 of 6 MCPs built (verify is the latest), 5 merged to ai-dev
+- 162 tests passing, ruff clean, compileall OK
+- 1 MCP remains before merge: verify; 1 to build: explore
 
 ## 5. Environment
 
-- Branch: slice/<next-slice-name>
+- Branch: slice/MCP-EXPLORE-1
 - Python: /Users/simon/.pyenv/versions/3.11.8/bin/python
 - Validation: python3 -m pytest tests/ -q
-- Lint: python3 -m ruff check research_shared/ mcp/
+- Lint: ruff check research_shared/ mcp/
 - Compile: python3 -m compileall research_shared/ mcp/
 
 Begin by reading AGENTS.md in full, then tell me what you see:
@@ -302,10 +302,10 @@ has been built and what comes next.
 Current state:
 - research_shared/ is built (6 modules: envelope, llm, db, auth,
   resilience, audit).
-- 5 of 6 MCPs are built and merged: search, generate, export,
-  evaluate.
-- 2 MCPs remain: verify, explore.
-- 143 tests passing, ruff clean, compileall OK.
+- 6 of 6 MCPs are merged: search, generate, export, evaluate,
+  verify.
+- 1 MCP remains to build: explore.
+- 162 tests passing, ruff clean, compileall OK.
 
 Follow the PR & Merge Workflow in AGENTS.md: start a new slice branch
 from ai-dev, merge any unmerged dependencies via `git merge`, then

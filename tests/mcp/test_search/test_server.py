@@ -179,14 +179,31 @@ class TestSearchWeb:
 
 
 # ---------------------------------------------------------------------------
-# Tool: list_sources
+# Tool: list_source_indexes (primary) + list_sources (deprecated alias)
 # ---------------------------------------------------------------------------
 
-class TestListSources:
-    def test_returns_source_list(
+class TestListSourceIndexes:
+    def test_new_endpoint_returns_source_indexes(
         self, client, sample_trace_id, auth_headers
     ):
-        """list_sources returns available source identifiers."""
+        """list_source_indexes returns available source indexes."""
+        response = client.post(
+            "/tools/list_source_indexes",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "search",
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert "source_indexes" in data["data"]
+
+    def test_deprecated_endpoint_returns_same_data(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """list_sources (deprecated) returns same data as list_source_indexes."""
         response = client.post(
             "/tools/list_sources",
             json={
@@ -199,16 +216,65 @@ class TestListSources:
         data = response.json()
         assert data["status"] == "success"
 
-
-# ---------------------------------------------------------------------------
-# Tool: get_source_detail
-# ---------------------------------------------------------------------------
-
-class TestGetSourceDetail:
-    def test_returns_source_metadata(
+    def test_deprecated_endpoint_has_deprecation_header(
         self, client, sample_trace_id, auth_headers
     ):
-        """get_source_detail returns metadata for a source."""
+        """list_sources (deprecated) returns X-Deprecated header."""
+        response = client.post(
+            "/tools/list_sources",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "search",
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        assert response.headers.get("X-Deprecated") == "true"
+
+
+# ---------------------------------------------------------------------------
+# Tool: get_source_index_detail (primary) + get_source_detail (deprecated alias)
+# ---------------------------------------------------------------------------
+
+class TestGetSourceIndexDetail:
+    def test_new_endpoint_returns_source_index_metadata(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """get_source_index_detail returns metadata for a source index."""
+        response = client.post(
+            "/tools/get_source_index_detail",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "search",
+                "parameters": {"source_index_id": "kg-root"},
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+
+    def test_new_endpoint_rejects_missing_source_index_id(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """get_source_index_detail returns error without source_index_id."""
+        response = client.post(
+            "/tools/get_source_index_detail",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "search",
+                "parameters": {},
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "error"
+        assert any("source_index_id" in e.lower() for e in (data.get("errors") or []))
+
+    def test_deprecated_endpoint_accepts_source_id(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """get_source_detail (deprecated) maps source_id → source_index_id."""
         response = client.post(
             "/tools/get_source_detail",
             json={
@@ -222,10 +288,26 @@ class TestGetSourceDetail:
         data = response.json()
         assert data["status"] == "success"
 
-    def test_rejects_missing_source_id(
+    def test_deprecated_endpoint_has_deprecation_header(
         self, client, sample_trace_id, auth_headers
     ):
-        """get_source_detail returns error without source_id."""
+        """get_source_detail (deprecated) returns X-Deprecated header."""
+        response = client.post(
+            "/tools/get_source_detail",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "search",
+                "parameters": {"source_id": "kg-root"},
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        assert response.headers.get("X-Deprecated") == "true"
+
+    def test_deprecated_endpoint_rejects_missing_source_id(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """get_source_detail (deprecated) returns error without source_id."""
         response = client.post(
             "/tools/get_source_detail",
             json={
@@ -235,10 +317,12 @@ class TestGetSourceDetail:
             },
             headers=auth_headers,
         )
-        # MCP pattern: HTTP 200, error in envelope
         data = response.json()
         assert data["status"] == "error"
-        assert any("source_id" in e.lower() for e in (data.get("errors") or []))
+        # Error references the new parameter name after mapping
+        assert any(
+            "source_index_id" in e.lower() for e in (data.get("errors") or [])
+        )
 
 
 # ---------------------------------------------------------------------------

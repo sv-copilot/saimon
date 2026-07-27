@@ -101,6 +101,29 @@ CREATE INDEX IF NOT EXISTS idx_audit_service
     ON audit_log(service_name, created_at DESC);
 
 -- ---------------------------------------------------------------------------
+-- shadow_sources_cache — cached shadow library metadata (DOI → paper)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS shadow_sources_cache (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    doi             TEXT NOT NULL UNIQUE,               -- canonical DOI (lowercased, stripped)
+    title           TEXT NOT NULL,
+    authors         JSONB NOT NULL DEFAULT '[]',
+    year            INT,
+    abstract_snippet TEXT,
+    source_index     TEXT NOT NULL,                      -- which adapter resolved it
+    file_type       TEXT,                                -- 'pdf', 'epub', 'djvu'
+    full_text_path  TEXT,                                -- path to cached passage / PDF
+    metadata        JSONB NOT NULL DEFAULT '{}',
+    last_accessed   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_shadow_cache_doi
+    ON shadow_sources_cache(doi);
+CREATE INDEX IF NOT EXISTS idx_shadow_cache_last_accessed
+    ON shadow_sources_cache(last_accessed DESC);
+
+-- ---------------------------------------------------------------------------
 -- seed data — bootstraps the platform with content types, voice profiles,
 -- and seed requests for platform recovery.
 -- ---------------------------------------------------------------------------
@@ -159,6 +182,10 @@ VALUES
     ('product_review','Structured product or service review with pros, cons, and rating.',
      '[{"name":"prompt","type":"str","description":"The product or service to review."}]',
      '[{"name":"rating_scale","type":"str","description":"Rating scale: 5-star, 10-point, letter."},{"name":"pros_cons","type":"bool","description":"Whether to include pros/cons list."},{"name":"tone","type":"str","description":"Desired tone."}]',
+     'spencer-technical'),
+    ('bibliography',  'Ranked, annotated bibliography with DOIs and source index attribution.',
+     '[{"name":"prompt","type":"str","description":"The research topic or question."}]',
+     '[{"name":"source_indexes","type":"list[str]","description":"Shadow library source indexes to search."},{"name":"limit","type":"int","description":"Maximum number of entries."},{"name":"annotation_style","type":"str","description":"Annotation style: descriptive, evaluative, combined."},{"name":"tone","type":"str","description":"Desired tone."}]',
      'spencer-technical')
 ON CONFLICT (name) DO NOTHING;
 

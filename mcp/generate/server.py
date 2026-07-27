@@ -62,6 +62,7 @@ _lifespan = build_lifespan(
     db_pool_ref=lambda: _db_pool,
     db_pool_setter=set_db_pool,
     llm_client_ref=lambda: _llm_client,
+    llm_client_setter=set_llm_client,
 )
 app = FastAPI(title="generate-mcp", version="0.1.0", lifespan=_lifespan)
 

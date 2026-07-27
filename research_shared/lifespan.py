@@ -43,6 +43,7 @@ def build_lifespan(
     db_pool_ref: Callable[..., Any] | None = None,
     db_pool_setter: Callable[[Any], None] | None = None,
     llm_client_ref: Callable[..., Any] | None = None,
+    llm_client_setter: Callable[[Any], None] | None = None,
 ) -> Callable[[FastAPI], Any]:
     """Create an ASGI lifespan context manager for *service_name*.
 
@@ -51,6 +52,7 @@ def build_lifespan(
         db_pool_ref: Optional callable returning the current DatabasePool.
         db_pool_setter: Optional callable to inject a new DatabasePool.
         llm_client_ref: Optional callable returning the current LLMClient.
+        llm_client_setter: Optional callable to inject a new LLMClient.
     """
 
     @asynccontextmanager
@@ -95,6 +97,26 @@ def build_lifespan(
                     )
             else:
                 logger.info("%s no DATABASE_URL — running without DB", service_name)
+
+        # ── auto-connect LLM client ───────────────────────────
+        if llm_client_setter is not None:
+            llm_key = os.environ.get("DEEPSEEK_API_KEY", "")
+            if llm_key:
+                try:
+                    from research_shared.llm import LLMClient, LLMConfig
+
+                    llm_cfg = LLMConfig.from_env()
+                    llm = LLMClient(llm_cfg)
+                    await llm.health_check()
+                    llm_client_setter(llm)
+                    logger.info("%s LLM client connected", service_name)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "%s LLM client unavailable: %s — running degraded",
+                        service_name, exc,
+                    )
+            else:
+                logger.info("%s no DEEPSEEK_API_KEY — running without LLM", service_name)
 
         # ── yield to application ─────────────────────────────
         yield

@@ -112,6 +112,7 @@ git merge slice/PARENT   # bring in unmerged dependency
 | MCP-VERIFY-1 | `slice/MCP-VERIFY-1` | ✅ merged | `mcp/verify/`: fact-checking MCP |
 | MCP-EXPLORE-1 | `slice/MCP-EXPLORE-1` | ✅ merged | `mcp/explore/`: discovery MCP |
 | DOCKER-1 | `slice/DOCKER-1` | ✅ merged | Dockerfile, docker-compose (7 svc + PG16), entrypoint, .dockerignore, schema.sql |
+| DOMAIN-BOOTSTRAP-1 | `slice/DOMAIN-BOOTSTRAP-1` | ✅ built | `research_shared/seed_data.py`: 13 content types, 5 voice profiles, 15 seed requests; updated schema.sql |
 
 ## Session Startup Protocol
 
@@ -233,6 +234,7 @@ Then follow TDD: RED → GREEN → REFACTOR → PROVE.
 | MCP-VERIFY-1 | `slice/MCP-VERIFY-1` | ✅ merged | `mcp/verify/`: fact-checking MCP |
 | MCP-EXPLORE-1 | `slice/MCP-EXPLORE-1` | ✅ merged | `mcp/explore/`: discovery MCP |
 | DOCKER-1 | `slice/DOCKER-1` | ✅ merged | Dockerfile, docker-compose (7 svc + PG16), entrypoint, .dockerignore, schema.sql |
+| DOMAIN-BOOTSTRAP-1 | `slice/DOMAIN-BOOTSTRAP-1` | ✅ built | `research_shared/seed_data.py`: 13 content types, 5 voice profiles, 15 seed requests; updated schema.sql |
 
 ## Recursive Prompt for New Sessions
 

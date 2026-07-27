@@ -1,7 +1,5 @@
 """Tests for search-mcp — FastAPI server providing search tools."""
 
-import uuid
-import pytest
 
 
 # ---------------------------------------------------------------------------

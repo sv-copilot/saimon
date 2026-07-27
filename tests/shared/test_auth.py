@@ -1,7 +1,8 @@
 """Tests for research_shared.auth — API key validation, fail-closed auth."""
 
 import pytest
-from research_shared.auth import AuthConfig, AuthValidator, AuthError
+
+from research_shared.auth import AuthConfig, AuthError, AuthValidator
 
 
 class TestAuthConfig:

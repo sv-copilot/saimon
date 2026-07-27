@@ -4,7 +4,6 @@ import io
 import json
 import uuid
 
-import pytest
 from research_shared.audit import AuditLogger
 
 

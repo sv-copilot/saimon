@@ -1,13 +1,13 @@
 """Tests for research_shared.resilience — retry, circuit breaker, backoff."""
 
-import asyncio
 
 import pytest
+
 from research_shared.resilience import (
-    RetryConfig,
     CircuitBreaker,
     CircuitState,
     ResilienceError,
+    RetryConfig,
     retry,
 )
 

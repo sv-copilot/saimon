@@ -12,10 +12,7 @@ from __future__ import annotations
 import os
 from unittest import mock
 
-import pytest
-
-from research_shared.secrets import SecretsConfig, SecretRequirement
-
+from research_shared.secrets import SecretRequirement, SecretsConfig
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -186,7 +183,6 @@ class TestValidationResult:
         assert bool(invalid) is False
 
     def test_summary_contains_each_missing(self):
-        from research_shared.secrets import SecretRequirement
         cfg = SecretsConfig(saimon_api_key="")
         result = cfg.validate_all(service_name="test-mcp")
         if not result.valid:

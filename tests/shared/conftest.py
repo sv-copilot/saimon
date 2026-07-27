@@ -2,6 +2,7 @@
 
 import os
 import uuid
+
 import pytest
 
 
@@ -28,9 +29,9 @@ def mock_api_key_env(monkeypatch):
 
 @pytest.fixture
 def mock_db_url_env(monkeypatch):
-    """Set a fake SAIMON_DATABASE_URL for db tests."""
+    """Set a fake DATABASE_URL for db tests."""
     monkeypatch.setenv(
-        "SAIMON_DATABASE_URL",
+        "DATABASE_URL",
         "postgresql://user:pass@localhost:5432/saimon_test",
     )
     yield

@@ -7,9 +7,6 @@ and uses seed_data.py for content type definitions.
 from __future__ import annotations
 
 import sys
-from unittest.mock import AsyncMock
-
-import pytest
 
 
 class TestDBBackendInjection:

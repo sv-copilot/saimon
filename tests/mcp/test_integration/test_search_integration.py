@@ -6,9 +6,6 @@ Verifies that search-mcp can be injected with a DatabasePool backend.
 from __future__ import annotations
 
 import sys
-from unittest.mock import AsyncMock, patch
-
-import pytest
 
 
 def _fresh_search_app(monkeypatch, api_key):
@@ -60,6 +57,7 @@ class TestDBBackendInjection:
             },
             headers={"X-Saimon-API-Key": api_key},
         )
+        assert response.status_code == 200
         mock_db.fetch.assert_called_once()
         call_sql = mock_db.fetch.call_args[0][0]
         assert "SELECT" in call_sql or "select" in call_sql.lower()
@@ -116,6 +114,7 @@ class TestDBBackendInjection:
             },
             headers={"X-Saimon-API-Key": api_key},
         )
+        assert response.status_code == 200
         mock_db.fetch.assert_called()
 
     def test_get_source_detail_uses_db_when_injected(
@@ -147,4 +146,5 @@ class TestDBBackendInjection:
             },
             headers={"X-Saimon-API-Key": api_key},
         )
+        assert response.status_code == 200
         mock_db.fetchrow.assert_called()

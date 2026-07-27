@@ -1,6 +1,7 @@
 """Tests for research_shared.db — PostgreSQL connection pool wrapper."""
 
 import pytest
+
 from research_shared.db import DatabaseConfig, DatabaseError
 
 
@@ -13,7 +14,7 @@ class TestDatabaseConfig:
         assert config.max_pool_size == 10
 
     def test_from_env_reads_url(self, mock_db_url_env):
-        """Reads SAIMON_DATABASE_URL from environment."""
+        """Reads DATABASE_URL from environment."""
         config = DatabaseConfig.from_env()
         assert config.database_url == (
             "postgresql://user:pass@localhost:5432/saimon_test"

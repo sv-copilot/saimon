@@ -271,14 +271,17 @@ ai-dev or the operator explicitly defers one.
 ## 3. Start the next slice
 
 Once consolidated, read the Slice Inventory to pick the next slice.
-The current next is **MCP-EXPLORE-1** (discovery MCP). Create a new
-branch from ai-dev, then follow TDD: RED → GREEN → REFACTOR → PROVE.
+The current next is **SELF-EXTEND-1** (runtime content type
+registration). Create a new branch from ai-dev, then follow TDD:
+RED → GREEN → REFACTOR → PROVE.
 
 ## 4. Current state (auto-updated)
 
-- 7 of 7 slices complete: all MCPs merged
-- 190 tests passing, ruff clean, compileall OK
+- 8 of 8 slices merged: shared-lib + 6 MCPs + Docker
+- 251 tests passing, ruff clean, compileall OK
 - No pending slices
+- Docker + Compose: built and merged
+- Next: self-extension flow → domain tools
 
 ## 5. Environment
 
@@ -304,11 +307,13 @@ has been built and what comes next.
 Current state:
 - research_shared/ is built (6 modules: envelope, llm, db, auth,
   resilience, audit).
-- 7 of 7 slices merged: all 6 MCPs + shared-lib
-- 190 tests passing, ruff clean, compileall OK
+- 8 of 8 slices merged: all 6 MCPs + shared-lib + Docker/Compose
+- 251 tests passing, ruff clean, compileall OK
 - No pending slices
+- Docker + Compose: built and merged (single image, CMD override per MCP)
+- PostgreSQL schema: seeded with content types and voice profiles
 
-Next phase: Docker, PostgreSQL schema, self-extension flow, domain tools.
+Next phase: self-extension flow, domain tools.
 See .docs/project_intake.json for success criteria.
 
 Follow the PR & Merge Workflow in AGENTS.md: start a new slice branch

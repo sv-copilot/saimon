@@ -1,0 +1,33 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.venv
+venv
+*.egg-info
+dist
+build
+
+# Tests (not needed at runtime)
+tests/
+
+# Environment
+.env
+.env.*
+
+# IDE
+.vscode
+.idea
+
+# Docs
+.docs
+*.md
+
+# Misc
+.DS_Store
+*.log

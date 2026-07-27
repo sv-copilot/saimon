@@ -273,17 +273,22 @@ ai-dev or the operator explicitly defers one.
 ## 3. Start the next slice
 
 Once consolidated, read the Slice Inventory to pick the next slice.
-The current next is **SELF-EXTEND-1** (runtime content type
-registration). Create a new branch from ai-dev, then follow TDD:
+The current next is **MCP-INTEGRATION-1** (wire MCPs to real
+backends: DB, LLM, SelfExtender, canonical seed_data). Create a
+new branch from ai-dev, then follow TDD:
 RED → GREEN → REFACTOR → PROVE.
 
 ## 4. Current state (auto-updated)
 
-- 8 of 8 slices merged: shared-lib + 6 MCPs + Docker
-- 251 tests passing, ruff clean, compileall OK
-- No pending slices
-- Docker + Compose: built and merged
-- Next: self-extension flow → domain tools
+- 9 of 9 slices merged: shared-lib + 6 MCPs + Docker + self-extend
+- DOMAIN-BOOTSTRAP-1 built (PR #9 pending): 13 content types,
+  5 voice profiles, 15 seed requests
+- 307 tests passing, ruff clean, compileall OK
+- research_shared/: envelope, llm, db, auth, resilience, audit,
+  self_extend, seed_data (8 modules)
+- All 6 MCPs structurally complete but return synthetic/stub
+  responses — not yet wired to real backends
+- Next: MCP-INTEGRATION-1 — wire to DB, LLM, SelfExtender
 
 ## 5. Environment
 
@@ -307,15 +312,18 @@ contract. Then read the Slice Inventory table in AGENTS.md to see what
 has been built and what comes next.
 
 Current state:
-- research_shared/ is built (6 modules: envelope, llm, db, auth,
-  resilience, audit).
-- 8 of 8 slices merged: all 6 MCPs + shared-lib + Docker/Compose
-- 251 tests passing, ruff clean, compileall OK
-- No pending slices
-- Docker + Compose: built and merged (single image, CMD override per MCP)
-- PostgreSQL schema: seeded with content types and voice profiles
+- research_shared/ is built (8 modules: envelope, llm, db, auth,
+  resilience, audit, self_extend, seed_data).
+- 9 of 9 slices merged: all 6 MCPs + shared-lib + Docker/Compose
+  + self-extension
+- DOMAIN-BOOTSTRAP-1 built (PR #9): 13 content types, 5 voice
+  profiles, 15 seed requests; updated schema.sql
+- 307 tests passing, ruff clean, compileall OK
+- Docker + Compose: built and merged
+- All 6 MCPs structurally complete but return synthetic/stub
+  responses — not yet wired to real DB, LLM, or SelfExtender
 
-Next phase: self-extension flow, domain tools.
+Next phase: MCP-INTEGRATION-1 — wire MCPs to real backends.
 See .docs/project_intake.json for success criteria.
 
 Follow the PR & Merge Workflow in AGENTS.md: start a new slice branch

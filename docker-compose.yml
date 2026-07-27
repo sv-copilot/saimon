@@ -1,0 +1,179 @@
+# Saimon Platform — docker-compose orchestration
+#
+# Start all services:  docker compose up -d
+# Stop all services:   docker compose down
+# View logs:            docker compose logs -f
+
+version: "3.9"
+
+services:
+  # -----------------------------------------------------------------------
+  # PostgreSQL 16 — shared knowledge graph
+  # -----------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: saimon-postgres
+    environment:
+      POSTGRES_USER: saimon
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-saimon-dev}
+      POSTGRES_DB: saimon
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U saimon -d saimon"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # -----------------------------------------------------------------------
+  # search-mcp — knowledge graph + external search (port 8001)
+  # -----------------------------------------------------------------------
+  search-mcp:
+    build: .
+    image: saimon:latest
+    container_name: saimon-search
+    command: search-mcp
+    environment:
+      PORT: "8001"
+      SAIMON_API_KEY: ${SAIMON_API_KEY:-sk-test-search-key}
+      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # -----------------------------------------------------------------------
+  # generate-mcp — LLM content generation (port 8002)
+  # -----------------------------------------------------------------------
+  generate-mcp:
+    build: .
+    image: saimon:latest
+    container_name: saimon-generate
+    command: generate-mcp
+    environment:
+      PORT: "8002"
+      SAIMON_API_KEY: ${SAIMON_API_KEY:-sk-test-generate-key}
+      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8002/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # -----------------------------------------------------------------------
+  # export-mcp — output formatting (port 8003)
+  # -----------------------------------------------------------------------
+  export-mcp:
+    build: .
+    image: saimon:latest
+    container_name: saimon-export
+    command: export-mcp
+    environment:
+      PORT: "8003"
+      SAIMON_API_KEY: ${SAIMON_API_KEY:-sk-test-export-key}
+      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8003/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # -----------------------------------------------------------------------
+  # evaluate-mcp — quality gate (port 8004)
+  # -----------------------------------------------------------------------
+  evaluate-mcp:
+    build: .
+    image: saimon:latest
+    container_name: saimon-evaluate
+    command: evaluate-mcp
+    environment:
+      PORT: "8004"
+      SAIMON_API_KEY: ${SAIMON_API_KEY:-sk-test-evaluate-key}
+      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+    ports:
+      - "8004:8004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8004/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # -----------------------------------------------------------------------
+  # verify-mcp — fact-checking (port 8005)
+  # -----------------------------------------------------------------------
+  verify-mcp:
+    build: .
+    image: saimon:latest
+    container_name: saimon-verify
+    command: verify-mcp
+    environment:
+      PORT: "8005"
+      SAIMON_API_KEY: ${SAIMON_API_KEY:-sk-test-verify-key}
+      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+    ports:
+      - "8005:8005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8005/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # -----------------------------------------------------------------------
+  # explore-mcp — discovery (port 8006)
+  # -----------------------------------------------------------------------
+  explore-mcp:
+    build: .
+    image: saimon:latest
+    container_name: saimon-explore
+    command: explore-mcp
+    environment:
+      PORT: "8006"
+      SAIMON_API_KEY: ${SAIMON_API_KEY:-sk-test-explore-key}
+      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+    ports:
+      - "8006:8006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8006/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  pgdata:

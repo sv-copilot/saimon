@@ -30,10 +30,23 @@ from research_shared.lifespan import build_lifespan
 from research_shared.shadow_registry import ShadowRegistry
 
 # ---------------------------------------------------------------------------
+# backend injection (must be before lifespan — it references set_db_pool)
+# ---------------------------------------------------------------------------
+
+_db_pool: DatabasePool | None = None
+
+
+def set_db_pool(pool: DatabasePool | None) -> None:
+    """Inject a DatabasePool for live knowledge-graph queries."""
+    global _db_pool
+    _db_pool = pool
+
+
+# ---------------------------------------------------------------------------
 # application factory
 # ---------------------------------------------------------------------------
 
-_lifespan = build_lifespan("search-mcp", db_pool_ref=lambda: _db_pool)
+_lifespan = build_lifespan("search-mcp", db_pool_ref=lambda: _db_pool, db_pool_setter=set_db_pool)
 app = FastAPI(title="search-mcp", version="0.1.0", lifespan=_lifespan)
 
 # ---------------------------------------------------------------------------
@@ -67,19 +80,6 @@ def _get_shadow_adapters(source_indexes: list[str] | None = None) -> list:
         ]
     # Default: all Tier S + A adapters
     return _shadow_registry.filter(tier="S") + _shadow_registry.filter(tier="A")
-
-
-# ---------------------------------------------------------------------------
-# backend injection
-# ---------------------------------------------------------------------------
-
-_db_pool: DatabasePool | None = None
-
-
-def set_db_pool(pool: DatabasePool | None) -> None:
-    """Inject a DatabasePool for live knowledge-graph queries."""
-    global _db_pool
-    _db_pool = pool
 
 
 # ---------------------------------------------------------------------------

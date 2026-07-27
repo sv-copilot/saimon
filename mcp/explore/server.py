@@ -20,14 +20,7 @@ from research_shared.lifespan import build_lifespan
 from research_shared.seed_data import CONTENT_TYPES as SEED_CONTENT_TYPES
 
 # ---------------------------------------------------------------------------
-# application factory
-# ---------------------------------------------------------------------------
-
-_lifespan = build_lifespan("explore-mcp", db_pool_ref=lambda: _db_pool)
-app = FastAPI(title="explore-mcp", version="0.1.0", lifespan=_lifespan)
-
-# ---------------------------------------------------------------------------
-# backend injection
+# backend injection (must be before lifespan)
 # ---------------------------------------------------------------------------
 
 _db_pool: DatabasePool | None = None
@@ -38,6 +31,13 @@ def set_db_pool(pool: DatabasePool | None) -> None:
     global _db_pool
     _db_pool = pool
 
+
+# ---------------------------------------------------------------------------
+# application factory
+# ---------------------------------------------------------------------------
+
+_lifespan = build_lifespan("explore-mcp", db_pool_ref=lambda: _db_pool, db_pool_setter=set_db_pool)
+app = FastAPI(title="explore-mcp", version="0.1.0", lifespan=_lifespan)
 
 # ---------------------------------------------------------------------------
 # auth (fail-closed)

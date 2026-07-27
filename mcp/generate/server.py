@@ -34,12 +34,33 @@ except ImportError:  # domain not installed — graceful degradation
     JOB_HUNT_CONTENT_TYPES = []
 
 # ---------------------------------------------------------------------------
+# backend injection (must be before lifespan)
+# ---------------------------------------------------------------------------
+
+_db_pool: Any | None = None
+_llm_client: Any | None = None
+
+
+def set_db_pool(pool: Any | None) -> None:
+    """Inject a DatabasePool for live knowledge-graph queries."""
+    global _db_pool
+    _db_pool = pool
+
+
+def set_llm_client(client: Any | None) -> None:
+    """Inject an LLMClient for live content generation."""
+    global _llm_client
+    _llm_client = client
+
+
+# ---------------------------------------------------------------------------
 # application factory
 # ---------------------------------------------------------------------------
 
 _lifespan = build_lifespan(
     "generate-mcp",
     db_pool_ref=lambda: _db_pool,
+    db_pool_setter=set_db_pool,
     llm_client_ref=lambda: _llm_client,
 )
 app = FastAPI(title="generate-mcp", version="0.1.0", lifespan=_lifespan)
@@ -62,23 +83,11 @@ def _require_auth(request: Request) -> None:
 
 
 # ---------------------------------------------------------------------------
-# backend injection
+# other injectors (not used by lifespan)
 # ---------------------------------------------------------------------------
 
-_llm_client: LLMClient | None = None
 _self_extender: Any = None
 _seed_loader: Any = None
-_db_pool: Any = None
-
-
-def set_llm_client(client: LLMClient | None) -> None:
-    """Inject an LLMClient backend for production use.
-
-    When set, generate_content uses the LLM for real generation.
-    When None (default), the MCP degrades gracefully with fallbacks.
-    """
-    global _llm_client
-    _llm_client = client
 
 
 def set_self_extender(extender: Any | None) -> None:
@@ -99,16 +108,6 @@ def set_seed_loader(loader: Any | None) -> None:
     """
     global _seed_loader
     _seed_loader = loader
-
-
-def set_db_pool(pool: Any | None) -> None:
-    """Inject a DatabasePool for backend queries.
-
-    When set, used by SelfExtender and SeedLoader for DB access.
-    When None (default), DB-backed features degrade gracefully.
-    """
-    global _db_pool
-    _db_pool = pool
 
 
 # ---------------------------------------------------------------------------

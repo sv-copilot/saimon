@@ -20,6 +20,7 @@ Usage in each MCP server.py:
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -40,6 +41,7 @@ def build_lifespan(
     service_name: str,
     *,
     db_pool_ref: Callable[..., Any] | None = None,
+    db_pool_setter: Callable[[Any], None] | None = None,
     llm_client_ref: Callable[..., Any] | None = None,
 ) -> Callable[[FastAPI], Any]:
     """Create an ASGI lifespan context manager for *service_name*.
@@ -47,6 +49,7 @@ def build_lifespan(
     Parameters:
         service_name: e.g. "search-mcp", "generate-mcp".
         db_pool_ref: Optional callable returning the current DatabasePool.
+        db_pool_setter: Optional callable to inject a new DatabasePool.
         llm_client_ref: Optional callable returning the current LLMClient.
     """
 
@@ -67,6 +70,31 @@ def build_lifespan(
         # Store config on app state for /health checks.
         app.state.service_name = service_name
         app.state.secrets_config = cfg
+
+        # ── auto-connect DB pool ─────────────────────────────
+        if db_pool_setter is not None:
+            db_url = os.environ.get("DATABASE_URL", "")
+            if db_url:
+                try:
+                    from research_shared.db import DatabaseConfig, DatabasePool
+
+                    cfg = DatabaseConfig(database_url=db_url, min_pool_size=1, max_pool_size=5)
+                    pool = DatabasePool(cfg)
+                    await pool.fetch("SELECT 1")  # triggers lazy init + verifies
+                    db_pool_setter(pool)
+
+                    # Also inject into audit logger
+                    from research_shared.audit import set_audit_db_pool
+                    set_audit_db_pool(pool)
+
+                    logger.info("%s DB pool connected", service_name)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "%s DB pool unavailable: %s — running degraded",
+                        service_name, exc,
+                    )
+            else:
+                logger.info("%s no DATABASE_URL — running without DB", service_name)
 
         # ── yield to application ─────────────────────────────
         yield

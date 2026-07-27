@@ -115,7 +115,7 @@ git merge slice/PARENT   # bring in unmerged dependency
 | DOMAIN-BOOTSTRAP-1 | `slice/DOMAIN-BOOTSTRAP-1` | ✅ merged | `research_shared/seed_data.py`: 13 content types, 5 voice profiles, 15 seed requests; updated schema.sql |
 | MCP-INTEGRATION-1 | `slice/MCP-INTEGRATION-1` | ✅ merged | Wire MCPs to real backends: LLM, DB, seed_data; 333 tests + 26 integration tests |
 | SELF-EXTEND-2 | `slice/SELF-EXTEND-2` | ✅ merged | `seed_loader.py` + generate-mcp self-extend wiring; 358 tests |
-| DEPLOY-HARDEN-1 | `slice/DEPLOY-HARDEN-1` | ✅ built | Secrets management, graceful shutdown, deep health checks, CI/CD, prod compose; 432 tests |
+| DEPLOY-HARDEN-1 | `slice/DEPLOY-HARDEN-1` | ✅ merged | Secrets management, graceful shutdown, deep health checks, CI/CD, prod compose; 432 tests |
 
 ## Session Startup Protocol
 
@@ -240,7 +240,7 @@ Then follow TDD: RED → GREEN → REFACTOR → PROVE.
 | DOMAIN-BOOTSTRAP-1 | `slice/DOMAIN-BOOTSTRAP-1` | ✅ merged | `research_shared/seed_data.py`: 13 content types, 5 voice profiles, 15 seed requests; updated schema.sql |
 | MCP-INTEGRATION-1 | `slice/MCP-INTEGRATION-1` | ✅ merged | Wire MCPs to real backends: LLM, DB, seed_data; 333 tests + 26 integration tests |
 | SELF-EXTEND-2 | `slice/SELF-EXTEND-2` | ✅ merged | `seed_loader.py` + generate-mcp self-extend wiring; 358 tests |
-| DEPLOY-HARDEN-1 | `slice/DEPLOY-HARDEN-1` | ✅ built | Secrets management, graceful shutdown, deep health checks, CI/CD, prod compose; 432 tests |
+| DEPLOY-HARDEN-1 | `slice/DEPLOY-HARDEN-1` | ✅ merged | Secrets management, graceful shutdown, deep health checks, CI/CD, prod compose; 432 tests |
 
 ## Recursive Prompt for New Sessions
 

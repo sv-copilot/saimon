@@ -392,10 +392,10 @@ class TestDockerfileHardening:
 class TestEntrypointHardening:
     """Validate entrypoint graceful shutdown additions."""
 
-    def test_entrypoint_has_graceful_timeout(self):
+    def test_entrypoint_has_graceful_shutdown(self):
         content = read_file("docker-entrypoint.sh")
-        assert "--graceful-timeout" in content, (
-            "entrypoint must pass --graceful-timeout to uvicorn"
+        assert "--timeout-graceful-shutdown" in content, (
+            "entrypoint must pass --timeout-graceful-shutdown to uvicorn"
         )
 
 

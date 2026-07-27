@@ -252,7 +252,7 @@ Then follow TDD: RED → GREEN → REFACTOR → PROVE.
 | DEPLOY-HARDEN-1 | `slice/DEPLOY-HARDEN-1` | ✅ merged | Secrets management, graceful shutdown, deep health checks, CI/CD, prod compose; 432 tests |
 | LIVE-INTEGRATION-1 | `slice/LIVE-INTEGRATION-1` | ✅ merged | Real LLM (DeepSeek via openai), real DB (asyncpg), live E2E integration tests (17 tests); 432 tests |
 | DOMAIN-TOOLS-1 | `slice/DOMAIN-TOOLS-1` | ✅ merged | Job Hunt domain: 5 content types, 3 voice profiles, 10 seed requests, generate_job_hunt_content tool; 488 tests |
-| SHADOW-SEARCH-1 | `slice/SHADOW-SEARCH-1` | ✅ built | Shadow library source integration: search tool, verify pipeline, 5 adapters, terminology fix; 616 tests |
+| SHADOW-SEARCH-1 | `slice/SHADOW-SEARCH-1` | ✅ merged | Shadow library source integration: search tool, verify pipeline, 5 adapters, terminology fix; 616 tests |
 
 ## Recursive Prompt for New Sessions
 
@@ -313,7 +313,7 @@ RED → GREEN → REFACTOR → PROVE.
 ## 5. Environment
 
 - Branch: ai-dev
-- Python: /Users/simon/.pyenv/versions/3.11.8/bin/python
+- Python: python3.11 (via pyenv or system)
 - Validation: python3 -m pytest tests/ -q
 - Lint: ruff check research_shared/ mcp/
 - Compile: python3 -m compileall research_shared/ mcp/
@@ -349,7 +349,7 @@ from ai-dev, merge any unmerged dependencies via `git merge`, then
 follow TDD (RED → GREEN → REFACTOR → PROVE).
 
 Branch: ai-dev
-Python: /Users/simon/.pyenv/versions/3.11.8/bin/python
+Python: python3.11 (via pyenv or system)
 
 Begin by reading AGENTS.md, then tell me what you see and what
 you'll build next.

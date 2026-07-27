@@ -107,8 +107,8 @@ git merge slice/PARENT   # bring in unmerged dependency
 | SHARED-LIB-1 | `slice/SHARED-LIB-1` | ✅ merged | `research_shared/`: envelope, llm, db, auth, resilience, audit |
 | MCP-SEARCH-1 | `slice/MCP-SEARCH-1` | ✅ merged | `mcp/search/`: FastAPI server, 5 tool endpoints |
 | MCP-GENERATE-1 | `slice/MCP-GENERATE-1` | ✅ merged | `mcp/generate/`: LLM content generation MCP |
-| MCP-EXPORT-1 | — | 🔲 next | `mcp/export/`: output formatting MCP |
-| MCP-EVALUATE-1 | — | 🔲 pending | `mcp/evaluate/`: quality gate MCP |
+| MCP-EXPORT-1 | `slice/MCP-EXPORT-1` | ✅ merged | `mcp/export/`: output formatting MCP |
+| MCP-EVALUATE-1 | — | 🔲 next | `mcp/evaluate/`: quality gate MCP |
 | MCP-VERIFY-1 | — | 🔲 pending | `mcp/verify/`: fact-checking MCP |
 | MCP-EXPLORE-1 | — | 🔲 pending | `mcp/explore/`: discovery MCP |
 
@@ -227,8 +227,8 @@ Then follow TDD: RED → GREEN → REFACTOR → PROVE.
 | SHARED-LIB-1 | `slice/SHARED-LIB-1` | ✅ merged | `research_shared/`: envelope, llm, db, auth, resilience, audit |
 | MCP-SEARCH-1 | `slice/MCP-SEARCH-1` | ✅ merged | `mcp/search/`: FastAPI server, 5 tool endpoints |
 | MCP-GENERATE-1 | `slice/MCP-GENERATE-1` | ✅ merged | `mcp/generate/`: LLM content generation MCP |
-| MCP-EXPORT-1 | — | 🔲 next | `mcp/export/`: output formatting MCP |
-| MCP-EVALUATE-1 | — | 🔲 pending | `mcp/evaluate/`: quality gate MCP |
+| MCP-EXPORT-1 | `slice/MCP-EXPORT-1` | ✅ merged | `mcp/export/`: output formatting MCP |
+| MCP-EVALUATE-1 | — | 🔲 next | `mcp/evaluate/`: quality gate MCP |
 | MCP-VERIFY-1 | — | 🔲 pending | `mcp/verify/`: fact-checking MCP |
 | MCP-EXPLORE-1 | — | 🔲 pending | `mcp/explore/`: discovery MCP |
 

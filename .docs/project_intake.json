@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "project": {
+    "id": "saimon",
+    "name": "Saimon Platform",
+    "github_slug": "sv-copilot/saimon",
+    "integration_branch": "ai-dev"
+  },
+  "product": {
+    "goal": "A self-extending platform of 6 atomic MCP services that share one knowledge graph and adapt to new content types via research-backed self-extension.",
+    "target_users": [
+      "Spencer Varadi (primary — personal infrastructure)",
+      "OpenClaw agent (secondary — consumes MCPs as tools)",
+      "VS Code Cline agent (tertiary — BUILD mode dispatch only)"
+    ],
+    "core_workflow": [
+      "Agent requests content with a content type",
+      "Platform checks: type registered? If not, self-extend via research",
+      "Platform generates content grounded in knowledge graph sources",
+      "Platform evaluates output against quality gates",
+      "Agent receives scored, cited result"
+    ],
+    "success_criteria": [
+      "6 MCPs deploy as Docker containers and respond to health checks",
+      "Each MCP has ≤10 tools",
+      "Content types can be registered at runtime via self-extension",
+      "Platform survives DB wipe and re-seeds from seed_requests table"
+    ]
+  },
+  "profiles": {
+    "sensitivity": "elevated",
+    "frontend": "none",
+    "backend": "python-fastapi-default",
+    "data": "postgres-with-embeddings"
+  },
+  "human_gates": [
+    {
+      "id": "HG-SAIMON-001",
+      "question": "Operator approves destruction of existing knowledge graph before fresh start.",
+      "blocks_automation": true
+    }
+  ],
+  "validation": {
+    "test": "python3 -m pytest tests/ -q",
+    "lint": "ruff check research_shared/ mcp/",
+    "build": "docker build -t saimon .",
+    "smoke": "docker run --rm saimon search-mcp --health-check"
+  }
+}

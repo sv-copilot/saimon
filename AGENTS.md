@@ -110,7 +110,7 @@ git merge slice/PARENT   # bring in unmerged dependency
 | MCP-EXPORT-1 | `slice/MCP-EXPORT-1` | ✅ merged | `mcp/export/`: output formatting MCP |
 | MCP-EVALUATE-1 | `slice/MCP-EVALUATE-1` | ✅ merged | `mcp/evaluate/`: quality gate MCP |
 | MCP-VERIFY-1 | `slice/MCP-VERIFY-1` | ✅ merged | `mcp/verify/`: fact-checking MCP |
-| MCP-EXPLORE-1 | `slice/MCP-EXPLORE-1` | ✅ built | `mcp/explore/`: discovery MCP |
+| MCP-EXPLORE-1 | `slice/MCP-EXPLORE-1` | ✅ merged | `mcp/explore/`: discovery MCP |
 
 ## Session Startup Protocol
 
@@ -230,7 +230,7 @@ Then follow TDD: RED → GREEN → REFACTOR → PROVE.
 | MCP-EXPORT-1 | `slice/MCP-EXPORT-1` | ✅ merged | `mcp/export/`: output formatting MCP |
 | MCP-EVALUATE-1 | `slice/MCP-EVALUATE-1` | ✅ merged | `mcp/evaluate/`: quality gate MCP |
 | MCP-VERIFY-1 | `slice/MCP-VERIFY-1` | ✅ merged | `mcp/verify/`: fact-checking MCP |
-| MCP-EXPLORE-1 | `slice/MCP-EXPLORE-1` | ✅ built | `mcp/explore/`: discovery MCP |
+| MCP-EXPLORE-1 | `slice/MCP-EXPLORE-1` | ✅ merged | `mcp/explore/`: discovery MCP |
 
 ## Recursive Prompt for New Sessions
 
@@ -274,13 +274,13 @@ branch from ai-dev, then follow TDD: RED → GREEN → REFACTOR → PROVE.
 
 ## 4. Current state (auto-updated)
 
-- 7 of 7 slices complete: 6 MCPs merged, explore built
+- 7 of 7 slices complete: all MCPs merged
 - 190 tests passing, ruff clean, compileall OK
-- 1 MCP remains to merge: explore
+- No pending slices
 
 ## 5. Environment
 
-- Branch: slice/MCP-EXPLORE-1
+- Branch: ai-dev
 - Python: /Users/simon/.pyenv/versions/3.11.8/bin/python
 - Validation: python3 -m pytest tests/ -q
 - Lint: ruff check research_shared/ mcp/

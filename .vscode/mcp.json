@@ -7,7 +7,13 @@
         "tools/saimon-mcp-proxy/proxy.py"
       ],
       "env": {
-        "SAIMON_BASE_URL": "https://mcp-staging.spencervaradi.com/saimon",
+        "SAIMON_BASE_URL": "",
+        "SAIMON_SEARCH_URL": "http://127.0.0.1:8001",
+        "SAIMON_GENERATE_URL": "http://127.0.0.1:8002",
+        "SAIMON_EXPORT_URL": "http://127.0.0.1:8003",
+        "SAIMON_EVALUATE_URL": "http://127.0.0.1:8004",
+        "SAIMON_VERIFY_URL": "http://127.0.0.1:8005",
+        "SAIMON_EXPLORE_URL": "http://127.0.0.1:8006",
         "SAIMON_API_KEY": "sk-test-search-key"
       }
     }

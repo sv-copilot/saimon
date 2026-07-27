@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """saimon_mcp_proxy.py — MCP stdio proxy for Saimon REST endpoints.
 
-Makes Saimon's search, verify, and generate MCPs available as native
-MCP tools to VS Code agents. Reads JSON-RPC from stdin, proxies to
-Saimon HTTP endpoints, writes JSON-RPC to stdout.
+Makes Saimon's 6 MCPs (search, generate, export, evaluate, verify, explore)
+available as native MCP tools to VS Code agents.
 
 Usage (in VS Code MCP config):
     {
@@ -17,6 +16,14 @@ Usage (in VS Code MCP config):
         }
       }
     }
+
+For local dev, set SAIMON_BASE_URL per service or use direct ports:
+    SAIMON_SEARCH_URL=http://127.0.0.1:8001
+    SAIMON_GENERATE_URL=http://127.0.0.1:8002
+    ...
+
+If SAIMON_BASE_URL is set (Caddy mode), all tools route through it
+with /{service}/tools/... paths.
 """
 
 from __future__ import annotations
@@ -33,62 +40,185 @@ import httpx
 # Configuration
 # ---------------------------------------------------------------------------
 
-BASE_URL = os.environ.get(
-    "SAIMON_BASE_URL",
-    "http://127.0.0.1:8001",  # local dev default: search-mcp directly
-)
+BASE_URL = os.environ.get("SAIMON_BASE_URL", "")
 API_KEY = os.environ.get("SAIMON_API_KEY", "sk-test-search-key")
 
-# Map tool names to (method, path) on the Saimon REST API
+# Per-service direct URLs (used when BASE_URL is not set)
+SERVICE_URLS: dict[str, str] = {
+    "search": os.environ.get("SAIMON_SEARCH_URL", "http://127.0.0.1:8001"),
+    "generate": os.environ.get("SAIMON_GENERATE_URL", "http://127.0.0.1:8002"),
+    "export": os.environ.get("SAIMON_EXPORT_URL", "http://127.0.0.1:8003"),
+    "evaluate": os.environ.get("SAIMON_EVALUATE_URL", "http://127.0.0.1:8004"),
+    "verify": os.environ.get("SAIMON_VERIFY_URL", "http://127.0.0.1:8005"),
+    "explore": os.environ.get("SAIMON_EXPLORE_URL", "http://127.0.0.1:8006"),
+}
+
+
+def _build_url(service: str, path: str) -> str:
+    """Build the full URL for a tool call."""
+    if BASE_URL:
+        # Caddy mode: https://staging/saimon/search/tools/...
+        return f"{BASE_URL}/{service}{path}"
+    # Direct mode: http://127.0.0.1:8001/tools/...
+    return f"{SERVICE_URLS[service]}{path}"
+
+
+# Map tool names to (service, method, path, body_template)
+# Paths are the tool endpoint paths (e.g., /tools/search_knowledge_graph)
 TOOL_REGISTRY: dict[str, dict[str, Any]] = {
+    # ── Search Tools ────────────────────────────────────────────
     "saimon_search_scholarly": {
         "description": (
             "Search shadow library sources (Anna's Archive, LibGen, Sci-Hub, "
             "Internet Archive, Academic Torrents) for academic papers, books, "
             "and datasets. Returns ranked results with DOIs, titles, authors, "
-            "years, and source attribution. Use this to find academic sources "
-            "on any research topic."
+            "years, and source attribution."
         ),
+        "service": "search",
         "method": "POST",
-        "path": "/search/tools/search_shadow_libraries",
-        "direct_path": "/tools/search_shadow_libraries",
+        "path": "/tools/search_shadow_libraries",
         "body_template": {
             "content_type": "search",
             "parameters": {"query": "{query}", "limit": "{limit}"},
         },
     },
-    "saimon_verify_claim": {
+    "saimon_search_knowledge_graph": {
         "description": (
-            "Verify a factual claim using multiple corroboration methods "
-            "(source corroboration, logical consistency, authority check, "
-            "temporal validity, shadow source corroboration). Searches "
-            "shadow libraries for evidence, then uses DeepSeek LLM to "
-            "analyze the claim against found sources. Returns a verdict "
-            "(supported/refuted/inconclusive) with confidence scores "
-            "and evidence citations."
+            "Search the PostgreSQL knowledge graph for previously stored "
+            "research notes, verifications, and observations."
         ),
+        "service": "search",
         "method": "POST",
-        "path": "/verify/tools/verify_claim",
-        "direct_path": "/tools/verify_claim",
+        "path": "/tools/search_knowledge_graph",
         "body_template": {
-            "content_type": "verify",
-            "parameters": {
-                "claim": "{claim}",
-                "use_shadow_sources": True,
-            },
+            "content_type": "search",
+            "parameters": {"query": "{query}", "limit": "{limit}"},
         },
     },
     "saimon_list_sources": {
         "description": (
             "List all available source indexes including knowledge graph "
-            "and shadow library sources (Anna's Archive, LibGen, Sci-Hub, "
-            "Internet Archive, Academic Torrents). Shows tier and status "
-            "for each source."
+            "and shadow library sources. Shows tier (S/A/B) and status."
         ),
+        "service": "search",
         "method": "POST",
-        "path": "/search/tools/list_source_indexes",
-        "direct_path": "/tools/list_source_indexes",
+        "path": "/tools/list_source_indexes",
         "body_template": {"content_type": "search"},
+    },
+
+    # ── Verify Tools ────────────────────────────────────────────
+    "saimon_verify_claim": {
+        "description": (
+            "Verify a factual claim using 5 corroboration methods. "
+            "Searches shadow libraries for evidence, then uses DeepSeek "
+            "LLM to analyze the claim. Returns supported/refuted/inconclusive "
+            "with confidence scores and evidence citations."
+        ),
+        "service": "verify",
+        "method": "POST",
+        "path": "/tools/verify_claim",
+        "body_template": {
+            "content_type": "verify",
+            "parameters": {"claim": "{claim}", "use_shadow_sources": True},
+        },
+    },
+    "saimon_list_verification_methods": {
+        "description": (
+            "List all verification methods with descriptions and reliability "
+            "scores. Includes source_corroboration, logical_consistency, "
+            "authority_check, temporal_validity, shadow_source_corroboration."
+        ),
+        "service": "verify",
+        "method": "POST",
+        "path": "/tools/list_verification_methods",
+        "body_template": {"content_type": "verify"},
+    },
+
+    # ── Generate Tools ──────────────────────────────────────────
+    "saimon_generate_content": {
+        "description": (
+            "Generate research content using DeepSeek LLM. Supports 14 content "
+            "types: blog_post, summary, research_note, white_paper, case_study, "
+            "bibliography, social_post, email_draft, press_release, proposal, "
+            "tutorial, product_review, meeting_notes, job_posting. "
+            "Optional: tone, audience, max_length, depth, format."
+        ),
+        "service": "generate",
+        "method": "POST",
+        "path": "/tools/generate_content",
+        "body_template": {
+            "content_type": "{content_type}",
+            "parameters": {"prompt": "{prompt}", "tone": "{tone}"},
+        },
+    },
+    "saimon_list_content_types": {
+        "description": (
+            "List all 14 registered content types with their parameter schemas "
+            "and voice profiles."
+        ),
+        "service": "generate",
+        "method": "POST",
+        "path": "/tools/list_content_types",
+        "body_template": {"content_type": "generate"},
+    },
+
+    # ── Evaluate Tools ──────────────────────────────────────────
+    "saimon_evaluate_content": {
+        "description": (
+            "Score generated content against quality criteria (accuracy, "
+            "completeness, clarity, relevance, sourcing). Returns scored "
+            "results with per-criterion breakdown."
+        ),
+        "service": "evaluate",
+        "method": "POST",
+        "path": "/tools/evaluate_content",
+        "body_template": {
+            "content_type": "evaluate",
+            "parameters": {"content": "{content}", "criteria": "{criteria}"},
+        },
+    },
+
+    # ── Explore Tools ───────────────────────────────────────────
+    "saimon_explore_content": {
+        "description": (
+            "Discover content in the knowledge graph by topic or keyword. "
+            "Finds related research notes, verifications, and observations."
+        ),
+        "service": "explore",
+        "method": "POST",
+        "path": "/tools/explore_content",
+        "body_template": {
+            "content_type": "explore",
+            "parameters": {"query": "{query}"},
+        },
+    },
+    "saimon_browse_by_type": {
+        "description": (
+            "Browse knowledge graph content filtered by type "
+            "(research_note, verification, blog_post, etc.)."
+        ),
+        "service": "explore",
+        "method": "POST",
+        "path": "/tools/browse_by_type",
+        "body_template": {
+            "content_type": "explore",
+            "parameters": {"content_type": "{type_name}"},
+        },
+    },
+
+    # ── Export Tools ────────────────────────────────────────────
+    "saimon_export_content": {
+        "description": (
+            "Format content into a specified output format (markdown, "
+            "plain_text, json, html)."
+        ),
+        "service": "export",
+        "method": "POST",
+        "path": "/tools/export_content",
+        "body_template": {
+            "content_type": "export",
+            "parameters": {"content": "{content}", "format": "{format}"},
+        },
     },
 }
 
@@ -104,14 +234,9 @@ def _make_trace_id() -> str:
 async def _call_saimon(
     tool_name: str, arguments: dict[str, Any],
 ) -> dict[str, Any]:
-    """Proxy a tool call to the Saimon REST API."""
+    """Proxy a tool call to the appropriate Saimon MCP."""
     tool = TOOL_REGISTRY[tool_name]
-    # Use Caddy path if base URL contains /saimon, else direct MCP port
-    if "/saimon" in BASE_URL:
-        path = tool["path"]
-    else:
-        path = tool.get("direct_path", tool["path"])
-    url = f"{BASE_URL}{path}"
+    url = _build_url(tool["service"], tool["path"])
 
     # Build body from template, substituting arguments
     body = json.loads(json.dumps(tool["body_template"]))
@@ -125,11 +250,15 @@ async def _call_saimon(
     body["trace_id"] = _make_trace_id()
 
     async with httpx.AsyncClient(timeout=30.0) as client:
+        # Each MCP has its own API key; fall back to default
+        svc_key = os.environ.get(
+            f"SAIMON_{tool['service'].upper()}_KEY", API_KEY,
+        )
         resp = await client.request(
             method=tool["method"],
             url=url,
             json=body,
-            headers={"X-Saimon-API-Key": API_KEY},
+            headers={"X-Saimon-API-Key": svc_key},
         )
         resp.raise_for_status()
         return resp.json()
@@ -160,7 +289,6 @@ def _format_result(data: dict[str, Any]) -> str:
     elif "verifications" in payload:
         # Verification result
         lines = [
-            f"Claim: {payload.get('verifications', [{}])[0].get('explanation', '')[:100] if False else ''}",
             f"Overall verdict: {payload.get('overall_verdict', 'unknown')}",
             f"Methods used: {payload.get('methods_used', 0)}\n",
         ]
@@ -168,10 +296,10 @@ def _format_result(data: dict[str, Any]) -> str:
             lines.append(
                 f"  {v['method']}: {v['verdict']} "
                 f"(confidence: {v['confidence']})\n"
-                f"  {v['explanation'][:200]}"
+                f"  {v['explanation'][:300]}"
             )
             if v.get("evidence_source"):
-                lines.append(f"  Evidence: {v['evidence_source']}")
+                lines.append(f"\n  Evidence: {v['evidence_source']}")
             lines.append("")
         return "\n".join(lines)
 
@@ -187,6 +315,45 @@ def _format_result(data: dict[str, Any]) -> str:
             )
         return "\n".join(lines)
 
+    elif "methods" in payload:
+        # Verification methods list
+        lines = ["Verification methods:"]
+        for m in payload["methods"]:
+            lines.append(
+                f"  {m['name']}: reliability={m.get('reliability','?')} — "
+                f"{m.get('description','')[:100]}"
+            )
+        return "\n".join(lines)
+
+    elif "content_types" in payload:
+        # Content type list
+        cts = payload.get("content_types", payload.get("types", []))
+        lines = [f"{len(cts)} content types available:"]
+        for ct in cts[:20]:
+            name = ct.get("name", ct) if isinstance(ct, dict) else ct
+            desc = ct.get("description", "") if isinstance(ct, dict) else ""
+            lines.append(f"  {name}: {desc[:80]}")
+        return "\n".join(lines)
+
+    elif "content" in payload:
+        # Generated content
+        return payload.get("content", json.dumps(payload, indent=2))
+
+    elif "score" in payload or "evaluation" in payload:
+        # Evaluation result
+        score = payload.get("score", payload.get("overall_score", "N/A"))
+        return f"Evaluation score: {score}\n{json.dumps(payload, indent=2)}"
+
+    elif "items" in payload:
+        # Explore/browse result
+        lines = [f"Found {len(payload['items'])} items:"]
+        for item in payload["items"][:10]:
+            title = item.get("title", "Untitled")
+            ctype = item.get("content_type", "?")
+            lines.append(f"  [{ctype}] {title}")
+        return "\n".join(lines)
+
+    # Fallback: pretty-print the whole response
     return json.dumps(data, indent=2)
 
 
@@ -231,18 +398,24 @@ async def main() -> None:
             }
 
         elif method == "tools/list":
-            tools = [
-                {"name": name, "description": info["description"],
-                 "inputSchema": {
-                     "type": "object",
-                     "properties": {
-                         k: {"type": "string", "description": f"The {k}"}
-                         for k in ["query", "claim", "limit"]
-                         if ("{" + k + "}") in str(info.get("body_template", {}))
-                     },
-                 }}
-                for name, info in TOOL_REGISTRY.items()
-            ]
+            tools = []
+            for name, info in TOOL_REGISTRY.items():
+                # Build input schema from body_template parameters
+                props = {}
+                bt = info.get("body_template", {})
+                params = bt.get("parameters", {})
+                for key, val in params.items():
+                    if isinstance(val, str) and val.startswith("{") and val.endswith("}"):
+                        props[key] = {"type": "string", "description": f"The {key}"}
+                    elif isinstance(val, bool):
+                        props[key] = {"type": "boolean", "description": f"Enable {key}"}
+                    elif isinstance(val, str):
+                        props[key] = {"type": "string", "description": f"Value for {key}"}
+                tools.append({
+                    "name": name,
+                    "description": info["description"],
+                    "inputSchema": {"type": "object", "properties": props},
+                })
             response = {
                 "jsonrpc": "2.0",
                 "id": req_id,

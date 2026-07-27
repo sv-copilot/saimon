@@ -1,0 +1,15 @@
+{
+  "servers": {
+    "saimon-researcher": {
+      "type": "stdio",
+      "command": "python3",
+      "args": [
+        "tools/saimon-mcp-proxy/proxy.py"
+      ],
+      "env": {
+        "SAIMON_BASE_URL": "https://mcp-staging.spencervaradi.com/saimon",
+        "SAIMON_API_KEY": "sk-test-search-key"
+      }
+    }
+  }
+}

@@ -55,4 +55,4 @@ esac
 PORT="${PORT:-$DEFAULT_PORT}"
 
 echo "Starting $MCP on 0.0.0.0:$PORT"
-exec uvicorn "$MODULE" --host 0.0.0.0 --port "$PORT"
+exec uvicorn "$MODULE" --host 0.0.0.0 --port "$PORT" --graceful-timeout 10

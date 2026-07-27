@@ -22,6 +22,7 @@ from fastapi import FastAPI, HTTPException, Request
 from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.envelope import ResearchRequest, ResearchResponse
+from research_shared.lifespan import build_lifespan
 from research_shared.llm import LLMClient, LLMError
 from research_shared.seed_data import CONTENT_TYPES as SEED_CONTENT_TYPES
 
@@ -29,7 +30,12 @@ from research_shared.seed_data import CONTENT_TYPES as SEED_CONTENT_TYPES
 # application factory
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="generate-mcp", version="0.1.0")
+_lifespan = build_lifespan(
+    "generate-mcp",
+    db_pool_ref=lambda: _db_pool,
+    llm_client_ref=lambda: _llm_client,
+)
+app = FastAPI(title="generate-mcp", version="0.1.0", lifespan=_lifespan)
 
 # ---------------------------------------------------------------------------
 # auth
@@ -119,7 +125,30 @@ _CONTENT_TYPES = _build_content_types_lookup()
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
-    return {"status": "ok", "service": "generate-mcp"}
+    import logging as _logging
+    _log = _logging.getLogger("saimon.health")
+    db_ok = False
+    llm_ok = False
+    if _db_pool is not None:
+        try:
+            await _db_pool.fetch("SELECT 1")
+            db_ok = True
+        except Exception:  # noqa: BLE001
+            _log.debug("generate-mcp health: DB not reachable", exc_info=True)
+    if _llm_client is not None:
+        try:
+            await _llm_client.health_check()
+            llm_ok = True
+        except Exception:  # noqa: BLE001
+            _log.debug("generate-mcp health: LLM not reachable", exc_info=True)
+    return {
+        "status": "ok",
+        "service": "generate-mcp",
+        "checks": {
+            "database": "connected" if db_ok else "unavailable",
+            "llm": "connected" if llm_ok else "unavailable",
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

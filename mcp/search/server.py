@@ -18,12 +18,14 @@ from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.db import DatabaseError, DatabasePool
 from research_shared.envelope import ResearchRequest, ResearchResponse
+from research_shared.lifespan import build_lifespan
 
 # ---------------------------------------------------------------------------
 # application factory
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="search-mcp", version="0.1.0")
+_lifespan = build_lifespan("search-mcp", db_pool_ref=lambda: _db_pool)
+app = FastAPI(title="search-mcp", version="0.1.0", lifespan=_lifespan)
 
 # ---------------------------------------------------------------------------
 # backend injection
@@ -63,7 +65,20 @@ def _require_auth(request: Request) -> None:
 @app.get("/health")
 async def health() -> dict[str, Any]:
     """Unauthenticated health check."""
-    return {"status": "ok", "service": "search-mcp"}
+    import logging as _logging
+    _log = _logging.getLogger("saimon.health")
+    db_ok = False
+    if _db_pool is not None:
+        try:
+            await _db_pool.fetch("SELECT 1")
+            db_ok = True
+        except Exception:  # noqa: BLE001
+            _log.debug("search-mcp health: DB not reachable", exc_info=True)
+    return {
+        "status": "ok",
+        "service": "search-mcp",
+        "checks": {"database": "connected" if db_ok else "unavailable"},
+    }
 
 
 # ---------------------------------------------------------------------------

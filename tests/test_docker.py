@@ -363,3 +363,304 @@ class TestSchema:
         content = read_file("schema.sql")
         assert "INSERT INTO voice_profiles" in content
         assert "spencer-default" in content
+
+
+# ---------------------------------------------------------------------------
+# DEPLOY-HARDEN-1 tests — Dockerfile hardening
+# ---------------------------------------------------------------------------
+
+class TestDockerfileHardening:
+    """Validate Dockerfile production hardening additions."""
+
+    def test_dockerfile_has_stopsignal(self):
+        content = read_file("Dockerfile")
+        assert "STOPSIGNAL" in content, "Dockerfile must define STOPSIGNAL"
+
+    def test_dockerfile_stopsignal_is_sigterm(self):
+        content = read_file("Dockerfile")
+        assert "STOPSIGNAL SIGTERM" in content, "STOPSIGNAL must be SIGTERM"
+
+    def test_dockerfile_has_healthcheck_instruction(self):
+        content = read_file("Dockerfile")
+        assert "HEALTHCHECK" in content, "Dockerfile must have HEALTHCHECK"
+
+
+# ---------------------------------------------------------------------------
+# DEPLOY-HARDEN-1 tests — entrypoint hardening
+# ---------------------------------------------------------------------------
+
+class TestEntrypointHardening:
+    """Validate entrypoint graceful shutdown additions."""
+
+    def test_entrypoint_has_graceful_timeout(self):
+        content = read_file("docker-entrypoint.sh")
+        assert "--graceful-timeout" in content, (
+            "entrypoint must pass --graceful-timeout to uvicorn"
+        )
+
+
+# ---------------------------------------------------------------------------
+# DEPLOY-HARDEN-1 tests — production compose
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def prod_compose_yaml():
+    path = REPO_ROOT / "docker-compose.prod.yml"
+    with open(path) as f:
+        return yaml.safe_load(f)
+
+
+class TestProductionCompose:
+    """Validate docker-compose.prod.yml structure."""
+
+    def test_prod_compose_exists(self):
+        assert file_exists("docker-compose.prod.yml"), (
+            "docker-compose.prod.yml is missing"
+        )
+
+    def test_prod_compose_has_all_mcps(self, prod_compose_yaml):
+        services = prod_compose_yaml.get("services", {})
+        expected = {
+            "postgres", "search-mcp", "generate-mcp", "export-mcp",
+            "evaluate-mcp", "verify-mcp", "explore-mcp",
+        }
+        assert set(services.keys()) == expected
+
+    def test_prod_services_restart_always(self, prod_compose_yaml):
+        for name, svc in prod_compose_yaml["services"].items():
+            restart = svc.get("restart", "")
+            assert restart == "always", f"{name} must have restart: always in prod"
+
+    def test_prod_services_have_resource_limits(self, prod_compose_yaml):
+        for name in ["search-mcp", "generate-mcp", "export-mcp",
+                     "evaluate-mcp", "verify-mcp", "explore-mcp"]:
+            svc = prod_compose_yaml["services"][name]
+            deploy = svc.get("deploy", {})
+            resources = deploy.get("resources", {})
+            assert "limits" in resources, f"{name} missing resource limits"
+            assert "reservations" in resources, f"{name} missing resource reservations"
+
+    def test_prod_services_have_logging(self, prod_compose_yaml):
+        for name in ["search-mcp", "generate-mcp", "export-mcp",
+                     "evaluate-mcp", "verify-mcp", "explore-mcp"]:
+            svc = prod_compose_yaml["services"][name]
+            logging = svc.get("logging", {})
+            assert "driver" in logging, f"{name} missing logging driver"
+
+    def test_prod_has_saimon_env_production(self, prod_compose_yaml):
+        for name in ["search-mcp", "generate-mcp", "export-mcp",
+                     "evaluate-mcp", "verify-mcp", "explore-mcp"]:
+            svc = prod_compose_yaml["services"][name]
+            env = svc.get("environment", {})
+            env_str = str(env)
+            assert "SAIMON_ENV" in env_str, f"{name} missing SAIMON_ENV in prod"
+
+    def test_prod_no_default_saimon_api_key(self, prod_compose_yaml):
+        """Production compose must not have default dev API keys."""
+        for name in ["search-mcp", "generate-mcp", "export-mcp",
+                     "evaluate-mcp", "verify-mcp", "explore-mcp"]:
+            svc = prod_compose_yaml["services"][name]
+            env = svc.get("environment", {})
+            env_str = str(env)
+            assert "sk-test-" not in env_str, (
+                f"{name} must not use default test API key in prod"
+            )
+
+
+# ---------------------------------------------------------------------------
+# DEPLOY-HARDEN-1 tests — .env.example
+# ---------------------------------------------------------------------------
+
+class TestEnvExample:
+    """Validate .env.example template."""
+
+    def test_env_example_exists(self):
+        assert file_exists(".env.example"), ".env.example is missing"
+
+    def test_env_example_has_saimon_api_key(self):
+        content = read_file(".env.example")
+        assert "SAIMON_API_KEY" in content
+
+    def test_env_example_has_database_url(self):
+        content = read_file(".env.example")
+        assert "DATABASE_URL" in content
+
+    def test_env_example_has_deepseek_api_key(self):
+        content = read_file(".env.example")
+        assert "DEEPSEEK_API_KEY" in content
+
+    def test_env_example_has_saimon_env(self):
+        content = read_file(".env.example")
+        assert "SAIMON_ENV" in content
+
+    def test_env_example_warns_not_to_commit(self):
+        content = read_file(".env.example")
+        assert "Never commit" in content or "never commit" in content.lower()
+
+
+# ---------------------------------------------------------------------------
+# DEPLOY-HARDEN-1 tests — CI workflow
+# ---------------------------------------------------------------------------
+
+class TestCIWorkflow:
+    """Validate .github/workflows/ci.yml."""
+
+    @property
+    def ci_path(self) -> str:
+        return ".github/workflows/ci.yml"
+
+    def test_ci_workflow_exists(self):
+        assert file_exists(self.ci_path), "CI workflow is missing"
+
+    def test_ci_has_test_job(self):
+        content = read_file(self.ci_path)
+        assert "pytest" in content, "CI must run pytest"
+
+    def test_ci_has_lint_job(self):
+        content = read_file(self.ci_path)
+        assert "ruff" in content, "CI must run ruff"
+
+    def test_ci_has_docker_build(self):
+        content = read_file(self.ci_path)
+        assert "docker" in content.lower(), "CI must build Docker image"
+
+    def test_ci_uses_python_311(self):
+        content = read_file(self.ci_path)
+        assert "3.11" in content, "CI must use Python 3.11"
+
+    def test_ci_triggers_on_push(self):
+        content = read_file(self.ci_path)
+        assert "push" in content, "CI must trigger on push"
+
+    def test_ci_triggers_on_pr(self):
+        content = read_file(self.ci_path)
+        assert "pull_request" in content, "CI must trigger on pull_request"
+
+
+# ---------------------------------------------------------------------------
+# DEPLOY-HARDEN-1 tests — deep health checks
+# ---------------------------------------------------------------------------
+
+class TestDeepHealthChecks:
+    """Validate enhanced /health endpoints with backend status checks."""
+
+    MCP_NAMES: ClassVar = [
+        "search", "generate", "export", "evaluate", "verify", "explore",
+    ]
+
+    @pytest.mark.parametrize("mcp_name", MCP_NAMES)
+    def test_health_has_checks_field(self, mcp_name):
+        """Verify /health response includes a 'checks' dict."""
+        server_path = REPO_ROOT / "mcp" / mcp_name / "server.py"
+        content = server_path.read_text()
+        assert '"checks"' in content, (
+            f"{mcp_name}/server.py health must include 'checks' field"
+        )
+
+    def test_search_health_checks_database(self):
+        content = read_file("mcp/search/server.py")
+        assert "database" in content.lower(), (
+            "search health must report database status"
+        )
+
+    def test_generate_health_checks_llm_and_db(self):
+        content = read_file("mcp/generate/server.py")
+        assert "llm" in content.lower(), (
+            "generate health must report LLM status"
+        )
+        assert "database" in content.lower(), (
+            "generate health must report database status"
+        )
+
+    def test_export_health_reports_stateless(self):
+        content = read_file("mcp/export/server.py")
+        assert "stateless" in content.lower(), (
+            "export health must report stateless backend"
+        )
+
+    def test_evaluate_health_checks_llm(self):
+        content = read_file("mcp/evaluate/server.py")
+        assert "llm" in content.lower(), (
+            "evaluate health must report LLM status"
+        )
+
+    def test_verify_health_checks_llm(self):
+        content = read_file("mcp/verify/server.py")
+        assert "llm" in content.lower(), (
+            "verify health must report LLM status"
+        )
+
+    def test_explore_health_checks_database(self):
+        content = read_file("mcp/explore/server.py")
+        assert "database" in content.lower(), (
+            "explore health must report database status"
+        )
+
+
+# ---------------------------------------------------------------------------
+# DEPLOY-HARDEN-1 tests — lifespan module
+# ---------------------------------------------------------------------------
+
+class TestLifespanModule:
+    """Validate research_shared/lifespan.py."""
+
+    def test_lifespan_module_exists(self):
+        path = REPO_ROOT / "research_shared" / "lifespan.py"
+        assert path.is_file(), "lifespan.py is missing"
+
+    def test_lifespan_exports_build_lifespan(self):
+        from research_shared.lifespan import build_lifespan
+        assert callable(build_lifespan)
+
+    def test_build_lifespan_returns_callable(self):
+        from research_shared.lifespan import build_lifespan
+        result = build_lifespan("test-mcp")
+        assert callable(result)
+
+
+# ---------------------------------------------------------------------------
+# DEPLOY-HARDEN-1 tests — secrets module
+# ---------------------------------------------------------------------------
+
+class TestSecretsModule:
+    """Validate research_shared/secrets.py is importable."""
+
+    def test_secrets_module_exists(self):
+        path = REPO_ROOT / "research_shared" / "secrets.py"
+        assert path.is_file(), "secrets.py is missing"
+
+    def test_secrets_exports_config(self):
+        from research_shared.secrets import SecretsConfig
+        assert SecretsConfig is not None
+
+    def test_secrets_exports_validation_result(self):
+        from research_shared.secrets import ValidationResult
+        assert ValidationResult is not None
+
+
+# ---------------------------------------------------------------------------
+# DEPLOY-HARDEN-1 tests — all servers use lifespan
+# ---------------------------------------------------------------------------
+
+class TestAllServersUseLifespan:
+    """Validate every MCP server imports and uses build_lifespan."""
+
+    MCP_NAMES: ClassVar = [
+        "search", "generate", "export", "evaluate", "verify", "explore",
+    ]
+
+    @pytest.mark.parametrize("mcp_name", MCP_NAMES)
+    def test_server_imports_lifespan(self, mcp_name):
+        server_path = REPO_ROOT / "mcp" / mcp_name / "server.py"
+        content = server_path.read_text()
+        assert "build_lifespan" in content, (
+            f"{mcp_name}/server.py must import build_lifespan"
+        )
+
+    @pytest.mark.parametrize("mcp_name", MCP_NAMES)
+    def test_server_passes_lifespan_to_fastapi(self, mcp_name):
+        server_path = REPO_ROOT / "mcp" / mcp_name / "server.py"
+        content = server_path.read_text()
+        assert "lifespan=" in content, (
+            f"{mcp_name}/server.py must pass lifespan= to FastAPI()"
+        )

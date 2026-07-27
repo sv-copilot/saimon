@@ -1,0 +1,184 @@
+# Production docker-compose overrides for Saimon Platform.
+#
+# Usage:
+#   cp .env.example .env   # then fill in real secrets
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Differences from dev:
+# - No default API keys (secrets must come from .env).
+# - Resource limits on all services.
+# - JSON-file logging with rotation.
+# - Restart policy set to "always".
+# - PostgreSQL data volume is persistent.
+
+version: "3.9"
+
+services:
+  # -----------------------------------------------------------------------
+  # PostgreSQL 16 — production hardening
+  # -----------------------------------------------------------------------
+  postgres:
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "2G"
+        reservations:
+          cpus: "0.5"
+          memory: "512M"
+
+  # -----------------------------------------------------------------------
+  # search-mcp (port 8001)
+  # -----------------------------------------------------------------------
+  search-mcp:
+    restart: always
+    environment:
+      PORT: "8001"
+      SAIMON_API_KEY: ${SAIMON_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      SAIMON_ENV: production
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "256M"
+        reservations:
+          cpus: "0.1"
+          memory: "128M"
+
+  # -----------------------------------------------------------------------
+  # generate-mcp (port 8002)
+  # -----------------------------------------------------------------------
+  generate-mcp:
+    restart: always
+    environment:
+      PORT: "8002"
+      SAIMON_API_KEY: ${SAIMON_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      SAIMON_ENV: production
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: "512M"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+
+  # -----------------------------------------------------------------------
+  # export-mcp (port 8003)
+  # -----------------------------------------------------------------------
+  export-mcp:
+    restart: always
+    environment:
+      PORT: "8003"
+      SAIMON_API_KEY: ${SAIMON_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      SAIMON_ENV: production
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "256M"
+        reservations:
+          cpus: "0.1"
+          memory: "128M"
+
+  # -----------------------------------------------------------------------
+  # evaluate-mcp (port 8004)
+  # -----------------------------------------------------------------------
+  evaluate-mcp:
+    restart: always
+    environment:
+      PORT: "8004"
+      SAIMON_API_KEY: ${SAIMON_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      SAIMON_ENV: production
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: "512M"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+
+  # -----------------------------------------------------------------------
+  # verify-mcp (port 8005)
+  # -----------------------------------------------------------------------
+  verify-mcp:
+    restart: always
+    environment:
+      PORT: "8005"
+      SAIMON_API_KEY: ${SAIMON_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      SAIMON_ENV: production
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: "512M"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+
+  # -----------------------------------------------------------------------
+  # explore-mcp (port 8006)
+  # -----------------------------------------------------------------------
+  explore-mcp:
+    restart: always
+    environment:
+      PORT: "8006"
+      SAIMON_API_KEY: ${SAIMON_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      SAIMON_ENV: production
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "256M"
+        reservations:
+          cpus: "0.1"
+          memory: "128M"

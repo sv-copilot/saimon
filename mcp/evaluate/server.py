@@ -18,13 +18,15 @@ from fastapi import FastAPI, HTTPException, Request
 from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.envelope import ResearchRequest, ResearchResponse
+from research_shared.lifespan import build_lifespan
 from research_shared.llm import LLMClient, LLMError
 
 # ---------------------------------------------------------------------------
 # application factory
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="evaluate-mcp", version="0.1.0")
+_lifespan = build_lifespan("evaluate-mcp", llm_client_ref=lambda: _llm_client)
+app = FastAPI(title="evaluate-mcp", version="0.1.0", lifespan=_lifespan)
 
 # ---------------------------------------------------------------------------
 # auth (fail-closed)
@@ -97,7 +99,20 @@ _CRITERIA: dict[str, dict[str, Any]] = {
 @app.get("/health")
 async def health() -> dict[str, Any]:
     """Unauthenticated health check."""
-    return {"status": "ok", "service": "evaluate-mcp"}
+    import logging as _logging
+    _log = _logging.getLogger("saimon.health")
+    llm_ok = False
+    if _llm_client is not None:
+        try:
+            await _llm_client.health_check()
+            llm_ok = True
+        except Exception:  # noqa: BLE001
+            _log.debug("evaluate-mcp health: LLM not reachable", exc_info=True)
+    return {
+        "status": "ok",
+        "service": "evaluate-mcp",
+        "checks": {"llm": "connected" if llm_ok else "unavailable"},
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -92,3 +92,21 @@ class LLMClient:
             "LLMClient.generate requires a live DeepSeek endpoint. "
             "Set SAIMON_API_KEY and ensure network access."
         )
+
+    async def health_check(self) -> bool:
+        """Check if the LLM backend is reachable.
+
+        Returns True if the backend responds, False otherwise.
+        In the base implementation this always returns True when
+        configured (the NotImplementedError is for generate, not
+        for simple connectivity checks).
+        """
+        return self.config.api_key is not None
+
+    async def close(self) -> None:
+        """Close any open connections to the LLM backend.
+
+        This is a no-op for the current stateless HTTP client,
+        but provides a consistent interface with DatabasePool.close().
+        """
+        return

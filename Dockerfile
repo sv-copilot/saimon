@@ -40,4 +40,9 @@ RUN chmod +x /docker-entrypoint.sh
 
 EXPOSE 8000
 
+STOPSIGNAL SIGTERM
+
+HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
+
 ENTRYPOINT ["/docker-entrypoint.sh"]

@@ -15,12 +15,14 @@ from fastapi import FastAPI, HTTPException, Request
 from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.envelope import ResearchRequest, ResearchResponse
+from research_shared.lifespan import build_lifespan
 
 # ---------------------------------------------------------------------------
 # application factory
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="export-mcp", version="0.1.0")
+_lifespan = build_lifespan("export-mcp")
+app = FastAPI(title="export-mcp", version="0.1.0", lifespan=_lifespan)
 
 # ---------------------------------------------------------------------------
 # auth (fail-closed)
@@ -75,7 +77,11 @@ _FORMATS: dict[str, dict[str, Any]] = {
 @app.get("/health")
 async def health() -> dict[str, Any]:
     """Unauthenticated health check."""
-    return {"status": "ok", "service": "export-mcp"}
+    return {
+        "status": "ok",
+        "service": "export-mcp",
+        "checks": {"backend": "stateless"},
+    }
 
 
 # ---------------------------------------------------------------------------

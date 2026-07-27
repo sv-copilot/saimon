@@ -114,6 +114,7 @@ git merge slice/PARENT   # bring in unmerged dependency
 | DOCKER-1 | `slice/DOCKER-1` | ✅ merged | Dockerfile, docker-compose (7 svc + PG16), entrypoint, .dockerignore, schema.sql |
 | DOMAIN-BOOTSTRAP-1 | `slice/DOMAIN-BOOTSTRAP-1` | ✅ merged | `research_shared/seed_data.py`: 13 content types, 5 voice profiles, 15 seed requests; updated schema.sql |
 | MCP-INTEGRATION-1 | `slice/MCP-INTEGRATION-1` | ✅ merged | Wire MCPs to real backends: LLM, DB, seed_data; 333 tests + 26 integration tests |
+| SELF-EXTEND-2 | `slice/SELF-EXTEND-2` | ✅ merged | `seed_loader.py` + generate-mcp self-extend wiring; 358 tests |
 
 ## Session Startup Protocol
 
@@ -237,6 +238,7 @@ Then follow TDD: RED → GREEN → REFACTOR → PROVE.
 | DOCKER-1 | `slice/DOCKER-1` | ✅ merged | Dockerfile, docker-compose (7 svc + PG16), entrypoint, .dockerignore, schema.sql |
 | DOMAIN-BOOTSTRAP-1 | `slice/DOMAIN-BOOTSTRAP-1` | ✅ merged | `research_shared/seed_data.py`: 13 content types, 5 voice profiles, 15 seed requests; updated schema.sql |
 | MCP-INTEGRATION-1 | `slice/MCP-INTEGRATION-1` | ✅ merged | Wire MCPs to real backends: LLM, DB, seed_data; 333 tests + 26 integration tests |
+| SELF-EXTEND-2 | `slice/SELF-EXTEND-2` | ✅ merged | `seed_loader.py` + generate-mcp self-extend wiring; 358 tests |
 
 ## Recursive Prompt for New Sessions
 
@@ -282,12 +284,15 @@ RED → GREEN → REFACTOR → PROVE.
 
 ## 4. Current state (auto-updated)
 
-- 11 of 11 slices merged: shared-lib + 6 MCPs + Docker + self-extend + domain-bootstrap + integration
+- 12 of 12 slices merged: shared-lib + 6 MCPs + Docker + self-extend + domain-bootstrap + integration + runtime-self-extension
 - All 6 MCPs wired to LLM/DB backends with dependency injection
-- 333 tests passing, ruff clean, compileall OK
-- 26 integration tests verifying backend wiring across all MCPs
-- research_shared/: envelope, llm, db, auth, resilience, audit, self_extend, seed_data (8 modules)
+- 358 tests passing, ruff clean, compileall OK
+- 38 integration tests verifying backend wiring + self-extension across all MCPs
+- research_shared/: envelope, llm, db, auth, resilience, audit, self_extend, seed_data, seed_loader (9 modules)
 - Content types sourced from seed_data.py (13 types, 5 voice profiles)
+- Runtime self-extension: unknown types trigger research → auto-register via SelfExtender
+- DB re-seed resilience: SeedLoader loads canonical data on demand
+- All 4 success criteria from project_intake.json met
 - Next: define next slice from .docs/project_intake.json
 
 ## 5. Environment
@@ -312,19 +317,17 @@ contract. Then read the Slice Inventory table in AGENTS.md to see what
 has been built and what comes next.
 
 Current state:
-- research_shared/ is built (8 modules: envelope, llm, db, auth,
-  resilience, audit, self_extend, seed_data).
-- 9 of 9 slices merged: all 6 MCPs + shared-lib + Docker/Compose
-  + self-extension
-- DOMAIN-BOOTSTRAP-1 built (PR #9): 13 content types, 5 voice
-  profiles, 15 seed requests; updated schema.sql
-- 307 tests passing, ruff clean, compileall OK
-- Docker + Compose: built and merged
-- All 6 MCPs structurally complete but return synthetic/stub
-  responses — not yet wired to real DB, LLM, or SelfExtender
+- research_shared/ is built (9 modules: envelope, llm, db, auth,
+  resilience, audit, self_extend, seed_data, seed_loader).
+- 12 of 12 slices merged: all 6 MCPs + shared-lib + Docker/Compose
+  + self-extension + domain-bootstrap + integration + runtime-self-extension
+- 358 tests passing, ruff clean, compileall OK
+- All 6 MCPs wired to LLM/DB backends with dependency injection
+- Runtime self-extension: unknown types → research → auto-register via SelfExtender
+- DB re-seed resilience: SeedLoader loads canonical data on demand
+- All 4 success criteria from project_intake.json met
 
-Next phase: MCP-INTEGRATION-1 — wire MCPs to real backends.
-See .docs/project_intake.json for success criteria.
+Next: define next slice from .docs/project_intake.json.
 
 Follow the PR & Merge Workflow in AGENTS.md: start a new slice branch
 from ai-dev, merge any unmerged dependencies via `git merge`, then

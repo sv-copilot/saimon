@@ -3,6 +3,11 @@
 -- The platform should survive a DB wipe and re-seed from seed_requests.
 
 -- ---------------------------------------------------------------------------
+-- extensions
+-- ---------------------------------------------------------------------------
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- ---------------------------------------------------------------------------
 -- content_type_registry — extensible content type definitions
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS content_type_registry (

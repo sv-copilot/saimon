@@ -108,8 +108,8 @@ git merge slice/PARENT   # bring in unmerged dependency
 | MCP-SEARCH-1 | `slice/MCP-SEARCH-1` | ✅ merged | `mcp/search/`: FastAPI server, 5 tool endpoints |
 | MCP-GENERATE-1 | `slice/MCP-GENERATE-1` | ✅ merged | `mcp/generate/`: LLM content generation MCP |
 | MCP-EXPORT-1 | `slice/MCP-EXPORT-1` | ✅ merged | `mcp/export/`: output formatting MCP |
-| MCP-EVALUATE-1 | — | 🔲 next | `mcp/evaluate/`: quality gate MCP |
-| MCP-VERIFY-1 | — | 🔲 pending | `mcp/verify/`: fact-checking MCP |
+| MCP-EVALUATE-1 | `slice/MCP-EVALUATE-1` | ✅ merged | `mcp/evaluate/`: quality gate MCP |
+| MCP-VERIFY-1 | — | 🔲 next | `mcp/verify/`: fact-checking MCP |
 | MCP-EXPLORE-1 | — | 🔲 pending | `mcp/explore/`: discovery MCP |
 
 ## Session Startup Protocol
@@ -228,8 +228,8 @@ Then follow TDD: RED → GREEN → REFACTOR → PROVE.
 | MCP-SEARCH-1 | `slice/MCP-SEARCH-1` | ✅ merged | `mcp/search/`: FastAPI server, 5 tool endpoints |
 | MCP-GENERATE-1 | `slice/MCP-GENERATE-1` | ✅ merged | `mcp/generate/`: LLM content generation MCP |
 | MCP-EXPORT-1 | `slice/MCP-EXPORT-1` | ✅ merged | `mcp/export/`: output formatting MCP |
-| MCP-EVALUATE-1 | — | 🔲 next | `mcp/evaluate/`: quality gate MCP |
-| MCP-VERIFY-1 | — | 🔲 pending | `mcp/verify/`: fact-checking MCP |
+| MCP-EVALUATE-1 | `slice/MCP-EVALUATE-1` | ✅ merged | `mcp/evaluate/`: quality gate MCP |
+| MCP-VERIFY-1 | — | 🔲 next | `mcp/verify/`: fact-checking MCP |
 | MCP-EXPLORE-1 | — | 🔲 pending | `mcp/explore/`: discovery MCP |
 
 ## Recursive Prompt for New Sessions

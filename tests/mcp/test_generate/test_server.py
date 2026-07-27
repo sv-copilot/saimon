@@ -1,5 +1,7 @@
 """Tests for generate-mcp — LLM content generation MCP."""
 
+import pytest
+
 
 # ---------------------------------------------------------------------------
 # Health
@@ -279,3 +281,146 @@ class TestToolCount:
         assert response.status_code == 200
         data = response.json()
         assert len(data["tools"]) <= 10
+
+
+# ---------------------------------------------------------------------------
+# Tool: generate_job_hunt_content
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateJobHuntContent:
+    def test_tool_registered(self, client, auth_headers):
+        """generate_job_hunt_content appears in tools listing."""
+        response = client.get("/tools", headers=auth_headers)
+        data = response.json()
+        tool_names = {t["name"] for t in data["tools"]}
+        assert "generate_job_hunt_content" in tool_names
+
+    def test_accepts_valid_domain_type(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """generate_job_hunt_content accepts a valid job hunt content type."""
+        response = client.post(
+            "/tools/generate_job_hunt_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "resume",
+                "parameters": {"prompt": "Senior engineer with 8 YOE."},
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] in ("success", "degraded")
+
+    def test_rejects_non_domain_type(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """generate_job_hunt_content rejects non-job-hunt content types."""
+        response = client.post(
+            "/tools/generate_job_hunt_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "blog_post",
+                "parameters": {"prompt": "Write about AI."},
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "error"
+        assert "not a job hunt content type" in str(data.get("errors", []))
+
+    def test_requires_prompt(self, client, sample_trace_id, auth_headers):
+        """generate_job_hunt_content errors without prompt."""
+        response = client.post(
+            "/tools/generate_job_hunt_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "resume",
+                "parameters": {},
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "error"
+
+    def test_requires_auth(self, client, sample_trace_id):
+        """generate_job_hunt_content rejects unauthenticated requests."""
+        response = client.post(
+            "/tools/generate_job_hunt_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "resume",
+                "parameters": {"prompt": "Test."},
+            },
+        )
+        assert response.status_code == 401
+
+    @pytest.mark.parametrize("content_type", [
+        "resume",
+        "cover_letter",
+        "job_match",
+        "interview_prep",
+        "salary_benchmark",
+    ])
+    def test_all_domain_types_work(
+        self, client, sample_trace_id, auth_headers, content_type
+    ):
+        """All 5 job hunt domain types produce valid responses."""
+        response = client.post(
+            "/tools/generate_job_hunt_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": content_type,
+                "parameters": {"prompt": f"Test prompt for {content_type}."},
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] in ("success", "degraded")
+        assert data.get("data", {}).get("domain") == "job_hunt"
+
+    def test_list_content_types_includes_domain_types(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """list_content_types includes job hunt domain types."""
+        response = client.post(
+            "/tools/list_content_types",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "generate",
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        type_names = {t["name"] for t in data["data"]["types"]}
+        expected = {"resume", "cover_letter", "job_match",
+                    "interview_prep", "salary_benchmark"}
+        missing = expected - type_names
+        assert not missing, f"Domain types missing from listing: {missing}"
+
+    def test_domain_types_have_domain_field(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """Domain content types include domain field in list_content_types."""
+        response = client.post(
+            "/tools/list_content_types",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "generate",
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        domain_types = [
+            t for t in data["data"]["types"]
+            if t["name"] in {
+                "resume", "cover_letter", "job_match",
+                "interview_prep", "salary_benchmark",
+            }
+        ]
+        for dt in domain_types:
+            assert dt.get("domain") == "job_hunt", (
+                f"Domain type {dt['name']} missing domain field"
+            )

@@ -26,6 +26,13 @@ from research_shared.lifespan import build_lifespan
 from research_shared.llm import LLMClient, LLMError
 from research_shared.seed_data import CONTENT_TYPES as SEED_CONTENT_TYPES
 
+try:
+    from research_shared.job_hunt_config import (
+        DOMAIN_CONTENT_TYPES as JOB_HUNT_CONTENT_TYPES,
+    )
+except ImportError:  # domain not installed — graceful degradation
+    JOB_HUNT_CONTENT_TYPES = []
+
 # ---------------------------------------------------------------------------
 # application factory
 # ---------------------------------------------------------------------------
@@ -109,14 +116,20 @@ def set_db_pool(pool: Any | None) -> None:
 # ---------------------------------------------------------------------------
 
 def _build_content_types_lookup() -> dict[str, dict[str, Any]]:
-    """Build a name→definition lookup from seed_data.CONTENT_TYPES."""
+    """Build a name→definition lookup from seed_data.CONTENT_TYPES
+    and any loaded domain config modules."""
     lookup: dict[str, dict[str, Any]] = {}
     for ct in SEED_CONTENT_TYPES:
+        lookup[ct["name"]] = ct
+    for ct in JOB_HUNT_CONTENT_TYPES:
         lookup[ct["name"]] = ct
     return lookup
 
 
 _CONTENT_TYPES = _build_content_types_lookup()
+
+# domain content type name sets for quick lookup
+_JOB_HUNT_TYPE_NAMES = {ct["name"] for ct in JOB_HUNT_CONTENT_TYPES}
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +189,18 @@ _TOOLS = [
         "description": "Re-seed the database with canonical content types, "
                        "voice profiles, and seed requests.",
         "parameters": {},
+    },
+    {
+        "name": "generate_job_hunt_content",
+        "description": "Generate job hunt domain content: resume, cover "
+                       "letter, job match analysis, interview prep, or "
+                       "salary benchmark.",
+        "parameters": {
+            "prompt": "str",
+            "content_type": "str (one of: resume, cover_letter, job_match, "
+                           "interview_prep, salary_benchmark)",
+            "tone": "str (optional)",
+        },
     },
 ]
 
@@ -363,13 +388,26 @@ async def list_content_types(
         for ct in SEED_CONTENT_TYPES
     ]
 
+    # Add domain content types
+    for ct in JOB_HUNT_CONTENT_TYPES:
+        types.append({
+            "name": ct["name"],
+            "description": ct["description"],
+            "required_params": ct.get("required_params", []),
+            "optional_params": ct.get("optional_params", []),
+            "voice_profile": ct.get("voice_profile"),
+            "domain": "job_hunt",
+        })
+
     # Merge runtime-registered types from SelfExtender (if injected)
     if _self_extender is not None:
         try:
             registered = await _self_extender.list_registered_types()
             seed_names = {ct["name"] for ct in SEED_CONTENT_TYPES}
+            domain_names = {ct["name"] for ct in JOB_HUNT_CONTENT_TYPES}
+            known = seed_names | domain_names
             for rt in registered:
-                if rt["name"] not in seed_names:
+                if rt["name"] not in known:
                     types.append(rt)
         except Exception:  # noqa: BLE001, S110 — degrade gracefully if registry unavailable
             pass
@@ -458,3 +496,106 @@ async def seed_content_types(
     except Exception as exc:  # noqa: BLE001 — catch-all for seed failures
         logger.log_response(status="error")
         return _error(payload.trace_id, f"Seed failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# tool: generate_job_hunt_content
+# ---------------------------------------------------------------------------
+
+
+@app.post("/tools/generate_job_hunt_content")
+async def generate_job_hunt_content(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    _require_auth(request)
+
+    prompt = payload.parameters.get("prompt")
+    if not prompt:
+        return _error(payload.trace_id, "Parameter 'prompt' is required.")
+
+    content_type = payload.content_type
+
+    # Validate this is a job hunt domain type
+    if content_type not in _JOB_HUNT_TYPE_NAMES:
+        valid = ", ".join(sorted(_JOB_HUNT_TYPE_NAMES))
+        return _error(
+            payload.trace_id,
+            f"'{content_type}' is not a job hunt content type. "
+            f"Valid types: {valid}",
+        )
+
+    ct_schema = _CONTENT_TYPES.get(content_type)
+
+    logger = AuditLogger(trace_id=payload.trace_id, service_name="generate-mcp")
+    logger.log_request(
+        content_type=content_type,
+        tool="generate_job_hunt_content",
+        prompt_length=len(prompt),
+        sources_count=len(payload.sources),
+    )
+
+    # ── self-extend: try to register if somehow missing ──
+    if ct_schema is None and _self_extender is not None:
+        try:
+            ct_schema = await _self_extender.ensure_type(content_type)
+            logger.log_request(
+                content_type=content_type,
+                tool="self_extend",
+                event="auto_registered",
+            )
+        except Exception:  # noqa: BLE001 — gracefully degrade
+            ct_schema = None
+
+    citations = [s.identifier for s in payload.sources] if payload.sources else []
+    tone = payload.parameters.get("tone", "neutral")
+
+    # ── try LLM backend ──
+    if _llm_client is not None:
+        try:
+            content = await _generate_via_llm(prompt, content_type, tone, ct_schema)
+            generated: dict[str, Any] = {
+                "content": content,
+                "content_type": content_type,
+                "tone": tone,
+                "word_count": len(content.split()),
+                "backend": "llm",
+                "domain": "job_hunt",
+            }
+            resp = _ok(
+                trace_id=payload.trace_id,
+                data=generated,
+                citations=citations,
+            )
+            logger.log_response(
+                status=resp.status, citations_count=len(resp.citations or [])
+            )
+            return resp
+        except LLMError as exc:
+            logger.log_response(status="error")
+            return _error(payload.trace_id, f"LLM generation failed: {exc}")
+        except NotImplementedError:
+            pass  # fall through to fallback
+
+    # ── fallback ──
+    fallback_content = (
+        f"[{content_type.replace('_', ' ').title()}] "
+        f"Prompt: {prompt}\n\n"
+        f"(Job Hunt domain — LLM backend not available. "
+        f"Set SAIMON_API_KEY and inject an LLMClient for full generation.)"
+    )
+    generated = {
+        "content": fallback_content,
+        "content_type": content_type,
+        "tone": tone,
+        "word_count": len(fallback_content.split()),
+        "backend": "fallback",
+        "domain": "job_hunt",
+    }
+
+    resp = _degraded(
+        trace_id=payload.trace_id,
+        data=generated,
+        citations=citations,
+    )
+    logger.log_response(status=resp.status, citations_count=len(resp.citations or []))
+    return resp

@@ -226,3 +226,149 @@ class TestSeedLoaderLoadAll:
         assert result["content_types"]["loaded"] == len(CONTENT_TYPES)
         assert result["voice_profiles"]["loaded"] == len(VOICE_PROFILES)
         assert result["seed_requests"]["loaded"] == len(SEED_REQUESTS)
+
+
+# ---------------------------------------------------------------------------
+# SeedLoader — domain module support
+# ---------------------------------------------------------------------------
+
+
+class TestSeedLoaderWithDomainModules:
+    """SeedLoader should accept and load domain config modules."""
+
+    def test_constructor_accepts_domain_modules(self):
+        """SeedLoader accepts optional domain_modules parameter."""
+        from research_shared.seed_loader import SeedLoader
+
+        pool = _TrackingPool()
+        loader = SeedLoader(db=pool, domain_modules=[])
+        assert loader is not None
+        assert loader._domain_modules == []
+
+    def test_constructor_defaults_domain_modules_to_empty(self):
+        """domain_modules defaults to empty list when not provided."""
+        from research_shared.seed_loader import SeedLoader
+
+        pool = _TrackingPool()
+        loader = SeedLoader(db=pool)
+        assert loader._domain_modules == []
+
+    @pytest.mark.asyncio
+    async def test_load_content_types_includes_domain(self):
+        """load_content_types merges core + domain content types."""
+        from research_shared.seed_loader import SeedLoader
+        from research_shared import job_hunt_config
+
+        pool = _TrackingPool()
+        loader = SeedLoader(db=pool, domain_modules=[job_hunt_config])
+        result = await loader.load_content_types()
+
+        expected_total = len(CONTENT_TYPES) + len(
+            job_hunt_config.DOMAIN_CONTENT_TYPES
+        )
+        assert result["loaded"] == expected_total
+        assert result["domain_count"] == len(
+            job_hunt_config.DOMAIN_CONTENT_TYPES
+        )
+
+    @pytest.mark.asyncio
+    async def test_load_voice_profiles_includes_domain(self):
+        """load_voice_profiles merges core + domain voice profiles."""
+        from research_shared.seed_loader import SeedLoader
+        from research_shared import job_hunt_config
+
+        pool = _TrackingPool()
+        loader = SeedLoader(db=pool, domain_modules=[job_hunt_config])
+        result = await loader.load_voice_profiles()
+
+        expected_total = len(VOICE_PROFILES) + len(
+            job_hunt_config.DOMAIN_VOICE_PROFILES
+        )
+        assert result["loaded"] == expected_total
+        assert result["domain_count"] == len(
+            job_hunt_config.DOMAIN_VOICE_PROFILES
+        )
+
+    @pytest.mark.asyncio
+    async def test_load_seed_requests_includes_domain(self):
+        """load_seed_requests merges core + domain seed requests."""
+        from research_shared.seed_loader import SeedLoader
+        from research_shared import job_hunt_config
+
+        pool = _TrackingPool()
+        loader = SeedLoader(db=pool, domain_modules=[job_hunt_config])
+        result = await loader.load_seed_requests()
+
+        expected_total = len(SEED_REQUESTS) + len(
+            job_hunt_config.DOMAIN_SEED_REQUESTS
+        )
+        assert result["loaded"] == expected_total
+        assert result["domain_count"] == len(
+            job_hunt_config.DOMAIN_SEED_REQUESTS
+        )
+
+    @pytest.mark.asyncio
+    async def test_load_domain_loads_single_module(self):
+        """load_domain loads a single domain config module."""
+        from research_shared.seed_loader import SeedLoader
+        from research_shared import job_hunt_config
+
+        pool = _TrackingPool()
+        loader = SeedLoader(db=pool)
+        result = await loader.load_domain(job_hunt_config)
+
+        assert result["content_types"]["loaded"] == len(
+            job_hunt_config.DOMAIN_CONTENT_TYPES
+        )
+        assert result["voice_profiles"]["loaded"] == len(
+            job_hunt_config.DOMAIN_VOICE_PROFILES
+        )
+        assert result["seed_requests"]["loaded"] == len(
+            job_hunt_config.DOMAIN_SEED_REQUESTS
+        )
+
+    @pytest.mark.asyncio
+    async def test_load_domain_uses_upsert(self):
+        """load_domain uses ON CONFLICT for idempotency."""
+        from research_shared.seed_loader import SeedLoader
+        from research_shared import job_hunt_config
+
+        pool = _TrackingPool()
+        loader = SeedLoader(db=pool)
+        await loader.load_domain(job_hunt_config)
+
+        for query, _args in pool.executed:
+            assert "ON CONFLICT" in query, (
+                f"INSERT must use ON CONFLICT: {query[:80]}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_load_all_includes_domain(self):
+        """load_all includes domain data when domain_modules provided."""
+        from research_shared.seed_loader import SeedLoader
+        from research_shared import job_hunt_config
+
+        pool = _TrackingPool()
+        loader = SeedLoader(db=pool, domain_modules=[job_hunt_config])
+        result = await loader.load_all()
+
+        expected_ct = len(CONTENT_TYPES) + len(
+            job_hunt_config.DOMAIN_CONTENT_TYPES
+        )
+        expected_vp = len(VOICE_PROFILES) + len(
+            job_hunt_config.DOMAIN_VOICE_PROFILES
+        )
+        expected_sr = len(SEED_REQUESTS) + len(
+            job_hunt_config.DOMAIN_SEED_REQUESTS
+        )
+        assert result["content_types"]["loaded"] == expected_ct
+        assert result["voice_profiles"]["loaded"] == expected_vp
+        assert result["seed_requests"]["loaded"] == expected_sr
+
+    def test_seed_loader_has_load_domain_method(self):
+        """SeedLoader exposes load_domain coroutine method."""
+        from research_shared.seed_loader import SeedLoader
+        import inspect
+
+        assert hasattr(SeedLoader, "load_domain")
+        assert inspect.iscoroutinefunction(SeedLoader.load_domain)

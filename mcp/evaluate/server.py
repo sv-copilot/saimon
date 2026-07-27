@@ -207,7 +207,10 @@ async def _llm_evaluate(
     )
     raw = await _llm_client.generate(prompt)  # type: ignore[union-attr]
     result = _json.loads(raw)
-    return result.get("scores", [])
+    scores = result.get("scores")
+    if not scores or not isinstance(scores, list):
+        return []  # LLM returned null/missing scores — degrade gracefully
+    return scores
 
 
 def _score_criterion(
@@ -258,7 +261,7 @@ def _score_criterion(
 
 
 def _compute_overall(
-    scores: list[dict[str, Any]],
+    scores: list[dict[str, Any]] | None,
 ) -> float:
     """Compute a weighted overall score from individual criterion scores."""
     if not scores:
@@ -293,6 +296,9 @@ async def evaluate_content(
 
     requested = payload.parameters.get("criteria")
     if requested is not None:
+        # Accept comma-separated string or list
+        if isinstance(requested, str):
+            requested = [c.strip() for c in requested.split(",") if c.strip()]
         if not isinstance(requested, list):
             return _error(
                 payload.trace_id, "Parameter 'criteria' must be a list of strings."

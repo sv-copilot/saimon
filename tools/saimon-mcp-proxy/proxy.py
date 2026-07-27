@@ -271,9 +271,16 @@ def _format_result(data: dict[str, Any]) -> str:
 
     if "results" in payload:
         # Search result
-        lines = [f"Found {payload.get('total_results', 0)} results "
-                 f"for '{payload.get('query', '')}':\n"]
-        for i, r in enumerate(payload["results"][:10], 1):
+        results = payload.get("results", [])
+        total = payload.get("total_results", len(results))
+        lines = [f"Found {len(results)} results "
+                 f"(total available: {total}) "
+                 f"for '{payload.get('query', '')}':"]
+        if not results:
+            lines.append("  (no results in this response)")
+            return "\n".join(lines)
+        lines.append("")
+        for i, r in enumerate(results[:10], 1):
             title = r.get("title", "Unknown")
             source = r.get("source_index_label", r.get("source_index", "?"))
             doi = r.get("doi", "")
@@ -346,8 +353,12 @@ def _format_result(data: dict[str, Any]) -> str:
 
     elif "items" in payload:
         # Explore/browse result
-        lines = [f"Found {len(payload['items'])} items:"]
-        for item in payload["items"][:10]:
+        items = payload.get("items", [])
+        lines = [f"Found {len(items)} items:"]
+        if not items:
+            lines.append("  (no items found)")
+            return "\n".join(lines)
+        for item in items[:10]:
             title = item.get("title", "Untitled")
             ctype = item.get("content_type", "?")
             lines.append(f"  [{ctype}] {title}")

@@ -15,6 +15,7 @@ import json as _json
 import os as _os
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 
 from research_shared.audit import AuditLogger
@@ -190,29 +191,77 @@ def _error(trace_id: str, message: str) -> ResearchResponse:
 # LLM verification
 # ---------------------------------------------------------------------------
 
-_VERIFY_PROMPT = """You are a fact-checker. Verify the following claim using
-these methods: {methods}.
+_SEARCH_MCP_URL = _os.environ.get("SEARCH_MCP_URL", "http://saimon-search:8001")
+_SEARCH_API_KEY = _os.environ.get("SAIMON_API_KEY", "sk-test-search-key")
 
-Claim: {claim}
-Sources provided: {source_summary}
+_VERIFY_PROMPT = """You are an expert fact-checker with access to shadow library
+sources. Verify the following claim using these methods: {methods}.
+
+CLAIM: {claim}
+
+SOURCES FOUND VIA SHADOW LIBRARIES:
+{sources_text}
+
+For each method, analyze the claim against the sources above. If a source
+directly supports or refutes the claim, cite it by title and DOI. Be precise.
 
 Return ONLY a JSON object with:
-- "verifications": array of {{ "method": "...", "verdict": "supported|refuted|inconclusive", "confidence": 0.0-1.0, "explanation": "..." }}
+- "verifications": array of {{"method": "...", "verdict": "supported|refuted|inconclusive", "confidence": 0.0-1.0, "explanation": "...", "evidence_source": "title or DOI or null"}}
 - "overall_verdict": "supported|refuted|inconclusive"
 """
 
 
-async def _llm_verify(
-    method_names: list[str], claim: str, sources: Any
+async def _search_sources(
+    claim: str, limit: int = 5,
 ) -> list[dict[str, Any]]:
-    """Verify a claim via the injected LLM."""
-    source_summary = (
-        f"{len(sources)} sources provided" if sources else "no sources"
-    )
+    """Search shadow libraries for sources relevant to the claim."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{_SEARCH_MCP_URL}/tools/search_shadow_libraries",
+                json={
+                    "trace_id": "00000000-0000-0000-0000-000000000000",
+                    "content_type": "search",
+                    "parameters": {"query": claim, "limit": limit},
+                },
+                headers={"X-Saimon-API-Key": _SEARCH_API_KEY},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("data", {}).get("results", [])
+    except Exception:
+        pass
+    return []
+
+
+def _format_sources(sources: list[dict[str, Any]]) -> str:
+    """Format source results into a readable text block for the LLM."""
+    if not sources:
+        return "No sources found."
+    lines = []
+    for i, s in enumerate(sources, 1):
+        title = s.get("title", "Unknown")
+        source = s.get("source_index_label", s.get("source_index", "unknown"))
+        doi = s.get("doi", "")
+        authors = ", ".join(s.get("authors", [])[:3])
+        year = s.get("year", "")
+        lines.append(
+            f"[{i}] {title}\n"
+            f"    Authors: {authors or 'Unknown'} | Year: {year or 'Unknown'}\n"
+            f"    Source: {source} | DOI: {doi or 'N/A'}"
+        )
+    return "\n\n".join(lines)
+
+
+async def _llm_verify(
+    method_names: list[str], claim: str, sources: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Verify a claim via the injected LLM with real source content."""
+    sources_text = _format_sources(sources or [])
     prompt = _VERIFY_PROMPT.format(
         methods=", ".join(method_names),
         claim=claim,
-        source_summary=source_summary,
+        sources_text=sources_text,
     )
     raw = await _llm_client.generate(prompt)  # type: ignore[union-attr]
     result = _json.loads(raw)
@@ -368,18 +417,28 @@ async def verify_claim(
 
     sources = payload.sources if payload.sources else None
 
+    # ── shadow source search ─────────────────────────────────
+    use_shadow = payload.parameters.get("use_shadow_sources", False)
+    shadow_results: list[dict[str, Any]] = []
+    if use_shadow:
+        try:
+            shadow_results = await _search_sources(claim, limit=5)
+        except Exception:
+            pass  # degraded — continue without shadow sources
+
     logger = AuditLogger(trace_id=payload.trace_id, service_name="verify-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="verify_claim",
         claim_length=len(claim),
         methods_count=len(method_names),
+        shadow_sources_found=len(shadow_results),
     )
 
     # Verify using each method — try LLM first, fall back to heuristic
     if _llm_client is not None:
         try:
-            verifications = await _llm_verify(method_names, claim, sources)
+            verifications = await _llm_verify(method_names, claim, shadow_results if shadow_results else sources)
         except (LLMError, NotImplementedError, _json.JSONDecodeError):
             verifications = [
                 _verify_method(m, claim, sources) for m in method_names
@@ -392,7 +451,10 @@ async def verify_claim(
     # Compute overall verdict
     overall = _compute_overall_verdict(verifications)
 
-    citations = (
+    citations = [
+        r.get("doi") or r.get("identifier", "")
+        for r in shadow_results
+    ] if shadow_results else (
         [s.identifier for s in payload.sources] if payload.sources else []
     )
 

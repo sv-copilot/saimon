@@ -297,13 +297,31 @@ async def evaluate_content(
 
     requested = payload.parameters.get("criteria")
     if requested is not None:
-        # Accept comma-separated string or list
+        # Accept comma-separated string, JSON-encoded list, or Python list
         if isinstance(requested, str):
-            requested = [c.strip() for c in requested.split(",") if c.strip()]
+            # Try JSON decode first (handles '["clarity","conciseness"]')
+            import json as _json
+            try:
+                parsed = _json.loads(requested)
+                if isinstance(parsed, list):
+                    requested = parsed
+                else:
+                    requested = [c.strip() for c in requested.split(",") if c.strip()]
+            except (_json.JSONDecodeError, ValueError):
+                requested = [c.strip() for c in requested.split(",") if c.strip()]
         if not isinstance(requested, list):
             return _error(
                 payload.trace_id, "Parameter 'criteria' must be a list of strings."
             )
+        # Strip quotes/brackets from individual entries
+        cleaned: list[str] = []
+        for c in requested:
+            if not isinstance(c, str):
+                return _error(
+                    payload.trace_id, "Parameter 'criteria' must be a list of strings."
+                )
+            cleaned.append(c.strip().strip('"').strip("'").strip("[").strip("]"))
+        requested = cleaned
         # Validate all requested criteria exist
         unknown = [c for c in requested if c not in _CRITERIA]
         if unknown:

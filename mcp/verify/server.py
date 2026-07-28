@@ -412,6 +412,17 @@ async def verify_claim(
 
     requested = payload.parameters.get("methods")
     if requested is not None:
+        # Accept comma-separated string, JSON-encoded list, or Python list
+        if isinstance(requested, str):
+            import json as _json
+            try:
+                parsed = _json.loads(requested)
+                if isinstance(parsed, list):
+                    requested = parsed
+                else:
+                    requested = [m.strip() for m in requested.split(",") if m.strip()]
+            except (_json.JSONDecodeError, ValueError):
+                requested = [m.strip() for m in requested.split(",") if m.strip()]
         if not isinstance(requested, list):
             return _error(
                 payload.trace_id, "Parameter 'methods' must be a list of strings."

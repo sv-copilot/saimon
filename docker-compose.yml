@@ -17,8 +17,9 @@ services:
       POSTGRES_USER: saimon
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-saimon-dev}
       POSTGRES_DB: saimon
-    ports:
-      - "127.0.0.1:5432:5432"
+    # Port exposed via staging/prod override files
+    # ports:
+    #   - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro

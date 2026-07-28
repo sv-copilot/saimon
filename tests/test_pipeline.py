@@ -26,6 +26,10 @@ from typing import Any
 import httpx
 import pytest
 
+# Skip pipeline tests in CI — they need live Docker services
+if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
+    pytest.skip("Pipeline tests require live Docker services — skipped in CI", allow_module_level=True)
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------

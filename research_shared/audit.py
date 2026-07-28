@@ -105,7 +105,7 @@ class AuditLogger:
                     record.get("event", "unknown"),
                     json.dumps(record, default=str),
                 )
-            except Exception:  # noqa: BLE001 — audit write must never crash
+            except Exception:  # noqa: BLE001, S110 — audit write must never crash
                 pass
 
         try:

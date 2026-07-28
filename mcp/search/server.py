@@ -397,7 +397,7 @@ async def search_shadow_libraries(
                         r.source_index,
                         r.file_type,
                     )
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001, S110
                     pass  # cache write is best-effort
 
     # Apply limit

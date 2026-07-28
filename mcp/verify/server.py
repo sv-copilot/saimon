@@ -243,7 +243,7 @@ async def _search_sources(
             if resp.status_code == 200:
                 data = resp.json()
                 return data.get("data", {}).get("results", [])
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass
     return []
 
@@ -437,7 +437,7 @@ async def verify_claim(
     if use_shadow:
         try:
             shadow_results = await _search_sources(claim, limit=5)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110
             pass  # degraded — continue without shadow sources
 
     logger = build_audit_logger(payload, request, _auth, "verify-mcp")
@@ -468,7 +468,6 @@ async def verify_claim(
     # ── persist verification to knowledge graph ──────────────
     if _db_pool is not None:
         try:
-            import hashlib as _hashlib
             import uuid as _uuid
 
             title = f"Verification: {claim[:80]}"
@@ -497,7 +496,7 @@ async def verify_claim(
                         "shadow_sources": bool(shadow_results),
                     }),
                 )
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S110
             pass  # KG write is best-effort
 
     citations = [

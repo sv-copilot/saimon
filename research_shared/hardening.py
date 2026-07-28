@@ -28,7 +28,6 @@ from research_shared.rate_limit import (
 )
 from research_shared.validation import create_payload_size_middleware
 
-
 # ---------------------------------------------------------------------------
 # apply_hardening — add rate limiting + payload size to an app
 # ---------------------------------------------------------------------------

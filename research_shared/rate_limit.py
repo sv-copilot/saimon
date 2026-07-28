@@ -22,7 +22,6 @@ from typing import Any
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-
 # ---------------------------------------------------------------------------
 # RateLimitExceededError — raised when limit is hit
 # ---------------------------------------------------------------------------
@@ -186,7 +185,7 @@ def create_rate_limit_middleware(
                     import json
                     data = json.loads(body) if body else {}
                     trace_id = data.get("trace_id", "unknown")
-                except Exception:
+                except Exception:  # noqa: BLE001, S110
                     pass
                 return rate_limit_exceeded_response(
                     trace_id=trace_id, retry_after=retry_after

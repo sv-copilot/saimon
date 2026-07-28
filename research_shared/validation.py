@@ -19,7 +19,6 @@ from typing import Any
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-
 # ---------------------------------------------------------------------------
 # ValidationError
 # ---------------------------------------------------------------------------
@@ -143,9 +142,11 @@ def create_payload_size_middleware() -> Any:
                                 "trace_id": "unknown",
                                 "status": "error",
                                 "errors": [
-                                    f"Payload too large. "
-                                    f"Max: {_max_payload_bytes} bytes, "
-                                    f"got: {length} bytes."
+                                    (
+                                        f"Payload too large. "
+                                        f"Max: {_max_payload_bytes} bytes, "
+                                        f"got: {length} bytes."
+                                    )
                                 ],
                                 "data": None,
                                 "citations": None,

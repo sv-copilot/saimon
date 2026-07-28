@@ -23,10 +23,10 @@ from research_shared.adapters.dedup import deduplicate
 from research_shared.adapters.internet_archive import InternetArchiveAdapter
 from research_shared.adapters.libgen import LibGenAdapter
 from research_shared.adapters.scihub import SciHubAdapter
-from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.db import DatabaseError, DatabasePool
 from research_shared.envelope import ResearchRequest, ResearchResponse
+from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
 from research_shared.shadow_registry import ShadowRegistry
 
@@ -89,6 +89,7 @@ def _get_shadow_adapters(source_indexes: list[str] | None = None) -> list:
 
 _auth_config = AuthConfig.from_env()
 _auth = AuthValidator(_auth_config)
+apply_hardening(app, _auth)
 
 
 def _require_auth(request: Request) -> None:
@@ -166,6 +167,16 @@ _TOOLS = [
         "description": "Get metadata for a specific source index.",
         "parameters": {"source_index_id": "str"},
     },
+    {
+        "name": "saimon_list_audit_log",
+        "description": "List audit log entries for observability and compliance. "
+                       "Operator-only tool.",
+        "parameters": {
+            "limit": "int (optional, default 50, max 200)",
+            "service_name": "str (optional, filter by service)",
+            "event_type": "str (optional, filter by event type)",
+        },
+    },
 ]
 
 
@@ -216,7 +227,7 @@ async def search_knowledge_graph(
     payload: ResearchRequest, request: Request
 ) -> ResearchResponse:
     _require_auth(request)
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
+    logger = build_audit_logger(payload, request, _auth, "search-mcp")
     logger.log_request(
         content_type=payload.content_type,
         sources_count=len(payload.sources),
@@ -284,7 +295,7 @@ async def search_web(
     if not query:
         return _error(payload.trace_id, "Parameter 'query' is required.")
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
+    logger = build_audit_logger(payload, request, _auth, "search-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="search_web",
@@ -333,7 +344,7 @@ async def search_shadow_libraries(
     limit = min(int(payload.parameters.get("limit", 10)), 50)
     offset = int(payload.parameters.get("offset", 0))
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
+    logger = build_audit_logger(payload, request, _auth, "search-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="search_shadow_libraries",
@@ -386,7 +397,7 @@ async def search_shadow_libraries(
                         r.source_index,
                         r.file_type,
                     )
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001, S110
                     pass  # cache write is best-effort
 
     # Apply limit
@@ -434,7 +445,7 @@ async def list_source_indexes(
     """List available source indexes (knowledge graph, shadow libraries, web)."""
     _require_auth(request)
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
+    logger = build_audit_logger(payload, request, _auth, "search-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="list_source_indexes",
@@ -523,7 +534,7 @@ async def get_source_index_detail(
     if not source_index_id:
         return _error(payload.trace_id, "Parameter 'source_index_id' is required.")
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
+    logger = build_audit_logger(payload, request, _auth, "search-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="get_source_index_detail",
@@ -579,3 +590,78 @@ async def get_source_detail_deprecated(
             "X-Deprecated-Replacement": "/tools/get_source_index_detail",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# tool: saimon_list_audit_log
+# ---------------------------------------------------------------------------
+
+@app.post("/tools/saimon_list_audit_log")
+async def saimon_list_audit_log(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    """List audit log entries for observability and compliance."""
+    _require_auth(request)
+
+    limit = min(int(payload.parameters.get("limit", 50)), 200)
+    service_filter = payload.parameters.get("service_name")
+    event_filter = payload.parameters.get("event_type")
+
+    logger = build_audit_logger(payload, request, _auth, "search-mcp")
+    logger.log_request(
+        content_type=payload.content_type,
+        tool="saimon_list_audit_log",
+        limit=limit,
+    )
+
+    # ── try DB backend ──
+    if _db_pool is not None:
+        try:
+            if service_filter and event_filter:
+                rows = await _db_pool.fetch(
+                    "SELECT trace_id, service_name, event_type, payload, created_at "
+                    "FROM audit_log "
+                    "WHERE service_name = $1 AND event_type = $2 "
+                    "ORDER BY created_at DESC LIMIT $3",
+                    service_filter, event_filter, limit,
+                )
+            elif service_filter:
+                rows = await _db_pool.fetch(
+                    "SELECT trace_id, service_name, event_type, payload, created_at "
+                    "FROM audit_log "
+                    "WHERE service_name = $1 "
+                    "ORDER BY created_at DESC LIMIT $2",
+                    service_filter, limit,
+                )
+            elif event_filter:
+                rows = await _db_pool.fetch(
+                    "SELECT trace_id, service_name, event_type, payload, created_at "
+                    "FROM audit_log "
+                    "WHERE event_type = $1 "
+                    "ORDER BY created_at DESC LIMIT $2",
+                    event_filter, limit,
+                )
+            else:
+                rows = await _db_pool.fetch(
+                    "SELECT trace_id, service_name, event_type, payload, created_at "
+                    "FROM audit_log "
+                    "ORDER BY created_at DESC LIMIT $1",
+                    limit,
+                )
+            entries = [dict(r) for r in rows]
+            resp = _ok(
+                trace_id=payload.trace_id,
+                data={"entries": entries, "total": len(entries)},
+            )
+            logger.log_response(status=resp.status)
+            return resp
+        except (DatabaseError, NotImplementedError):
+            pass
+
+    # ── fallback ──
+    resp = _degraded(
+        trace_id=payload.trace_id,
+        data={"entries": [], "total": 0, "note": "DB not available — audit log is stored in PostgreSQL."},
+    )
+    logger.log_response(status=resp.status)
+    return resp

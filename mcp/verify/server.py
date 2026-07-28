@@ -18,9 +18,9 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 
-from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.envelope import ResearchRequest, ResearchResponse
+from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
 from research_shared.llm import LLMClient, LLMError
 
@@ -63,6 +63,7 @@ app = FastAPI(title="verify-mcp", version="0.1.0", lifespan=_lifespan)
 
 _auth_config = AuthConfig.from_env()
 _auth = AuthValidator(_auth_config)
+apply_hardening(app, _auth)
 
 
 def _require_auth(request: Request) -> None:
@@ -242,7 +243,7 @@ async def _search_sources(
             if resp.status_code == 200:
                 data = resp.json()
                 return data.get("data", {}).get("results", [])
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass
     return []
 
@@ -436,10 +437,10 @@ async def verify_claim(
     if use_shadow:
         try:
             shadow_results = await _search_sources(claim, limit=5)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110
             pass  # degraded — continue without shadow sources
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="verify-mcp")
+    logger = build_audit_logger(payload, request, _auth, "verify-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="verify_claim",
@@ -467,7 +468,6 @@ async def verify_claim(
     # ── persist verification to knowledge graph ──────────────
     if _db_pool is not None:
         try:
-            import hashlib as _hashlib
             import uuid as _uuid
 
             title = f"Verification: {claim[:80]}"
@@ -496,7 +496,7 @@ async def verify_claim(
                         "shadow_sources": bool(shadow_results),
                     }),
                 )
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S110
             pass  # KG write is best-effort
 
     citations = [
@@ -531,7 +531,7 @@ async def list_verification_methods(
 ) -> ResearchResponse:
     _require_auth(request)
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="verify-mcp")
+    logger = build_audit_logger(payload, request, _auth, "verify-mcp")
     logger.log_request(
         content_type=payload.content_type, tool="list_verification_methods"
     )
@@ -566,7 +566,7 @@ async def get_method_detail(
             payload.trace_id, "Parameter 'method_name' is required."
         )
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="verify-mcp")
+    logger = build_audit_logger(payload, request, _auth, "verify-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="get_method_detail",

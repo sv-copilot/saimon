@@ -12,10 +12,10 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 
-from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.db import DatabaseError, DatabasePool
 from research_shared.envelope import ResearchRequest, ResearchResponse
+from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
 from research_shared.seed_data import CONTENT_TYPES as SEED_CONTENT_TYPES
 
@@ -45,6 +45,7 @@ app = FastAPI(title="explore-mcp", version="0.1.0", lifespan=_lifespan)
 
 _auth_config = AuthConfig.from_env()
 _auth = AuthValidator(_auth_config)
+apply_hardening(app, _auth)
 
 
 def _require_auth(request: Request) -> None:
@@ -190,7 +191,7 @@ async def explore_content(
 
     limit = min(int(payload.parameters.get("limit", 10)), 100)
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="explore-mcp")
+    logger = build_audit_logger(payload, request, _auth, "explore-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="explore_content",
@@ -275,7 +276,7 @@ async def browse_by_type(
     limit = min(int(payload.parameters.get("limit", 10)), 100)
     offset = max(int(payload.parameters.get("offset", 0)), 0)
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="explore-mcp")
+    logger = build_audit_logger(payload, request, _auth, "explore-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="browse_by_type",
@@ -366,7 +367,7 @@ async def get_related(
     if not item_id:
         return _error(payload.trace_id, "Parameter 'item_id' is required.")
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="explore-mcp")
+    logger = build_audit_logger(payload, request, _auth, "explore-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="get_related",
@@ -451,7 +452,7 @@ async def discover_connections(
             errors=errors,
         )
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="explore-mcp")
+    logger = build_audit_logger(payload, request, _auth, "explore-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="discover_connections",
@@ -531,7 +532,7 @@ async def list_content_types(
 ) -> ResearchResponse:
     _require_auth(request)
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="explore-mcp")
+    logger = build_audit_logger(payload, request, _auth, "explore-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="list_content_types",

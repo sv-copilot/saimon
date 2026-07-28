@@ -8,7 +8,7 @@
 
 # Pinned to specific digest for reproducible builds.
 # Update digest with: docker pull python:3.11-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.11-slim
-FROM python:3.11-slim@sha256:3e1a4d3f1e2c3d4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8
+FROM python:3.11-slim@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93
 
 LABEL org.opencontainers.image.title="Saimon Platform"
 LABEL org.opencontainers.image.description="6 atomic MCP services sharing one PostgreSQL knowledge graph"

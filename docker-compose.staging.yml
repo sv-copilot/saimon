@@ -1,0 +1,88 @@
+# Saimon staging overrides — GHCR image + staging port mappings
+# Used with: docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+#
+# Secrets (DEEPSEEK_API_KEY) come from .env file on the staging host.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 20m
+    ports:
+      - "127.0.0.1:5433:5432"
+    restart: always
+
+  search-mcp:
+    image: ghcr.io/sv-copilot/saimon:dev
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 10m
+    ports:
+      - "127.0.0.1:8101:8001"
+    restart: always
+
+  generate-mcp:
+    image: ghcr.io/sv-copilot/saimon:dev
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 10m
+    ports:
+      - "127.0.0.1:8102:8002"
+    restart: always
+
+  export-mcp:
+    image: ghcr.io/sv-copilot/saimon:dev
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 10m
+    ports:
+      - "127.0.0.1:8103:8003"
+    restart: always
+
+  evaluate-mcp:
+    image: ghcr.io/sv-copilot/saimon:dev
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 10m
+    ports:
+      - "127.0.0.1:8104:8004"
+    restart: always
+
+  verify-mcp:
+    image: ghcr.io/sv-copilot/saimon:dev
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 10m
+    ports:
+      - "127.0.0.1:8105:8005"
+    restart: always
+
+  explore-mcp:
+    image: ghcr.io/sv-copilot/saimon:dev
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 10m
+    ports:
+      - "127.0.0.1:8106:8006"
+    restart: always

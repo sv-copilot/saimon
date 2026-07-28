@@ -303,7 +303,7 @@ async def browse_by_type(
                     "total": len(items),
                     "offset": offset,
                 },
-                citations=[item["id"] for item in items],
+                citations=[str(item["id"]) for item in items],
             )
             logger.log_response(
                 status=resp.status, citations_count=len(resp.citations or [])

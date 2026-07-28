@@ -14,9 +14,21 @@ new MCPs.
 
 ## Branch Policy
 
-- `main` — stable integration branch for adopters.
-- `ai-dev` — agent integration branch when using Drake automations.
+- `main` — stable production branch.  Triggers CI (validate only).
+- `dev` — staging branch.  Push triggers CI validate → GHCR push → auto-deploy
+  to staging VPS (95.216.208.183).
+- `ai-dev` — agent integration branch for Drake-assisted development.  Triggers
+  CI (validate + Docker build, no push).
 - `slice/*` — feature branches for isolated slices.
+
+### Branch flow
+
+```
+slice/* ──PR──▶ ai-dev ──merge──▶ dev ──CI deploy──▶ staging ──PR──▶ main
+```
+
+- `ai-dev` → `dev`: merge when ready for staging consumption.
+- `dev` → `main`: PR when staging is validated and ready for production.
 
 ## Validation before PR
 

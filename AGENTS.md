@@ -256,7 +256,7 @@ Then follow TDD: RED → GREEN → REFACTOR → PROVE.
 | LIVE-INTEGRATION-1 | `slice/LIVE-INTEGRATION-1` | ✅ merged | Real LLM (DeepSeek via openai), real DB (asyncpg), live E2E integration tests (17 tests); 432 tests |
 | DOMAIN-TOOLS-1 | `slice/DOMAIN-TOOLS-1` | ✅ merged | Job Hunt domain: 5 content types, 3 voice profiles, 10 seed requests, generate_job_hunt_content tool; 488 tests |
 | SHADOW-SEARCH-1 | `slice/SHADOW-SEARCH-1` | ✅ merged | Shadow library source integration: search tool, verify pipeline, 5 adapters, terminology fix; 616 tests |
-| HARDEN-1 | `slice/HARDEN-1` | ✅ built | Rate limiting, input validation, SQL injection audit, key rotation, Docker hardening, audit completeness, dependency pinning, backup/restore, degradation matrix, test hardening; 773 tests |
+| HARDEN-1 | `slice/HARDEN-1` | ✅ merged | Rate limiting, input validation, SQL injection audit, key rotation, Docker hardening, audit completeness, dependency pinning, backup/restore, degradation matrix, test hardening; 773 tests |
 
 ## Recursive Prompt for New Sessions
 

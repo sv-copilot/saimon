@@ -238,15 +238,19 @@ async def _call_saimon(
     tool = TOOL_REGISTRY[tool_name]
     url = _build_url(tool["service"], tool["path"])
 
-    # Build body from template, substituting arguments
+    # Build body from template, substituting arguments.
+    # Drop template placeholders that weren't filled in (e.g. "{criteria}")
+    # so the server doesn't receive literal placeholder strings.
     body = json.loads(json.dumps(tool["body_template"]))
     if "parameters" in body:
-        for key, value in body["parameters"].items():
+        for key in list(body["parameters"].keys()):
+            value = body["parameters"][key]
             if isinstance(value, str) and value.startswith("{") and value.endswith("}"):
                 param_name = value[1:-1]
-                body["parameters"][key] = arguments.get(
-                    param_name, body["parameters"][key],
-                )
+                if param_name in arguments:
+                    body["parameters"][key] = arguments[param_name]
+                else:
+                    del body["parameters"][key]
     body["trace_id"] = _make_trace_id()
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -268,6 +272,9 @@ def _format_result(data: dict[str, Any]) -> str:
     """Format Saimon response into readable text."""
     status = data.get("status", "unknown")
     payload = data.get("data") or {}
+    # Guard: payload may be a non-dict truthy value (e.g. string, list)
+    if not isinstance(payload, dict):
+        payload = {}
 
     if "results" in payload:
         # Search result
@@ -348,7 +355,7 @@ def _format_result(data: dict[str, Any]) -> str:
 
     elif "scores" in payload or "score" in payload or "evaluation" in payload:
         # Evaluation result
-        scores = payload.get("scores", [])
+        scores = payload.get("scores") or []
         overall = payload.get("overall_score", "N/A")
         lines = [f"Overall score: {overall}", f"Criteria evaluated: {len(scores)}", ""]
         for s in scores:

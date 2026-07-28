@@ -207,7 +207,12 @@ async def _llm_evaluate(
         tone=tone or "neutral",
     )
     raw = await _llm_client.generate(prompt)  # type: ignore[union-attr]
-    result = _json.loads(raw)
+    try:
+        result = _json.loads(raw)
+    except _json.JSONDecodeError:
+        return []  # LLM returned malformed JSON — degrade gracefully
+    if not isinstance(result, dict):
+        return []  # LLM returned non-object JSON — degrade gracefully
     scores = result.get("scores")
     if not scores or not isinstance(scores, list):
         return []  # LLM returned null/missing scores — degrade gracefully

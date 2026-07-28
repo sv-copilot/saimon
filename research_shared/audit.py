@@ -44,10 +44,12 @@ class AuditLogger:
         trace_id: str | None = None,
         service_name: str = "saimon",
         output: TextIO | None = None,
+        caller_key_hash: str | None = None,
     ) -> None:
         self.trace_id = trace_id
         self.service_name = service_name
         self._output = output
+        self.caller_key_hash = caller_key_hash
 
     # ------------------------------------------------------------------
     # builder
@@ -59,6 +61,7 @@ class AuditLogger:
             trace_id=trace_id,
             service_name=self.service_name,
             output=self._output,
+            caller_key_hash=self.caller_key_hash,
         )
 
     # ------------------------------------------------------------------
@@ -75,6 +78,8 @@ class AuditLogger:
         }
         if self.trace_id:
             record["trace_id"] = self.trace_id
+        if self.caller_key_hash:
+            record["caller_key_hash"] = self.caller_key_hash
 
         line = json.dumps(record, default=str)
         if self._output is not None:

@@ -24,6 +24,7 @@ class ErrorCode(str, Enum):
     LLM_ERROR = "LLM_ERROR"
     DB_ERROR = "DB_ERROR"
     AUTH_ERROR = "AUTH_ERROR"
+    RATE_LIMIT_ERROR = "RATE_LIMIT_ERROR"
     TIMEOUT = "TIMEOUT"
     UNKNOWN = "UNKNOWN"
 

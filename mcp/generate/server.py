@@ -19,11 +19,11 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 
-from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.envelope import ResearchRequest, ResearchResponse
+from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
-from research_shared.llm import LLMClient, LLMError
+from research_shared.llm import LLMError
 from research_shared.seed_data import CONTENT_TYPES as SEED_CONTENT_TYPES
 
 try:
@@ -72,6 +72,7 @@ app = FastAPI(title="generate-mcp", version="0.1.0", lifespan=_lifespan)
 
 _auth_config = AuthConfig.from_env()
 _auth = AuthValidator(_auth_config)
+apply_hardening(app, _auth)
 
 
 def _require_auth(request: Request) -> None:
@@ -289,7 +290,7 @@ async def generate_content(
     content_type = payload.content_type
     ct_schema = _CONTENT_TYPES.get(content_type)
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="generate-mcp")
+    logger = build_audit_logger(payload, request, _auth, "generate-mcp")
     logger.log_request(
         content_type=content_type,
         tool="generate_content",
@@ -373,7 +374,7 @@ async def list_content_types(
 ) -> ResearchResponse:
     _require_auth(request)
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="generate-mcp")
+    logger = build_audit_logger(payload, request, _auth, "generate-mcp")
     logger.log_request(content_type=payload.content_type, tool="list_content_types")
 
     # Start with seed data types
@@ -431,7 +432,7 @@ async def get_content_type_schema(
     if not type_name:
         return _error(payload.trace_id, "Parameter 'type_name' is required.")
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="generate-mcp")
+    logger = build_audit_logger(payload, request, _auth, "generate-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="get_content_type_schema",
@@ -469,7 +470,7 @@ async def seed_content_types(
 ) -> ResearchResponse:
     _require_auth(request)
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="generate-mcp")
+    logger = build_audit_logger(payload, request, _auth, "generate-mcp")
     logger.log_request(content_type=payload.content_type, tool="seed_content_types")
 
     if _seed_loader is None:
@@ -526,7 +527,7 @@ async def generate_job_hunt_content(
 
     ct_schema = _CONTENT_TYPES.get(content_type)
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="generate-mcp")
+    logger = build_audit_logger(payload, request, _auth, "generate-mcp")
     logger.log_request(
         content_type=content_type,
         tool="generate_job_hunt_content",

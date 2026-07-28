@@ -231,17 +231,18 @@ async def search_knowledge_graph(
     if _db_pool is not None:
         try:
             rows = await _db_pool.fetch(
-                "SELECT id, title, content_type, relevance "
+                "SELECT id, title, content_type, "
+                "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
                 "FROM knowledge_graph_nodes "
-                "WHERE title ILIKE $1 OR content ILIKE $1 "
-                "ORDER BY relevance DESC LIMIT $2",
+                "WHERE title ILIKE $1 OR body ILIKE $1 "
+                "ORDER BY created_at DESC LIMIT $2",
                 f"%{query}%", limit,
             )
             results: list[dict[str, Any]] = [dict(r) for r in rows]
             resp = _ok(
                 trace_id=payload.trace_id,
                 data={"results": results, "total": len(results)},
-                citations=[r["id"] for r in results],
+                citations=[str(r["id"]) for r in results],
             )
             logger.log_response(
                 status=resp.status, citations_count=len(resp.citations or [])

@@ -202,17 +202,18 @@ async def explore_content(
     if _db_pool is not None:
         try:
             rows = await _db_pool.fetch(
-                "SELECT id, title, content_type, relevance, summary "
+                "SELECT id, title, content_type, body, "
+                "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
                 "FROM knowledge_graph_nodes "
-                "WHERE title ILIKE $1 OR content ILIKE $1 "
-                "ORDER BY relevance DESC LIMIT $2",
+                "WHERE title ILIKE $1 OR body ILIKE $1 "
+                "ORDER BY created_at DESC LIMIT $2",
                 f"%{query}%", limit,
             )
             results = [dict(r) for r in rows]
             resp = _ok(
                 trace_id=payload.trace_id,
                 data={"query": query, "results": results, "total": len(results)},
-                citations=[r["id"] for r in results],
+                citations=[str(r["id"]) for r in results],
             )
             logger.log_response(
                 status=resp.status, citations_count=len(resp.citations or [])
@@ -243,7 +244,7 @@ async def explore_content(
             "results": results,
             "total": len(results),
         },
-        citations=[r["id"] for r in results],
+        citations=[str(r["id"]) for r in results],
     )
     logger.log_response(
         status=resp.status, citations_count=len(resp.citations or [])
@@ -287,7 +288,7 @@ async def browse_by_type(
     if _db_pool is not None:
         try:
             rows = await _db_pool.fetch(
-                "SELECT id, title, content_type, summary, created_at "
+                "SELECT id, title, content_type, body, created_at "
                 "FROM knowledge_graph_nodes "
                 "WHERE content_type = $1 "
                 "ORDER BY created_at DESC LIMIT $2 OFFSET $3",
@@ -376,7 +377,7 @@ async def get_related(
     if _db_pool is not None:
         try:
             rows = await _db_pool.fetch(
-                "SELECT n.id, n.title, e.relationship_type AS relationship, n.summary "
+                "SELECT n.id, n.title, e.relation_type AS relationship, n.body "
                 "FROM knowledge_graph_edges e "
                 "JOIN knowledge_graph_nodes n ON e.target_id = n.id "
                 "WHERE e.source_id = $1 "
@@ -387,7 +388,7 @@ async def get_related(
             resp = _ok(
                 trace_id=payload.trace_id,
                 data={"item_id": item_id, "related": related},
-                citations=[r["id"] for r in related],
+                citations=[str(r["id"]) for r in related],
             )
             logger.log_response(
                 status=resp.status, citations_count=len(resp.citations or [])
@@ -417,7 +418,7 @@ async def get_related(
     resp = _degraded(
         trace_id=payload.trace_id,
         data={"item_id": item_id, "related": related},
-        citations=[r["id"] for r in related],
+        citations=[str(r["id"]) for r in related],
     )
     logger.log_response(
         status=resp.status, citations_count=len(resp.citations or [])

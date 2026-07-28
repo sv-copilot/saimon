@@ -467,26 +467,35 @@ async def verify_claim(
     # ── persist verification to knowledge graph ──────────────
     if _db_pool is not None:
         try:
+            import hashlib as _hashlib
             import uuid as _uuid
-            node_id = str(_uuid.uuid4())
-            await _db_pool.execute(
-                "INSERT INTO knowledge_graph_nodes (id, title, content_type, body, metadata) "
-                "VALUES ($1, $2, $3, $4, $5)",
-                node_id,
-                f"Verification: {claim[:80]}",
-                "research_note",
-                _json.dumps({
-                    "claim": claim,
-                    "verdict": overall,
-                    "verifications": verifications,
-                    "shadow_results_count": len(shadow_results),
-                }),
-                _json.dumps({
-                    "source": "verify-mcp",
-                    "methods_used": method_names,
-                    "shadow_sources": bool(shadow_results),
-                }),
+
+            title = f"Verification: {claim[:80]}"
+            # Check for existing verification of the same claim
+            existing = await _db_pool.fetchrow(
+                "SELECT id FROM knowledge_graph_nodes WHERE title = $1 LIMIT 1",
+                title,
             )
+            if existing is None:
+                node_id = str(_uuid.uuid4())
+                await _db_pool.execute(
+                    "INSERT INTO knowledge_graph_nodes (id, title, content_type, body, metadata) "
+                    "VALUES ($1, $2, $3, $4, $5)",
+                    node_id,
+                    title,
+                    "research_note",
+                    _json.dumps({
+                        "claim": claim,
+                        "verdict": overall,
+                        "verifications": verifications,
+                        "shadow_results_count": len(shadow_results),
+                    }),
+                    _json.dumps({
+                        "source": "verify-mcp",
+                        "methods_used": method_names,
+                        "shadow_sources": bool(shadow_results),
+                    }),
+                )
         except Exception:  # noqa: BLE001
             pass  # KG write is best-effort
 

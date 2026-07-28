@@ -267,7 +267,7 @@ async def _call_saimon(
 def _format_result(data: dict[str, Any]) -> str:
     """Format Saimon response into readable text."""
     status = data.get("status", "unknown")
-    payload = data.get("data", {})
+    payload = data.get("data") or {}
 
     if "results" in payload:
         # Search result
@@ -346,10 +346,17 @@ def _format_result(data: dict[str, Any]) -> str:
         # Generated content
         return payload.get("content", json.dumps(payload, indent=2))
 
-    elif "score" in payload or "evaluation" in payload:
+    elif "scores" in payload or "score" in payload or "evaluation" in payload:
         # Evaluation result
-        score = payload.get("score", payload.get("overall_score", "N/A"))
-        return f"Evaluation score: {score}\n{json.dumps(payload, indent=2)}"
+        scores = payload.get("scores", [])
+        overall = payload.get("overall_score", "N/A")
+        lines = [f"Overall score: {overall}", f"Criteria evaluated: {len(scores)}", ""]
+        for s in scores:
+            lines.append(
+                f"  {s.get('criterion', '?' )}: {s.get('score', '?')}"
+                f" — {s.get('justification', '')[:120]}"
+            )
+        return "\n".join(lines)
 
     elif "items" in payload:
         # Explore/browse result

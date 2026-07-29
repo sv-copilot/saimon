@@ -115,7 +115,42 @@ git checkout -b slice/NEXT
 git merge slice/PARENT   # bring in unmerged dependency
 ```
 
-## Slice Inventory
+## Slice Lifecycle
+
+All slice planning and state tracking lives in the **canonical planning tree**
+at `simon-projects/.docs/planning/projects/saimon/slice_dependency_tree.json`.
+This file is the single source of truth for what's planned, in progress, merged,
+and promoted.
+
+### The local dev loop
+
+```
+PLAN (simon-projects)  →  IMPLEMENT (saimon)  →  SYNC (simon-projects)
+```
+
+1. **SHAPE** — Add slice to the planning tree, write detail doc in
+   `simon-projects/.docs/planning/projects/saimon/slices/<SLICE-ID>.md`.
+2. **PROMOTE** — Move slice to `state: ready` when ready to implement.
+3. **IMPLEMENT** — Branch `slice/<SLICE-ID>` from `ai-dev`, build + test,
+   open PR to `ai-dev`, merge.
+4. **TREE-SYNC** — Update the planning tree: set `state`, `last_known_pr`,
+   `branch_posture`. Validate with:
+   ```bash
+   cd /Users/simon/projects
+   python3 scripts/validate_slice_dependency_tree.py \
+     --tree .docs/planning/projects/saimon/slice_dependency_tree.json
+   ```
+
+**Never maintain a duplicate slice list in this file.** The planning tree
+is authoritative. The `## Slice Inventory` section below is a read-only
+historical snapshot of slices merged before 2026-07-29.
+
+## Historical Slice Inventory (pre-canonical-tree)
+
+These slices were implemented before the canonical planning tree loop was
+enforced. They are listed here for reference only; all future slices are
+tracked in
+`simon-projects/.docs/planning/projects/saimon/slice_dependency_tree.json`.
 
 | Slice | Branch | Status | What |
 |---|---|---|---|
@@ -223,25 +258,63 @@ After merge, pull the updated `ai-dev`:
 git checkout ai-dev && git pull origin ai-dev
 ```
 
-### Step 5 — Update Slice Inventory
+### Step 5 — Tree-sync the planning tree
 
-After merging, update the Slice Inventory table below:
-- Change the merged slice's status from `✅ built` to `✅ merged`
-- The table is the source of truth for what's in `ai-dev`
-
-### Step 6 — Start next slice
-
-Only after all mergeable slices are consolidated.
-
-**Finding the next slice:** Check the Slice Inventory table above for the
-first slice with status `📋 designed`.  Read its design doc under
-`.docs/planning/projects/saimon/<SLICE>-design.md` for the full spec.
-
-If no designed slice exists, check `.docs/project_intake.json` for
-upcoming work.
+After merging, update the canonical planning tree in simon-projects:
 
 ```bash
-git checkout -b slice/<NEXT-SLICE>
+cd /Users/simon/projects
+git pull --rebase origin ai-dev
+```
+
+Update `.docs/planning/projects/saimon/slice_dependency_tree.json`:
+- Set `state`: `validated` (merged to `ai-dev`), `promoted` (merged to `dev`)
+- Set `branch_posture.merged_branch`, `branch_posture.promoted_branch`
+- Set `branch_posture.last_known_pr` to the PR number
+- Set `status: done`
+
+Validate and commit:
+```bash
+python3 scripts/validate_slice_dependency_tree.py \
+  --tree .docs/planning/projects/saimon/slice_dependency_tree.json
+python3 -m json.tool .docs/projects-registry.json >/dev/null
+git diff --check
+git add .docs/planning/projects/saimon/
+git commit -m "tree-sync: saimon — <SLICE-ID> validated (PR #<N> merged to ai-dev)"
+git push origin ai-dev
+```
+
+See `.github/skills/tree-sync-after-merge/SKILL.md` for the full procedure.
+
+### Step 6 — Start next slice from the planning tree
+
+Only after all mergeable slices are consolidated and tree-synced.
+
+**Finding the next slice:** Check the canonical planning tree — NOT a local
+table in this file:
+
+```bash
+cd /Users/simon/projects
+python3 scripts/select_next_automation_slice.py \
+  --tree .docs/planning/projects/saimon/slice_dependency_tree.json
+```
+
+If the selector returns a slice, read its detail doc:
+```bash
+cat .docs/planning/projects/saimon/slices/<SLICE-ID>.md
+```
+
+If no slice is ready, check the backlog:
+```bash
+cat .docs/planning/projects/saimon/slice_backlog.md
+```
+
+Then shape the next slice (add to tree + write detail doc) before implementing.
+
+```bash
+cd /Users/simon/saimon
+git checkout ai-dev && git pull origin ai-dev
+git checkout -b slice/<SLICE-ID>
 ```
 
 If the next slice depends on unmerged work, merge the dependency:
@@ -251,28 +324,6 @@ git merge slice/<PARENT>   # bring in unmerged dependency
 ```
 
 Then follow TDD: RED → GREEN → REFACTOR → PROVE.
-
-## Slice Inventory
-
-| Slice | Branch | Status | What |
-|---|---|---|---|
-| SHARED-LIB-1 | `slice/SHARED-LIB-1` | ✅ merged | `research_shared/`: envelope, llm, db, auth, resilience, audit |
-| MCP-SEARCH-1 | `slice/MCP-SEARCH-1` | ✅ merged | `mcp/search/`: FastAPI server, 5 tool endpoints |
-| MCP-GENERATE-1 | `slice/MCP-GENERATE-1` | ✅ merged | `mcp/generate/`: LLM content generation MCP |
-| MCP-EXPORT-1 | `slice/MCP-EXPORT-1` | ✅ merged | `mcp/export/`: output formatting MCP |
-| MCP-EVALUATE-1 | `slice/MCP-EVALUATE-1` | ✅ merged | `mcp/evaluate/`: quality gate MCP |
-| MCP-VERIFY-1 | `slice/MCP-VERIFY-1` | ✅ merged | `mcp/verify/`: fact-checking MCP |
-| MCP-EXPLORE-1 | `slice/MCP-EXPLORE-1` | ✅ merged | `mcp/explore/`: discovery MCP |
-| DOCKER-1 | `slice/DOCKER-1` | ✅ merged | Dockerfile, docker-compose (7 svc + PG16), entrypoint, .dockerignore, schema.sql |
-| DOMAIN-BOOTSTRAP-1 | `slice/DOMAIN-BOOTSTRAP-1` | ✅ merged | `research_shared/seed_data.py`: 13 content types, 5 voice profiles, 15 seed requests; updated schema.sql |
-| MCP-INTEGRATION-1 | `slice/MCP-INTEGRATION-1` | ✅ merged | Wire MCPs to real backends: LLM, DB, seed_data; 333 tests + 26 integration tests |
-| SELF-EXTEND-2 | `slice/SELF-EXTEND-2` | ✅ merged | `seed_loader.py` + generate-mcp self-extend wiring; 358 tests |
-| DEPLOY-HARDEN-1 | `slice/DEPLOY-HARDEN-1` | ✅ merged | Secrets management, graceful shutdown, deep health checks, CI/CD, prod compose; 432 tests |
-| LIVE-INTEGRATION-1 | `slice/LIVE-INTEGRATION-1` | ✅ merged | Real LLM (DeepSeek via openai), real DB (asyncpg), live E2E integration tests (17 tests); 432 tests |
-| DOMAIN-TOOLS-1 | `slice/DOMAIN-TOOLS-1` | ✅ merged | Job Hunt domain: 5 content types, 3 voice profiles, 10 seed requests, generate_job_hunt_content tool; 488 tests |
-| SHADOW-SEARCH-1 | `slice/SHADOW-SEARCH-1` | ✅ merged | Shadow library source integration: search tool, verify pipeline, 5 adapters, terminology fix; 616 tests |
-| HARDEN-1 | `slice/HARDEN-1` | ✅ merged | Rate limiting, input validation, SQL injection audit, key rotation, Docker hardening, audit completeness, dependency pinning, backup/restore, degradation matrix, test hardening; 773 tests |
-| AI-DETECTION-1 | `slice/AI-DETECTION-1` | ✅ merged | `mcp/evaluate/`: deterministic AI detection criterion (6 pattern checks), no LLM dependency; 780 tests |
 
 ## Recursive Prompt for New Sessions
 
@@ -289,8 +340,8 @@ You are working in the Saimon repository (sv-copilot/saimon).
 ## 1. Read the contract
 
 Read AGENTS.md (the full file — it contains the Session Startup
-Protocol, PR workflow, Slice Inventory, and architecture) and
-.docs/project_intake.json.
+Protocol, PR workflow, canonical planning tree reference, and
+architecture) and .docs/project_intake.json.
 
 ## 2. Consolidate prior work
 
@@ -302,7 +353,8 @@ c. For each: create a PR targeting ai-dev if one doesn't exist.
    Use `gh pr create` with base=ai-dev, head=<branch>.
 d. Check CI on each PR. If failing, fix on the branch and push.
 e. Merge ready PRs (squash-merge, delete branch).
-f. Update the Slice Inventory table after each merge.
+f. Tree-sync the planning tree in simon-projects after each merge
+   (see Step 5 above).
 g. Pull ai-dev again.
 
 Do NOT start a new slice until all prior slices are merged into
@@ -310,24 +362,30 @@ ai-dev or the operator explicitly defers one.
 
 ## 3. Start the next slice
 
-Once consolidated, check the Slice Inventory for the first slice with
-status `📋 designed`.  Read its design doc under
-`.docs/planning/projects/saimon/<SLICE>-design.md` for the full spec
-and TDD outline.  Create a new branch from ai-dev, then follow TDD:
-RED → GREEN → REFACTOR → PROVE.
+Once consolidated, check the canonical planning tree for the next
+ready slice:
+
+```bash
+cd /Users/simon/projects
+python3 scripts/select_next_automation_slice.py \
+  --tree .docs/planning/projects/saimon/slice_dependency_tree.json
+```
+
+If a slice is returned, read its detail doc from
+`.docs/planning/projects/saimon/slices/<SLICE-ID>.md`.
+
+If no slice is ready, shape the next one (add to tree +
+write detail doc) before implementing.
 
 ## 4. Current state (auto-updated)
 
-- 19 of 19 slices merged (all mergeable) + AI-DETECTION-1 merged
+- 17 slices merged (see Historical Slice Inventory above)
 - All 6 MCPs wired to LLM/DB backends with dependency injection
 - 780 tests passing, ruff clean, compileall OK
 - AI detection: 6 deterministic pattern checks in evaluate-mcp (ai_detection criterion)
-- research_shared/: envelope, llm, db, auth, resilience, audit, self_extend, seed_data, seed_loader, shadow_registry, adapters/ (14 modules)
-- Content types sourced from seed_data.py (14 types including bibliography, 5 voice profiles)
-- Runtime self-extension: unknown types trigger research → auto-register via SelfExtender
-- DB re-seed resilience: SeedLoader loads canonical data on demand
-- All 4 success criteria from project_intake.json met
-- Next: TBD — check .docs/project_intake.json
+- research_shared/: 14 modules
+- Canonical planning tree: simon-projects/.docs/planning/projects/saimon/slice_dependency_tree.json
+- Next: check planning tree with select_next_automation_slice.py
 
 ## 5. Environment
 
@@ -339,7 +397,9 @@ RED → GREEN → REFACTOR → PROVE.
 
 Begin by reading AGENTS.md in full, then tell me what you see:
 which slices are unmerged, which PRs need attention, and what
-you'll build next.
+you'll build next. Check the canonical planning tree at
+simon-projects/.docs/planning/projects/saimon/slice_dependency_tree.json
+for the authoritative slice state.
 ```
 
 
@@ -347,26 +407,26 @@ you'll build next.
 You are working in the Saimon repository (sv-copilot/saimon).
 
 Read AGENTS.md and .docs/project_intake.json for the full project
-contract. Then read the Slice Inventory table in AGENTS.md to see what
-has been built and what comes next.
+contract. The canonical planning tree lives at
+simon-projects/.docs/planning/projects/saimon/slice_dependency_tree.json
+— that is the authoritative source for what's been built and what
+comes next.
 
 Current state:
-- research_shared/ is built (9 modules: envelope, llm, db, auth,
-  resilience, audit, self_extend, seed_data, seed_loader).
-- 20 of 20 slices merged
+- 17 slices merged (see Historical Slice Inventory in AGENTS.md)
 - All 6 MCPs wired to LLM/DB backends with dependency injection
 - 780 tests passing, ruff clean, compileall OK
 - AI detection: 6 deterministic pattern checks in evaluate-mcp
-- Runtime self-extension: unknown types → research → auto-register via SelfExtender
-- DB re-seed resilience: SeedLoader loads canonical data on demand
-- Shadow library integration: search_shadow_libraries, 5 adapters, dedup, verify
-- All 4 success criteria from project_intake.json met
+- Canonical planning tree: simon-projects/.docs/planning/projects/saimon/
 
-Next: TBD — check .docs/project_intake.json
+Next: check the planning tree with:
+  cd /Users/simon/projects
+  python3 scripts/select_next_automation_slice.py \
+    --tree .docs/planning/projects/saimon/slice_dependency_tree.json
 
-Follow the PR & Merge Workflow in AGENTS.md: start a new slice branch
-from ai-dev, merge any unmerged dependencies via `git merge`, then
-follow TDD (RED → GREEN → REFACTOR → PROVE).
+Follow the Session Startup Protocol in AGENTS.md: consolidate prior
+work, tree-sync after each merge, then start the next slice from the
+planning tree. Follow TDD (RED → GREEN → REFACTOR → PROVE).
 
 Branch: ai-dev
 Python: python3.11 (via pyenv or system)
@@ -374,8 +434,3 @@ Python: python3.11 (via pyenv or system)
 Begin by reading AGENTS.md, then tell me what you see and what
 you'll build next.
 ```
-
-- Docker (single image, CMD override per MCP)
-- DeepSeek (primary LLM) via OpenAI-compatible API
-
-See `docs/getting-started.md` for a minimal adoption path.

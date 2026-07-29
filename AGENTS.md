@@ -135,7 +135,7 @@ git merge slice/PARENT   # bring in unmerged dependency
 | DOMAIN-TOOLS-1 | `slice/DOMAIN-TOOLS-1` | ✅ merged | Job Hunt domain: 5 content types, 3 voice profiles, 10 seed requests, generate_job_hunt_content tool; 488 tests |
 | SHADOW-SEARCH-1 | `slice/SHADOW-SEARCH-1` | ✅ merged | Shadow library source integration: search tool, verify pipeline, 5 adapters, terminology fix; 616 tests |
 | HARDEN-1 | `slice/HARDEN-1` | ✅ merged | Rate limiting, input validation, SQL injection audit, key rotation, Docker hardening, audit completeness, dependency pinning, backup/restore, degradation matrix, test hardening; 773 tests |
-| AI-DETECTION-1 | `slice/AI-DETECTION-1` | ✅ built | `mcp/evaluate/`: deterministic AI detection criterion (6 pattern checks), no LLM dependency; 780 tests |
+| AI-DETECTION-1 | `slice/AI-DETECTION-1` | ✅ merged | `mcp/evaluate/`: deterministic AI detection criterion (6 pattern checks), no LLM dependency; 780 tests |
 
 ## Session Startup Protocol
 
@@ -272,7 +272,7 @@ Then follow TDD: RED → GREEN → REFACTOR → PROVE.
 | DOMAIN-TOOLS-1 | `slice/DOMAIN-TOOLS-1` | ✅ merged | Job Hunt domain: 5 content types, 3 voice profiles, 10 seed requests, generate_job_hunt_content tool; 488 tests |
 | SHADOW-SEARCH-1 | `slice/SHADOW-SEARCH-1` | ✅ merged | Shadow library source integration: search tool, verify pipeline, 5 adapters, terminology fix; 616 tests |
 | HARDEN-1 | `slice/HARDEN-1` | ✅ merged | Rate limiting, input validation, SQL injection audit, key rotation, Docker hardening, audit completeness, dependency pinning, backup/restore, degradation matrix, test hardening; 773 tests |
-| AI-DETECTION-1 | `slice/AI-DETECTION-1` | ✅ built | `mcp/evaluate/`: deterministic AI detection criterion (6 pattern checks), no LLM dependency; 780 tests |
+| AI-DETECTION-1 | `slice/AI-DETECTION-1` | ✅ merged | `mcp/evaluate/`: deterministic AI detection criterion (6 pattern checks), no LLM dependency; 780 tests |
 
 ## Recursive Prompt for New Sessions
 
@@ -318,7 +318,7 @@ RED → GREEN → REFACTOR → PROVE.
 
 ## 4. Current state (auto-updated)
 
-- 19 of 19 slices merged (all mergeable) + AI-DETECTION-1 built (ready for PR)
+- 19 of 19 slices merged (all mergeable) + AI-DETECTION-1 merged
 - All 6 MCPs wired to LLM/DB backends with dependency injection
 - 780 tests passing, ruff clean, compileall OK
 - AI detection: 6 deterministic pattern checks in evaluate-mcp (ai_detection criterion)
@@ -353,7 +353,7 @@ has been built and what comes next.
 Current state:
 - research_shared/ is built (9 modules: envelope, llm, db, auth,
   resilience, audit, self_extend, seed_data, seed_loader).
-- 19 of 19 slices merged (all mergeable) + AI-DETECTION-1 built (ready for PR)
+- 20 of 20 slices merged
 - All 6 MCPs wired to LLM/DB backends with dependency injection
 - 780 tests passing, ruff clean, compileall OK
 - AI detection: 6 deterministic pattern checks in evaluate-mcp

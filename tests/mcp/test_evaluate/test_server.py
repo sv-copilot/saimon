@@ -329,3 +329,200 @@ class TestToolCount:
         assert response.status_code == 200
         data = response.json()
         assert len(data["tools"]) <= 10
+
+
+# ---------------------------------------------------------------------------
+# Criterion: ai_detection
+# ---------------------------------------------------------------------------
+
+class TestAiDetection:
+    def test_ai_detection_flags_known_llm_phrases(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """Content with known LLM template phrases scores low on ai_detection."""
+        response = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": (
+                        "It is important to note that we must delve into "
+                        "this matter. Furthermore, it plays a pivotal role. "
+                        "In conclusion, thus we must act."
+                    ),
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        scores = data["data"]["scores"]
+        assert len(scores) == 1
+        assert scores[0]["criterion"] == "ai_detection"
+        # Multiple LLM template phrases should push score well below 0.8
+        assert scores[0]["score"] < 0.8
+
+    def test_ai_detection_passes_human_text(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """Natural first-person text with personal stance scores high."""
+        response = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": (
+                        "I think this approach has merit because I found "
+                        "the data to be compelling. In my experience, "
+                        "similar projects have succeeded. I believe we "
+                        "should move forward carefully."
+                    ),
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        scores = data["data"]["scores"]
+        assert len(scores) == 1
+        assert scores[0]["criterion"] == "ai_detection"
+        # Natural human-like text with personal stance should score ≥ 0.7
+        assert scores[0]["score"] >= 0.7
+
+    def test_ai_detection_flags_bullet_heavy(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """Content that is >70% bullet points scores low."""
+        response = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": (
+                        "- Point one about the topic\n"
+                        "- Point two about the topic\n"
+                        "- Point three about the topic\n"
+                        "- Point four about the topic\n"
+                        "- Point five about the topic\n"
+                        "- Point six about the topic\n"
+                        "- Point seven about the topic\n"
+                        "- Point eight about the topic\n"
+                        "It is important to note that this robust framework "
+                        "plays a pivotal role. Furthermore, we must delve into "
+                        "these crucial dynamics."
+                    ),
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        scores = data["data"]["scores"]
+        assert len(scores) == 1
+        assert scores[0]["criterion"] == "ai_detection"
+        # >70% bullet points + template phrases should score below 0.5
+        assert scores[0]["score"] < 0.5
+
+    def test_ai_detection_returns_valid_range(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """Score is always in 0.0–1.0 range for various inputs."""
+        test_cases = [
+            "Short human note: I went to the store and bought milk.",
+            (
+                "Delve into the robust, comprehensive framework. It is "
+                "crucial to understand this multifaceted, holistic approach. "
+                "First, consider the dynamic landscape. Second, examine the "
+                "vibrant ecosystem. Finally, in conclusion, it's worth noting "
+                "that moreover, furthermore, on one hand it is paramount. "
+                "On the other hand, it is important to note that this plays "
+                "a pivotal role. Thus, as an AI, I must say nevertheless."
+            ),
+            "Normal paragraph about nothing in particular. Just a regular sentence.",
+        ]
+        for content in test_cases:
+            response = client.post(
+                "/tools/evaluate_content",
+                json={
+                    "trace_id": sample_trace_id,
+                    "content_type": "evaluate",
+                    "parameters": {
+                        "content": content,
+                        "criteria": ["ai_detection"],
+                    },
+                },
+                headers=auth_headers,
+            )
+            data = response.json()
+            score = data["data"]["scores"][0]["score"]
+            assert 0.0 <= score <= 1.0, f"Score {score} out of range for: {content[:50]}"
+
+    def test_ai_detection_included_in_defaults(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """ai_detection appears in evaluation when no criteria specified."""
+        response = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {"content": "Some test content for default evaluation."},
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        score_names = [s["criterion"] for s in data["data"]["scores"]]
+        assert "ai_detection" in score_names
+        # Now defaults to 6 criteria (was 5)
+        assert len(data["data"]["scores"]) >= 6
+
+    def test_ai_detection_selectable(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """ai_detection can be requested explicitly by name."""
+        response = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": "Test content for explicit ai_detection selection.",
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        scores = data["data"]["scores"]
+        assert len(scores) == 1
+        assert scores[0]["criterion"] == "ai_detection"
+
+    def test_ai_detection_has_justification(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """ai_detection scores include a justification string."""
+        response = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": "Test content that needs a justification for scoring.",
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        score = data["data"]["scores"][0]
+        assert "justification" in score
+        assert len(score["justification"]) > 0

@@ -91,6 +91,11 @@ _CRITERIA: dict[str, dict[str, Any]] = {
         "description": "How well the tone aligns with the requested tone.",
         "weight": 0.15,
     },
+    "ai_detection": {
+        "name": "ai_detection",
+        "description": "How likely the content was written by a human (1.0) vs AI-generated (0.0).",
+        "weight": 1 / 6,
+    },
 }
 
 
@@ -219,6 +224,149 @@ async def _llm_evaluate(
     return scores
 
 
+import re as _re
+
+
+def _score_ai_detection(content: str, _tone: str | None = None) -> dict[str, Any]:
+    """Score content for AI-generated fingerprints using deterministic heuristics.
+
+    Returns 0.0 (definitely AI) to 1.0 (passes as human).
+    """
+    if not content or not content.strip():
+        return {
+            "criterion": "ai_detection",
+            "score": 0.5,
+            "max_score": 1.0,
+            "justification": "Empty content — neutral score.",
+        }
+
+    words = content.split()
+    word_count = len(words)
+    sentences = _re.split(r"[.!?]+", content)
+    sentences = [s.strip() for s in sentences if s.strip()]
+    sentence_count = max(1, len(sentences))
+
+    lines = content.split("\n")
+    paragraphs = [l.strip() for l in lines if l.strip()]
+    para_count = max(1, len(paragraphs))
+
+    # ---- Check 1: Template phrases ----
+    _TEMPLATE_PHRASES = [
+        "delve into", "it's worth noting", "moreover", "furthermore",
+        "thus", "in conclusion", "as an AI", "it is important to note",
+        "crucial to understand", "plays a pivotal role",
+    ]
+    content_lower = content.lower()
+    template_hits = sum(
+        1 for phrase in _TEMPLATE_PHRASES if phrase in content_lower
+    )
+    check1 = max(0.0, 1.0 - (template_hits / sentence_count) * 2)
+
+    # ---- Check 2: Over-hedging ----
+    hedge_on_one_hand = content_lower.count("on one hand")
+    hedge_on_other = content_lower.count("on the other hand")
+    hedge_pairs = min(hedge_on_one_hand, hedge_on_other)
+    hedge_however = content_lower.count("however")
+    hedge_nevertheless = content_lower.count("nevertheless")
+    hedge_total = hedge_pairs + hedge_however + hedge_nevertheless
+    hedge_per_100 = hedge_total / max(1, word_count / 100)
+    check2 = max(0.0, 1.0 - hedge_per_100)
+
+    # ---- Check 3: Adjective inflation ----
+    _ADJECTIVES = [
+        "robust", "comprehensive", "crucial", "paramount",
+        "multifaceted", "holistic", "dynamic", "vibrant",
+    ]
+    adj_hits = sum(1 for adj in _ADJECTIVES if adj in content_lower)
+    adj_per_100 = adj_hits / max(1, word_count / 100)
+    check3 = max(0.0, 1.0 - adj_per_100)
+
+    # ---- Check 4: Bullet-point addiction ----
+    bullet_lines = sum(
+        1 for line in lines
+        if line.strip().startswith(("-", "*"))
+        or _re.match(r"^\d+[.)]\s", line.strip())
+    )
+    non_bullet_lines = sum(
+        1 for line in lines
+        if line.strip()
+        and not line.strip().startswith(("-", "*"))
+        and not _re.match(r"^\d+[.)]\s", line.strip())
+    )
+    total_meaningful = bullet_lines + non_bullet_lines
+    if total_meaningful > 0:
+        bullet_ratio = bullet_lines / total_meaningful
+    else:
+        bullet_ratio = 0.0
+
+    if bullet_ratio > 0.7:
+        check4 = 0.0
+    elif bullet_ratio > 0.4:
+        check4 = 0.5
+    else:
+        check4 = 1.0
+
+    # ---- Check 5: No personal stance ----
+    _PERSONAL_MARKERS = [
+        "i think", "i found", "in my experience", "i believe",
+        "i noticed", "i discovered", "i feel", "i've found",
+        "i have found", "in my opinion",
+    ]
+    personal_hits = sum(
+        1 for marker in _PERSONAL_MARKERS if marker in content_lower
+    )
+    check5 = min(1.0, personal_hits / 2.0)
+
+    # ---- Check 6: Formulaic transitions ----
+    _TRANSITIONS = [
+        "first", "secondly", "third", "finally", "in conclusion",
+        "lastly", "to begin", "next", "additionally",
+    ]
+    transition_hits = 0
+    for para in paragraphs:
+        para_lower = para.lower()
+        if any(para_lower.startswith(t) for t in _TRANSITIONS):
+            transition_hits += 1
+    check6 = max(0.0, 1.0 - (transition_hits / para_count))
+
+    # ---- Aggregate ----
+    checks = [check1, check2, check3, check4, check5, check6]
+    overall = sum(checks) / len(checks)
+
+    # Build justification
+    check_labels = []
+    if check1 < 0.7:
+        check_labels.append(f"{template_hits} template phrases ({check1:.2f})")
+    if check2 < 0.7:
+        check_labels.append(f"over-hedging ({check2:.2f})")
+    if check3 < 0.7:
+        check_labels.append(f"{adj_hits} inflated adjectives ({check3:.2f})")
+    if check4 < 0.7:
+        check_labels.append(f"bullet ratio {bullet_ratio:.0%} ({check4:.2f})")
+    if check5 < 0.7:
+        check_labels.append(f"no personal stance ({check5:.2f})")
+    if check6 < 0.7:
+        check_labels.append(f"{transition_hits} formulaic transitions ({check6:.2f})")
+
+    if not check_labels:
+        justification = (
+            f"AI detection: {overall:.2f}. No strong AI fingerprints detected "
+            f"in {word_count} words across {sentence_count} sentences."
+        )
+    else:
+        justification = (
+            f"AI detection: {overall:.2f}. Flags: {'; '.join(check_labels)}. "
+            f"({word_count} words, {sentence_count} sentences)"
+        )
+
+    return {
+        "criterion": "ai_detection",
+        "score": round(overall, 2),
+        "max_score": 1.0,
+        "justification": justification,
+    }
+
+
 def _score_criterion(
     criterion: str, content: str, tone: str | None = None
 ) -> dict[str, Any]:
@@ -251,6 +399,7 @@ def _score_criterion(
             "score": 0.72,
             "justification": f"Requested tone: {tone or 'neutral'}. Heuristic tone_match score.",
         },
+        "ai_detection": lambda: _score_ai_detection(content, tone),
     }
 
     scorer = scorers.get(criterion)

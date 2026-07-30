@@ -719,3 +719,138 @@ class TestSourceQualityTier:
         assert _compute_source_quality_tier(
             {"source_index": "some_random_blog"}
         ) == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Citation chain (FACTUALITY-CITATION-1)
+# ---------------------------------------------------------------------------
+
+
+class TestCitationVerificationChain:
+    """Tests for DOI resolution, evidence links, and staleness detection."""
+
+    def test_doi_resolves_creates_link(self, monkeypatch):
+        """_resolve_doi finds a DOI and create_evidence_link produces a valid link."""
+        monkeypatch.setenv("SHADOW_SOURCES_ENABLED", "true")
+        import sys
+        sys.modules.pop("mcp.verify.server", None)
+        from mcp.verify.server import _resolve_doi, create_evidence_link
+
+        import asyncio
+
+        # Mock _search_sources to return a matching DOI with metadata
+        async def mock_search(claim, limit=5):
+            return [{
+                "doi": "10.1234/test.1",
+                "title": "A Groundbreaking Study",
+                "authors": ["Smith, J.", "Doe, A."],
+                "year": 2024,
+            }]
+
+        import mcp.verify.server as srv
+        original = srv._search_sources
+        srv._search_sources = mock_search
+        try:
+            resolved = asyncio.run(_resolve_doi("10.1234/test.1"))
+            assert resolved["found"] is True
+            assert resolved["title"] == "A Groundbreaking Study"
+            assert "Smith" in resolved["authors"][0]
+            assert resolved["year"] == 2024
+
+            # Now create an evidence link from the resolved DOI
+            link = create_evidence_link(
+                observation_id="obs-abc-123",
+                source_identifier="doi:10.1234/test.1",
+                excerpt="Source corroborates the claim about X.",
+                confidence=0.92,
+            )
+            assert link["observation_id"] == "obs-abc-123"
+            assert link["source_identifier"] == "doi:10.1234/test.1"
+            assert link["excerpt"] == "Source corroborates the claim about X."
+            assert link["confidence"] == 0.92
+            assert "content_hash" in link
+            assert len(link["content_hash"]) == 16
+        finally:
+            srv._search_sources = original
+
+    def test_fake_doi_flagged(self, monkeypatch):
+        """_resolve_doi returns found=False for a non-resolving DOI."""
+        monkeypatch.setenv("SHADOW_SOURCES_ENABLED", "true")
+        import sys
+        sys.modules.pop("mcp.verify.server", None)
+        from mcp.verify.server import _resolve_doi
+
+        import asyncio
+
+        async def mock_search(claim, limit=5):
+            return []  # no results
+
+        import mcp.verify.server as srv
+        original = srv._search_sources
+        srv._search_sources = mock_search
+        try:
+            resolved = asyncio.run(_resolve_doi("10.9999/fake.abc"))
+            assert resolved["found"] is False
+            assert resolved["title"] == ""
+            assert resolved["authors"] == []
+            assert resolved["year"] == ""
+        finally:
+            srv._search_sources = original
+
+    def test_evidence_link_with_observation(self, monkeypatch):
+        """create_evidence_link produces consistent content_hash for same input."""
+        monkeypatch.setenv("SHADOW_SOURCES_ENABLED", "true")
+        import sys
+        sys.modules.pop("mcp.verify.server", None)
+        from mcp.verify.server import create_evidence_link
+
+        link1 = create_evidence_link(
+            observation_id="obs-1",
+            source_identifier="doi:10.5678/paper.2",
+            excerpt="Supports claim about climate change.",
+            confidence=0.88,
+        )
+
+        # Same inputs → same hash
+        link2 = create_evidence_link(
+            observation_id="obs-1",
+            source_identifier="doi:10.5678/paper.2",
+            excerpt="Supports claim about climate change.",
+            confidence=0.88,
+        )
+
+        assert link1["content_hash"] == link2["content_hash"]
+        assert link1["observation_id"] == "obs-1"
+        assert 0.0 <= link1["confidence"] <= 1.0
+
+        # Different excerpt → different hash
+        link3 = create_evidence_link(
+            observation_id="obs-1",
+            source_identifier="doi:10.5678/paper.2",
+            excerpt="Refutes claim about climate change.",
+            confidence=0.88,
+        )
+        assert link1["content_hash"] != link3["content_hash"]
+
+    def test_staleness_detected(self, monkeypatch):
+        """check_citation_staleness flags stale when content_hash differs."""
+        monkeypatch.setenv("SHADOW_SOURCES_ENABLED", "true")
+        import sys
+        sys.modules.pop("mcp.verify.server", None)
+        from mcp.verify.server import check_citation_staleness
+
+        # Same hash → not stale
+        result = check_citation_staleness("abc123", "abc123")
+        assert result["stale"] is False
+        assert result["reason"] is None
+
+        # Different hash → stale
+        result = check_citation_staleness("abc123", "def456")
+        assert result["stale"] is True
+        assert "mismatch" in result["reason"]
+        assert result["current_hash"] == "abc123"
+        assert result["previous_hash"] == "def456"
+
+        # Empty strings compared
+        result = check_citation_staleness("", "abc123")
+        assert result["stale"] is True

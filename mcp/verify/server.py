@@ -355,6 +355,136 @@ async def _verify_citations_in_verifications(
     return updated
 
 
+# ── DOI resolution (FACTUALITY-CITATION-1) ────────────────────
+
+
+async def _resolve_doi(doi: str) -> dict[str, Any]:
+    """Resolve a DOI via search MCP and return bibliographic metadata.
+
+    Returns:
+        dict with keys: found (bool), title (str), authors (list[str]),
+        year (str|int).
+    """
+    results = await _search_sources(f"doi:{doi}", limit=5)
+    for result in results:
+        result_doi = result.get("doi", "")
+        if result_doi and result_doi.lower().strip() == doi.lower().strip():
+            return {
+                "found": True,
+                "title": result.get("title", ""),
+                "authors": result.get("authors", []),
+                "year": result.get("year", ""),
+            }
+    return {"found": False, "title": "", "authors": [], "year": ""}
+
+
+def create_evidence_link(
+    observation_id: str,
+    source_identifier: str,
+    excerpt: str = "",
+    confidence: float = 0.5,
+) -> dict[str, Any]:
+    """Create an evidence link connecting observation → source.
+
+    Each link carries an excerpt from the verification explanation,
+    a confidence score, and a content hash for staleness detection.
+
+    Returns:
+        dict with keys: observation_id, source_identifier, excerpt,
+        confidence, content_hash.
+    """
+    import hashlib
+    content = f"{source_identifier}:{excerpt}"
+    content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
+    return {
+        "observation_id": observation_id,
+        "source_identifier": source_identifier,
+        "excerpt": excerpt,
+        "confidence": confidence,
+        "content_hash": content_hash,
+    }
+
+
+def check_citation_staleness(
+    current_hash: str,
+    previous_hash: str,
+) -> dict[str, Any]:
+    """Compare content_hash values to detect stale evidence.
+
+    When a previously-verified source changes (hash mismatch),
+    the evidence link is flagged as stale and should be re-verified.
+
+    Returns:
+        dict with keys: stale (bool), reason (str|None),
+        current_hash (str), previous_hash (str).
+    """
+    if current_hash != previous_hash:
+        return {
+            "stale": True,
+            "reason": "content_hash mismatch — source may have changed",
+            "current_hash": current_hash,
+            "previous_hash": previous_hash,
+        }
+    return {"stale": False, "reason": None}
+
+
+async def _build_evidence_links(
+    verifications: list[dict[str, Any]],
+    observation_id: str = "",
+) -> list[dict[str, Any]]:
+    """Post-LLM DOI resolution pass.
+
+    Scans every verification for a cited DOI in evidence_source,
+    resolves it via _resolve_doi(), and creates an evidence_link
+    for each verified claim → source pair.
+
+    Unresolved DOIs are flagged with [UNVERIFIED SOURCE].
+
+    Returns:
+        list of evidence_link dicts.
+    """
+    evidence_links: list[dict[str, Any]] = []
+    seen_dois: set[str] = set()
+
+    for v in verifications:
+        evidence_source = v.get("evidence_source", "")
+        if not evidence_source:
+            continue
+        dois = _extract_dois(evidence_source)
+        for doi in dois:
+            if doi in seen_dois:
+                continue
+            seen_dois.add(doi)
+            resolved = await _resolve_doi(doi)
+            if resolved["found"]:
+                excerpt = v.get("explanation", "")[:200]
+                confidence: float = float(v.get("confidence", 0.5))
+                link = create_evidence_link(
+                    observation_id=observation_id,
+                    source_identifier=f"doi:{doi}",
+                    excerpt=excerpt,
+                    confidence=confidence,
+                )
+                link["doi_meta"] = {
+                    "title": resolved["title"],
+                    "authors": resolved["authors"],
+                    "year": resolved["year"],
+                }
+            else:
+                link = {
+                    "observation_id": observation_id,
+                    "source_identifier": f"doi:{doi}",
+                    "excerpt": "",
+                    "confidence": 0.0,
+                    "content_hash": "",
+                    "flagged": True,
+                    "flag_reason": "[UNVERIFIED SOURCE]",
+                }
+            evidence_links.append(link)
+
+    return evidence_links
+
+
 # ── adversarial verification ─────────────────────────────────────
 
 _REFUTATION_PROMPT = """You are a skeptical fact-checker tasked with refuting a
@@ -932,6 +1062,7 @@ async def verify_claim(
 
     # ── persist verification to knowledge graph ──────────────
     verification_node_id: str | None = None
+    obs_id: str = ""
     if _db_pool is not None:
         try:
             import uuid as _uuid
@@ -1072,6 +1203,16 @@ async def verify_claim(
         except Exception:  # noqa: BLE001, S110
             pass  # KG write is best-effort
 
+    # ── evidence links (FACTUALITY-CITATION-1) ───────────────
+    evidence_links: list[dict[str, Any]] = []
+    if verify_citations:
+        try:
+            evidence_links = await _build_evidence_links(
+                verifications, observation_id=obs_id or ""
+            )
+        except Exception:  # noqa: BLE001, S110
+            pass  # evidence links are best-effort
+
     citations = [
         r.get("doi") or r.get("identifier", "")
         for r in shadow_results
@@ -1094,6 +1235,8 @@ async def verify_claim(
         resp_data["risk_items_detected"] = {
             k: v for k, v in risk_items.items() if v
         }
+    if evidence_links:
+        resp_data["evidence_links"] = evidence_links
 
     resp = _ok(
         trace_id=payload.trace_id,

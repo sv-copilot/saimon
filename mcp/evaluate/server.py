@@ -11,6 +11,7 @@ Without an LLM, falls back to heuristic-based scoring.
 from __future__ import annotations
 
 import json as _json
+import logging as _logging
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -225,6 +226,9 @@ async def _llm_evaluate(
 
 
 import re as _re
+from collections import Counter as _Counter
+from statistics import mean as _mean
+from statistics import stdev as _stdev
 
 
 def _score_ai_detection(content: str, _tone: str | None = None) -> dict[str, Any]:
@@ -329,8 +333,85 @@ def _score_ai_detection(content: str, _tone: str | None = None) -> dict[str, Any
             transition_hits += 1
     check6 = max(0.0, 1.0 - (transition_hits / para_count))
 
+    # ---- Check 7: Burstiness (word clustering) ----
+    # Human writers reuse topical words in bursts; AI distributes evenly.
+    # Measure variance of inter-arrival gaps for top 5 content words.
+    content_words = [w.lower() for w in words if w.isalpha() and len(w) > 2]
+    if len(content_words) >= 10:
+        word_counts = _Counter(content_words)
+        top5 = [w for w, _ in word_counts.most_common(5)]
+        burst_variances: list[float] = []
+        for w in top5:
+            positions = [i for i, cw in enumerate(content_words) if cw == w]
+            if len(positions) >= 3:
+                gaps = [positions[i + 1] - positions[i] for i in range(len(positions) - 1)]
+                if len(gaps) >= 2:
+                    try:
+                        gap_mean = _mean(gaps)
+                        gap_var = _mean((g - gap_mean) ** 2 for g in gaps)
+                        burst_variances.append(gap_var)
+                    except Exception:  # noqa: BLE001
+                        _log = _logging.getLogger("saimon.evaluate.ai_detection")
+                        _log.debug("Burstiness variance computation failed", exc_info=True)
+        if burst_variances:
+            avg_burst_var = _mean(burst_variances)
+            # High variance (>3) = bursty/human, low variance (<1) = uniform/AI
+            # Normalize: 0 when var < 0.5, 1 when var > 3
+            check7 = min(1.0, max(0.0, (avg_burst_var - 0.5) / 2.5))
+        else:
+            check7 = 0.5  # neutral — not enough data
+    else:
+        check7 = 0.5  # neutral — too few content words
+
+    # ---- Check 8: Perplexity proxy (TTR + hapax legomena) ----
+    words_lower = [w.lower() for w in words if w.isalpha()]
+    if len(words_lower) >= 10:
+        unique_count = len(set(words_lower))
+        ttr = unique_count / len(words_lower)  # type-token ratio
+        word_freq = _Counter(words_lower)
+        hapax_count = sum(1 for c in word_freq.values() if c == 1)
+        hapax_ratio = hapax_count / len(words_lower)
+
+        # TTR: 0.35 (AI-like) → 0.0, 0.7+ (human) → 1.0
+        ttr_score = min(1.0, max(0.0, (ttr - 0.35) / 0.35))
+        # Hapax: 0.25 (AI-like) → 0.0, 0.55+ (human) → 1.0
+        hapax_score = min(1.0, max(0.0, (hapax_ratio - 0.25) / 0.30))
+        check8 = (ttr_score + hapax_score) / 2.0
+    else:
+        check8 = 0.5  # neutral
+
+    # ---- Check 9: Sentence length variance ----
+    sent_lengths = [len(s.split()) for s in sentences if s.split()]
+    if len(sent_lengths) >= 4:
+        try:
+            sent_mean = _mean(sent_lengths)
+            sent_std = _stdev(sent_lengths)
+            cv = sent_std / sent_mean if sent_mean > 0 else 0.0  # coefficient of variation
+            # CV < 0.3 = suspiciously uniform (AI-like) → 0.0
+            # CV > 0.9 = natural variation (human) → 1.0
+            cv_score = min(1.0, max(0.0, (cv - 0.3) / 0.6))
+
+            # Penalty for sentences >50 words (older model trait)
+            long_sents = sum(1 for sl in sent_lengths if sl > 50)
+            long_penalty = min(1.0, long_sents / max(1, len(sent_lengths)))
+            check9 = cv_score * (1.0 - long_penalty * 0.5)
+            check9 = max(0.0, check9)
+        except Exception:  # noqa: BLE001
+            check9 = 0.5
+    else:
+        check9 = 0.5  # neutral
+
+    # ---- Check 10: Punctuation diversity ----
+    punctuation_chars = {c for c in content if c in (
+        ".", ",", ";", ":", "!", "?", "—", "–", "…", "(", ")", "\"", "'", "-"
+    )}
+    punct_per_100 = len(punctuation_chars) / max(1, word_count / 100)
+    # >8 unique types per 100 words = human-like → 1.0
+    # <3 unique types per 100 = AI-like → 0.0
+    check10 = min(1.0, max(0.0, (punct_per_100 - 3.0) / 5.0))
+
     # ---- Aggregate ----
-    checks = [check1, check2, check3, check4, check5, check6]
+    checks = [check1, check2, check3, check4, check5, check6, check7, check8, check9, check10]
     overall = sum(checks) / len(checks)
 
     # Build justification
@@ -347,15 +428,25 @@ def _score_ai_detection(content: str, _tone: str | None = None) -> dict[str, Any
         check_labels.append(f"no personal stance ({check5:.2f})")
     if check6 < 0.7:
         check_labels.append(f"{transition_hits} formulaic transitions ({check6:.2f})")
+    if check7 < 0.7:
+        check_labels.append(f"low burstiness ({check7:.2f})")
+    if check8 < 0.7:
+        check_labels.append(f"low lexical diversity ({check8:.2f})")
+    if check9 < 0.7:
+        check_labels.append(f"uniform sentences ({check9:.2f})")
+    if check10 < 0.7:
+        check_labels.append(f"narrow punctuation ({check10:.2f})")
 
     if not check_labels:
         justification = (
-            f"AI detection: {overall:.2f}. No strong AI fingerprints detected "
-            f"in {word_count} words across {sentence_count} sentences."
+            f"AI detection: {overall:.2f}. Deterministic heuristic — not an ML classifier. "
+            f"No strong AI fingerprints detected in {word_count} words across "
+            f"{sentence_count} sentences."
         )
     else:
         justification = (
-            f"AI detection: {overall:.2f}. Flags: {'; '.join(check_labels)}. "
+            f"AI detection: {overall:.2f}. Deterministic heuristic — not an ML classifier. "
+            f"Flags: {'; '.join(check_labels)}. "
             f"({word_count} words, {sentence_count} sentences)"
         )
 

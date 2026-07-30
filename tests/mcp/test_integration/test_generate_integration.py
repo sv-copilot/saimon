@@ -158,9 +158,11 @@ class TestLLMBackendInjection:
         assert data["status"] == "success"
 
         # Verify LLM was called
-        mock_llm.generate.assert_called_once()
-        call_args = mock_llm.generate.call_args
-        prompt_arg = call_args[0][0] if call_args[0] else call_args[1].get("prompt", "")
+        # Self-critique pass (#29) adds a second LLM call for review
+        assert mock_llm.generate.call_count == 2
+        # First call is generation, second is self-critique review
+        first_call = mock_llm.generate.call_args_list[0]
+        prompt_arg = first_call[0][0] if first_call[0] else first_call[1].get("prompt", "")
         assert "AI governance" in prompt_arg
         assert "blog" in prompt_arg.lower()
 

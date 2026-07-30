@@ -247,7 +247,62 @@ Generate a {content_type} with the following parameters:
 - Tone: {tone}
 {extra_params}
 
-Return ONLY the generated content — no preamble, no meta-commentary."""
+First, briefly outline your reasoning and evidence for each factual claim.
+Then present the final content.
+
+For any claim you are <90% confident about, prefix it with [LOW CONFIDENCE]
+and explain why.
+
+Do not invent statistics, dates, or names. Stick to claims you can support.
+
+{sources_block}"""
+
+
+def _format_sources_text(sources: list[Any]) -> str:
+    """Format a list of SourceReference objects into a numbered text block.
+
+    Each source is rendered with title, authors, and year when available.
+    """
+    if not sources:
+        return ""
+
+    parts = []
+    for i, src in enumerate(sources, 1):
+        title = getattr(src, "identifier", str(src))
+        src_type = getattr(src, "type", "unknown")
+        # Try to extract structured fields if the source has them
+        src_title = getattr(src, "title", None)
+        src_authors = getattr(src, "authors", None)
+        src_year = getattr(src, "year", None)
+
+        if src_title:
+            title = src_title
+        parts.append(f"{i}. {title} ({src_type})")
+        if src_authors:
+            parts[-1] += f" — {src_authors}"
+        if src_year:
+            parts[-1] += f", {src_year}"
+
+    sources_text = "\n".join(parts)
+    return (
+        "Use ONLY the following sources. Do not introduce facts, statistics, "
+        f"dates, or names not present in them:\n{sources_text}"
+    )
+
+
+async def _self_critique_pass(draft: str) -> str:
+    """Run a self-critique pass on the generated draft.
+
+    Feeds the draft back to the LLM with instructions to flag
+    unverifiable claims and produce a final version.
+    """
+    review_prompt = (
+        "Review the following draft for any unverifiable claims. "
+        "Flag each with [UNVERIFIABLE] and explain why. "
+        "Then produce the final version:\n\n"
+        f"{draft}"
+    )
+    return await _llm_client.generate(review_prompt)  # type: ignore[union-attr]
 
 
 async def _generate_via_llm(
@@ -255,8 +310,14 @@ async def _generate_via_llm(
     content_type: str,
     tone: str,
     ct_schema: dict[str, Any] | None,
+    sources: list[Any] | None = None,
 ) -> str:
-    """Generate content via the injected LLM client."""
+    """Generate content via the injected LLM client.
+
+    When sources are provided, they are prepended to the prompt as a
+    source-grounding constraint.  A two-turn self-critique pass reviews
+    the draft for unverifiable claims and produces the final version.
+    """
     extra = ""
     if ct_schema:
         opts = ct_schema.get("optional_params", [])
@@ -264,13 +325,27 @@ async def _generate_via_llm(
             extra = "- Options: " + ", ".join(
                 p["name"] for p in opts if isinstance(p, dict)
             )
+
+    sources_block = _format_sources_text(sources) if sources else ""
+
     llm_prompt = _GENERATE_PROMPT_TEMPLATE.format(
         content_type=content_type.replace("_", " "),
         prompt=prompt,
         tone=tone,
         extra_params=extra,
+        sources_block=sources_block,
     )
-    return await _llm_client.generate(llm_prompt)  # type: ignore[union-attr]
+
+    # Turn 1: generate draft
+    draft = await _llm_client.generate(llm_prompt)  # type: ignore[union-attr]
+
+    # Turn 2: self-critique pass
+    try:
+        final = await _self_critique_pass(draft)
+        return final
+    except Exception:  # noqa: BLE001 — self-critique is best-effort
+        # If self-critique fails (e.g. LLM error), return the draft
+        return draft
 
 
 # ---------------------------------------------------------------------------
@@ -317,7 +392,10 @@ async def generate_content(
     # ── try LLM backend ──
     if _llm_client is not None:
         try:
-            content = await _generate_via_llm(prompt, content_type, tone, ct_schema)
+            content = await _generate_via_llm(
+                prompt, content_type, tone, ct_schema,
+                sources=payload.sources,
+            )
             generated: dict[str, Any] = {
                 "content": content,
                 "content_type": content_type,
@@ -553,7 +631,10 @@ async def generate_job_hunt_content(
     # ── try LLM backend ──
     if _llm_client is not None:
         try:
-            content = await _generate_via_llm(prompt, content_type, tone, ct_schema)
+            content = await _generate_via_llm(
+                prompt, content_type, tone, ct_schema,
+                sources=payload.sources,
+            )
             generated: dict[str, Any] = {
                 "content": content,
                 "content_type": content_type,

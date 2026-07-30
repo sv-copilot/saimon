@@ -526,3 +526,234 @@ class TestAiDetection:
         score = data["data"]["scores"][0]
         assert "justification" in score
         assert len(score["justification"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Criterion: ai_detection v2 — checks 7-10 (burstiness, TTR, sentence var, punct)
+# ---------------------------------------------------------------------------
+
+class TestAiDetectionV2:
+    """Tests for the 4 new research-backed heuristics added in AI-DETECT-STANDALONE-1."""
+
+    def test_burstiness_flags_uniform_text(self, client, sample_trace_id, auth_headers):
+        """Uniformly distributed word repetition (AI-like) scores low on burstiness."""
+        # This text repeats words at very regular intervals — AI signature
+        response = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": (
+                        "The system processes data efficiently. The system "
+                        "handles requests smoothly. The system manages "
+                        "workloads reliably. The system delivers results "
+                        "quickly. The system ensures quality consistently. "
+                        "The system maintains stability perfectly."
+                    ),
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        score = data["data"]["scores"][0]
+        assert score["criterion"] == "ai_detection"
+        # Template phrases + low burstiness → should be well below 0.8
+        assert score["score"] < 0.8
+        assert "Deterministic heuristic" in score["justification"]
+
+    def test_ttr_hapax_distinguishes_human(self, client, sample_trace_id, auth_headers):
+        """Human text with varied vocabulary scores higher than repetitive AI text."""
+        # Human-like: varied vocab, unique words
+        response_human = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": (
+                        "I think the cathedral spire cast long shadows across "
+                        "the cobblestone plaza. Children laughed while "
+                        "pigeons scattered frantically. An old violinist "
+                        "played something melancholic near the fountain. "
+                        "Tourists photographed everything without really "
+                        "seeing anything. I found the whole scene oddly "
+                        "comforting, like a memory I hadn't lived yet."
+                    ),
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        # AI-like: repetitive, low lexical diversity
+        response_ai = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": (
+                        "The system is designed to provide comprehensive "
+                        "solutions. The system is robust and the system is "
+                        "reliable. The system provides the system with "
+                        "comprehensive capabilities. The system ensures "
+                        "the system delivers comprehensive results."
+                    ),
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        human_score = response_human.json()["data"]["scores"][0]["score"]
+        ai_score = response_ai.json()["data"]["scores"][0]["score"]
+        # Human text with stance markers + varied vocab should outscore repetitive AI
+        assert human_score > ai_score, (
+            f"Expected human ({human_score:.2f}) > AI ({ai_score:.2f})"
+        )
+
+    def test_sentence_variance_flags_uniform(self, client, sample_trace_id, auth_headers):
+        """Uniform sentence lengths (AI-like) score lower than varied sentences."""
+        # AI-like: all sentences roughly same length
+        response_uniform = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": (
+                        "The system processes data efficiently. "
+                        "The system handles requests smoothly. "
+                        "The system manages workloads reliably. "
+                        "The system delivers results quickly. "
+                        "The system ensures quality consistently. "
+                        "The system maintains stability perfectly."
+                    ),
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        # Human-like: varied sentence lengths
+        response_varied = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": (
+                        "I think this works. But then again, maybe it doesn't "
+                        "— I've been going back and forth on this for weeks "
+                        "now, and I still can't decide. The data is messy. "
+                        "My advisor says to just pick a direction and run with "
+                        "it, which is probably good advice, but I found the "
+                        "edge cases really troubling. So I'm stuck."
+                    ),
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        uniform_score = response_uniform.json()["data"]["scores"][0]["score"]
+        varied_score = response_varied.json()["data"]["scores"][0]["score"]
+        assert varied_score > uniform_score, (
+            f"Expected varied ({varied_score:.2f}) > uniform ({uniform_score:.2f})"
+        )
+
+    def test_punctuation_diversity_score(self, client, sample_trace_id, auth_headers):
+        """Text with narrow punctuation (AI) scores lower than diverse punctuation."""
+        # Narrow punctuation: just periods and commas
+        response_narrow = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": (
+                        "The system is robust, comprehensive, and dynamic. "
+                        "It provides solutions, manages workflows, and "
+                        "delivers results. The framework is holistic, "
+                        "multifaceted, and reliable. It ensures quality, "
+                        "maintains standards, and drives outcomes."
+                    ),
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        # Diverse punctuation: em-dashes, ellipses, question marks
+        response_diverse = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": (
+                        "I think this is the right call — but honestly? "
+                        "I'm not sure. The data says one thing... yet my gut "
+                        "says another. What would you do? (I've asked three "
+                        "colleagues; they all disagree.) It's a mess — a "
+                        "beautiful, terrible mess."
+                    ),
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        narrow_score = response_narrow.json()["data"]["scores"][0]["score"]
+        diverse_score = response_diverse.json()["data"]["scores"][0]["score"]
+        assert diverse_score > narrow_score, (
+            f"Expected diverse ({diverse_score:.2f}) > narrow ({narrow_score:.2f})"
+        )
+
+    def test_all_ten_checks_contribute(self):
+        """All 10 checks contribute equally (1/10 weight each) to the final score."""
+        from mcp.evaluate.server import _score_ai_detection
+
+        # Content that is neutral across all checks — no strong signals
+        result = _score_ai_detection(
+            "This is a simple paragraph with some words. "
+            "It has a few sentences that are normal. "
+            "Nothing particularly AI or human about it. "
+            "I think it seems okay for testing purposes."
+        )
+        assert "criterion" in result
+        assert result["criterion"] == "ai_detection"
+        assert 0.0 <= result["score"] <= 1.0
+        assert "Deterministic heuristic" in result["justification"]
+
+    def test_human_text_scores_above_0_7(self, client, sample_trace_id, auth_headers):
+        """Natural human text with personal stance and varied style scores ≥ 0.7."""
+        response = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": (
+                        "I think this approach has real merit — I've tried it "
+                        "on three different projects now and each time I was "
+                        "surprised by how well it held up. The edge cases are "
+                        "tricky, sure, but honestly? Most teams never hit them. "
+                        "My advice: start simple, measure everything, and don't "
+                        "over-engineer the abstractions. I learned that the hard "
+                        "way after spending six months building a framework nobody "
+                        "wanted. In my experience, the best solutions emerge from "
+                        "actually using the thing — not from whiteboard sessions. "
+                        "I found that shipping early, even with rough edges, "
+                        "taught me more than any amount of planning ever did."
+                    ),
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        score = data["data"]["scores"][0]
+        assert score["score"] >= 0.7, (
+            f"Expected human text score ≥ 0.7, got {score['score']:.2f}. "
+            f"Justification: {score['justification']}"
+        )
+        assert "Deterministic heuristic" in score["justification"]

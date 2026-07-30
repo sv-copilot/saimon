@@ -165,9 +165,9 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     # ── Evaluate Tools ──────────────────────────────────────────
     "saimon_evaluate_content": {
         "description": (
-            "Score generated content against quality criteria (accuracy, "
-            "completeness, clarity, relevance, sourcing). Returns scored "
-            "results with per-criterion breakdown."
+            "Score generated content against quality criteria (clarity, "
+            "completeness, coherence, conciseness, tone_match, ai_detection). "
+            "Returns scored results with per-criterion breakdown."
         ),
         "service": "evaluate",
         "method": "POST",

@@ -94,7 +94,15 @@ _CRITERIA: dict[str, dict[str, Any]] = {
     },
     "ai_detection": {
         "name": "ai_detection",
-        "description": "How likely the content was written by a human (1.0) vs AI-generated (0.0).",
+        "description": (
+            "⚠️ DETERMINISTIC HEURISTIC ONLY — NOT an ML classifier. "
+            "How likely the content was written by a human (1.0) vs AI-generated (0.0). "
+            "Uses 10 pattern-matching checks (template phrases, burstiness, "
+            "lexical diversity, sentence variance, punctuation diversity, etc.). "
+            "LIMITATIONS: cannot detect sophisticated AI output, may produce "
+            "false positives on formal human writing. Do NOT use as sole "
+            "evidence of AI generation."
+        ),
         "weight": 1 / 6,
     },
 }
@@ -130,7 +138,12 @@ async def health() -> dict[str, Any]:
 _TOOLS = [
     {
         "name": "evaluate_content",
-        "description": "Score content against quality criteria.",
+        "description": (
+            "Score content against quality criteria (clarity, completeness, "
+            "coherence, conciseness, tone_match, ai_detection). "
+            "⚠️ ai_detection is a deterministic heuristic — NOT an ML "
+            "classifier. Do not rely on it as sole evidence of AI generation."
+        ),
         "parameters": {
             "content": "str (required)",
             "criteria": "list[str] (optional, defaults to all)",
@@ -590,14 +603,26 @@ async def evaluate_content(
         criteria_count=len(criteria_names),
     )
 
-    # Score each criterion — try LLM first, fall back to heuristic
-    if _llm_client is not None:
+    # Score each criterion — try LLM first, fall back to heuristic.
+    # EXCEPT ai_detection: always uses the deterministic 10-check heuristic.
+    # LLMs cannot reliably detect their own output — using the LLM for
+    # ai_detection produces dangerously misleading scores (e.g. 0.9 for
+    # obviously AI-generated text). This criterion NEVER calls the LLM.
+    llm_criteria = [c for c in criteria_names if c != "ai_detection"]
+    has_ai_detection = "ai_detection" in criteria_names
+
+    scores: list[dict[str, Any]] = []
+    if _llm_client is not None and llm_criteria:
         try:
-            scores = await _llm_evaluate(criteria_names, content, tone)
+            scores = await _llm_evaluate(llm_criteria, content, tone)
         except (LLMError, NotImplementedError, _json.JSONDecodeError):
-            scores = [_score_criterion(c, content, tone) for c in criteria_names]
-    else:
-        scores = [_score_criterion(c, content, tone) for c in criteria_names]
+            scores = [_score_criterion(c, content, tone) for c in llm_criteria]
+    elif llm_criteria:
+        scores = [_score_criterion(c, content, tone) for c in llm_criteria]
+
+    # Always append ai_detection via deterministic heuristic if requested
+    if has_ai_detection:
+        scores.append(_score_ai_detection(content, tone))
 
     # Compute overall score
     overall = _compute_overall(scores)

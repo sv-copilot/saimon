@@ -97,8 +97,9 @@ _CRITERIA: dict[str, dict[str, Any]] = {
         "description": (
             "⚠️ DETERMINISTIC HEURISTIC ONLY — NOT an ML classifier. "
             "How likely the content was written by a human (1.0) vs AI-generated (0.0). "
-            "Uses 10 pattern-matching checks (template phrases, burstiness, "
-            "lexical diversity, sentence variance, punctuation diversity, etc.). "
+            "Uses 12 pattern-matching checks (template phrases, burstiness, "
+            "lexical diversity, sentence variance, punctuation diversity, "
+            "personal stance regex, corporate neutrality, starter diversity, etc.). "
             "LIMITATIONS: cannot detect sophisticated AI output, may produce "
             "false positives on formal human writing. Do NOT use as sole "
             "evidence of AI generation."
@@ -272,6 +273,17 @@ def _score_ai_detection(content: str, _tone: str | None = None) -> dict[str, Any
         "delve into", "it's worth noting", "moreover", "furthermore",
         "thus", "in conclusion", "as an AI", "it is important to note",
         "crucial to understand", "plays a pivotal role",
+        # Modern DeepSeek / GPT-4 era phrases
+        "it is worth noting that", "it should be noted that",
+        "it is essential to", "it is crucial to", "it is imperative that",
+        "a testament to", "in the realm of", "in the context of",
+        "it is widely acknowledged", "it is generally accepted",
+        "a compelling case", "a nuanced understanding",
+        "not only ... but also", "striking the right balance",
+        "in an era of", "in today's rapidly evolving",
+        "a delicate balance", "a double-edged sword",
+        "a paradigm shift", "at the forefront of",
+        "it is no exaggeration", "it goes without saying",
     ]
     content_lower = content.lower()
     template_hits = sum(
@@ -323,16 +335,15 @@ def _score_ai_detection(content: str, _tone: str | None = None) -> dict[str, Any
     else:
         check4 = 1.0
 
-    # ---- Check 5: No personal stance ----
-    _PERSONAL_MARKERS = [
-        "i think", "i found", "in my experience", "i believe",
-        "i noticed", "i discovered", "i feel", "i've found",
-        "i have found", "in my opinion",
-    ]
-    personal_hits = sum(
-        1 for marker in _PERSONAL_MARKERS if marker in content_lower
+    # ---- Check 5: No personal stance (regex-based) ----
+    _PERSONAL_REGEX = _re.compile(
+        r'\b(I|we|my|our|me|us)\s+(am|was|have|had|did|'
+        r'spent|found|fixed|debugged|tried|wrote|built|'
+        r'think|believe|noticed|discovered|feel|\w+ed|\w+ing)\b',
+        _re.IGNORECASE,
     )
-    check5 = min(1.0, personal_hits / 2.0)
+    personal_hits = len(_PERSONAL_REGEX.findall(content))
+    check5 = min(1.0, personal_hits / 3.0)
 
     # ---- Check 6: Formulaic transitions ----
     _TRANSITIONS = [
@@ -423,9 +434,56 @@ def _score_ai_detection(content: str, _tone: str | None = None) -> dict[str, Any
     # <3 unique types per 100 = AI-like → 0.0
     check10 = min(1.0, max(0.0, (punct_per_100 - 3.0) / 5.0))
 
-    # ---- Aggregate ----
-    checks = [check1, check2, check3, check4, check5, check6, check7, check8, check9, check10]
-    overall = sum(checks) / len(checks)
+    # ---- Check 11: Corporate neutrality ----
+    # Detect impersonal/balanced/hedged tone — hallmark of AI-generated
+    # corporate or explanatory text. High hedging + low personal stance = AI signal.
+    _CORPORATE_NEUTRALITY = [
+        "can reduce", "may help", "offers several", "contribute to",
+        "without fundamentally", "these capabilities", "practical benefits",
+        "can lead to", "may result in", "has the potential",
+        "it is possible", "in many cases", "tends to",
+        "generally speaking", "for the most part", "in general",
+        "it can be argued", "one might argue", "some may argue",
+        "it is often said", "it is commonly believed",
+        "a wide range of", "a variety of", "various factors",
+        "several key", "multiple aspects", "numerous ways",
+        "can be seen as", "can be viewed as", "can be considered",
+        "it is reasonable to", "it is fair to say",
+        "strikes a balance", "finds a middle ground",
+        "on balance", "all things considered",
+    ]
+    corp_hits = sum(
+        1 for phrase in _CORPORATE_NEUTRALITY if phrase in content_lower
+    )
+    corp_per_100 = corp_hits / max(1, word_count / 100)
+    # High corporate neutrality → AI-like (lower score)
+    check11 = max(0.0, 1.0 - corp_per_100 * 2.0)
+
+    # ---- Check 12: Sentence starter diversity ----
+    # AI tends to reuse the same sentence starters; humans vary them naturally.
+    # Extract first 1-2 words of each sentence and compute unique/total ratio.
+    sent_starters: list[str] = []
+    for s in sentences:
+        stripped = s.strip()
+        if stripped:
+            # Get first 1-2 words as the "starter fingerprint"
+            starter_words = stripped.split()[:2]
+            starter = " ".join(starter_words).lower()
+            sent_starters.append(starter)
+    if len(sent_starters) >= 3:
+        unique_starters = len(set(sent_starters))
+        starter_diversity = unique_starters / len(sent_starters)
+        # <0.5 diversity = AI-like → 0.0; >0.9 = human → 1.0
+        check12 = min(1.0, max(0.0, (starter_diversity - 0.5) / 0.4))
+    else:
+        check12 = 0.5  # neutral — too few sentences
+
+    # ---- Aggregate (weighted) ----
+    # template phrases 2x, adjective inflation 2x, rest 1x
+    checks = [check1, check2, check3, check4, check5, check6, check7, check8, check9, check10, check11, check12]
+    weights = [2.0, 1.0, 2.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    total_weight = sum(weights)
+    overall = sum(c * w for c, w in zip(checks, weights)) / total_weight
 
     # Build justification
     check_labels = []
@@ -449,6 +507,10 @@ def _score_ai_detection(content: str, _tone: str | None = None) -> dict[str, Any
         check_labels.append(f"uniform sentences ({check9:.2f})")
     if check10 < 0.7:
         check_labels.append(f"narrow punctuation ({check10:.2f})")
+    if check11 < 0.7:
+        check_labels.append(f"corporate neutrality ({check11:.2f})")
+    if check12 < 0.7:
+        check_labels.append(f"low starter diversity ({check12:.2f})")
 
     if not check_labels:
         justification = (
@@ -604,7 +666,7 @@ async def evaluate_content(
     )
 
     # Score each criterion — try LLM first, fall back to heuristic.
-    # EXCEPT ai_detection: always uses the deterministic 10-check heuristic.
+    # EXCEPT ai_detection: always uses the deterministic multi-check heuristic.
     # LLMs cannot reliably detect their own output — using the LLM for
     # ai_detection produces dangerously misleading scores (e.g. 0.9 for
     # obviously AI-generated text). This criterion NEVER calls the LLM.

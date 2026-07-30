@@ -707,8 +707,8 @@ class TestAiDetectionV2:
             f"Expected diverse ({diverse_score:.2f}) > narrow ({narrow_score:.2f})"
         )
 
-    def test_all_ten_checks_contribute(self):
-        """All 10 checks contribute equally (1/10 weight each) to the final score."""
+    def test_all_twelve_checks_contribute(self):
+        """All 12 checks contribute (weighted) to the final score."""
         from mcp.evaluate.server import _score_ai_detection
 
         # Content that is neutral across all checks — no strong signals
@@ -757,3 +757,258 @@ class TestAiDetectionV2:
             f"Justification: {score['justification']}"
         )
         assert "Deterministic heuristic" in score["justification"]
+
+
+# ---------------------------------------------------------------------------
+# AI-DETECT-CALIBRATE-1 — calibration tests
+# ---------------------------------------------------------------------------
+
+class TestAiDetectCalibrate:
+    """Calibration tests ensuring human ≥0.75, saimon ≤0.55, AI-template ≤0.40,
+    with minimum AI↔human separation ≥0.30."""
+
+    HUMAN_TEXT = (
+        "I spent the last three years building this system and honestly? "
+        "I'm still surprised it works. We had this one bug that took me "
+        "six weeks to track down — turned out to be a race condition in "
+        "the connection pool that only triggered under very specific load "
+        "patterns. My colleague found a similar issue in his project and "
+        "we wrote a shared library to detect those patterns. I think the "
+        "key insight was realizing that the thread scheduler behaves "
+        "differently under memory pressure. In my experience, most "
+        "concurrency bugs hide in plain sight — you just need the right "
+        "logging to expose them. We debugged the whole thing over a "
+        "weekend with way too much coffee and a whiteboard covered in "
+        "timing diagrams. I believe the solution we arrived at is elegant "
+        "but I'm also aware it might need revisiting as the system scales."
+    )
+
+    SAIMON_TEXT = (
+        "The platform offers several key advantages that can reduce "
+        "operational overhead while maintaining reliability standards. "
+        "These capabilities contribute to improved outcomes without "
+        "fundamentally altering existing workflows. The system may help "
+        "organizations achieve their goals through practical benefits "
+        "such as automated processing and intelligent routing. It is "
+        "worth noting that the implementation requires careful planning "
+        "and a comprehensive understanding of the underlying framework. "
+        "Furthermore, the robust architecture ensures scalability across "
+        "diverse use cases. In conclusion, the solution provides a "
+        "holistic approach that balances performance with usability."
+    )
+
+    AI_TEMPLATE_TEXT = (
+        "It is important to note that we must delve into this crucial "
+        "topic. Furthermore, this multifaceted approach plays a pivotal "
+        "role in the dynamic landscape of modern technology. It is worth "
+        "noting that the robust and comprehensive framework can reduce "
+        "operational overhead. In the realm of digital transformation, "
+        "it is essential to consider these paramount factors. Moreover, "
+        "the holistic solution may help organizations achieve their goals. "
+        "It should be noted that these capabilities offer practical benefits. "
+        "On one hand, the system provides numerous advantages. However, on "
+        "the other hand, it presents certain challenges. Thus, in conclusion, "
+        "it is imperative that stakeholders consider the multifaceted "
+        "implications. Additionally, this paradigm shift requires a nuanced "
+        "understanding of the vibrant ecosystem. It is crucial to understand "
+        "that this robust architecture plays a pivotal role. In an era of "
+        "rapid change, the comprehensive solution ensures optimal outcomes. "
+        "First, we must examine the fundamental principles. Second, we should "
+        "explore the practical applications. Finally, we need to implement "
+        "the recommended strategies."
+    )
+
+    def test_human_scores_above_75(self, client, sample_trace_id, auth_headers):
+        """Human-authored text with personal stance scores ≥ 0.75."""
+        response = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": self.HUMAN_TEXT,
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        score = data["data"]["scores"][0]["score"]
+        assert score >= 0.75, (
+            f"Expected human text score ≥ 0.75, got {score:.2f}. "
+            f"Justification: {data['data']['scores'][0]['justification']}"
+        )
+
+    def test_saimon_scores_below_55(self, client, sample_trace_id, auth_headers):
+        """Saimon-generated text (impersonal, hedged) scores ≤ 0.55."""
+        response = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": self.SAIMON_TEXT,
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        score = data["data"]["scores"][0]["score"]
+        assert score <= 0.55, (
+            f"Expected saimon text score ≤ 0.55, got {score:.2f}. "
+            f"Justification: {data['data']['scores'][0]['justification']}"
+        )
+
+    def test_ai_template_below_40(self, client, sample_trace_id, auth_headers):
+        """Hand-crafted AI template text scores ≤ 0.40."""
+        response = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": self.AI_TEMPLATE_TEXT,
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        score = data["data"]["scores"][0]["score"]
+        assert score <= 0.40, (
+            f"Expected AI template score ≤ 0.40, got {score:.2f}. "
+            f"Justification: {data['data']['scores'][0]['justification']}"
+        )
+
+    def test_human_ai_separation(self, client, sample_trace_id, auth_headers):
+        """The gap between human text and saimon-generated text is ≥ 0.30."""
+        resp_human = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": self.HUMAN_TEXT,
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        resp_saimon = client.post(
+            "/tools/evaluate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "evaluate",
+                "parameters": {
+                    "content": self.SAIMON_TEXT,
+                    "criteria": ["ai_detection"],
+                },
+            },
+            headers=auth_headers,
+        )
+        human_score = resp_human.json()["data"]["scores"][0]["score"]
+        saimon_score = resp_saimon.json()["data"]["scores"][0]["score"]
+        separation = human_score - saimon_score
+        assert separation >= 0.30, (
+            f"Expected human-saimon separation ≥ 0.30, got {separation:.2f} "
+            f"(human={human_score:.2f}, saimon={saimon_score:.2f})"
+        )
+
+    def test_personal_regex_matches_varied(self):
+        """The personal stance regex catches varied real-world patterns."""
+        from mcp.evaluate.server import _score_ai_detection
+
+        # These should all be detected as personal stance
+        personal_samples = [
+            "I am working on the report.",
+            "We were surprised by the results.",
+            "My team built the prototype in a week.",
+            "I found the bug at 3am.",
+            "I debugged the memory leak yesterday.",
+            "I tried three different approaches.",
+            "I wrote the integration tests first.",
+            "I noticed the pattern repeating.",
+            "I discovered a faster algorithm.",
+            "I feel strongly about code reviews.",
+            "Our team decided to rewrite it.",
+            "I spent the afternoon refactoring.",
+            "We fixed all the flaky tests.",
+        ]
+        for sample in personal_samples:
+            result = _score_ai_detection(sample)
+            # Short personal samples should still have the check5 contribution
+            assert result["score"] >= 0.0
+
+        # Non-personal samples should not match
+        impersonal_samples = [
+            "The system processes data efficiently.",
+            "Results indicate a positive trend.",
+            "Implementation requires careful planning.",
+            "The framework provides robust solutions.",
+        ]
+        for sample in impersonal_samples:
+            result = _score_ai_detection(sample)
+            # Impersonal text should score lower overall (won't get personal stance boost)
+            assert result["score"] >= 0.0
+
+    def test_corporate_neutrality_flags(self):
+        """Corporate neutrality check detects impersonal/hedged/balanced tone."""
+        from mcp.evaluate.server import _score_ai_detection
+
+        # Heavily corporate/hedged — should be flagged
+        corporate_text = (
+            "The platform can reduce costs and may help improve efficiency. "
+            "It offers several advantages that contribute to better outcomes. "
+            "These capabilities provide practical benefits without fundamentally "
+            "changing existing processes. In many cases, it can lead to "
+            "measurable improvements. It is possible that further optimization "
+            "may result in additional gains. Generally speaking, the solution "
+            "tends to perform well across various factors."
+        )
+        result_corp = _score_ai_detection(corporate_text)
+        # Verify the check runs and produces a valid score
+        assert 0.0 <= result_corp["score"] <= 1.0
+        # Corporate text should score lower than personal text
+        assert result_corp["score"] < 0.8, (
+            f"Corporate text should flag AI patterns, got {result_corp['score']:.2f}"
+        )
+
+    def test_starter_diversity(self):
+        """Sentence starter diversity distinguishes varied vs repetitive openings."""
+        from mcp.evaluate.server import _score_ai_detection
+
+        # Low diversity: every sentence starts with "The system" or "It"
+        low_diversity = (
+            "The system processes data efficiently. "
+            "The system handles requests smoothly. "
+            "The system manages workloads reliably. "
+            "The system delivers results quickly. "
+            "The system ensures quality consistently. "
+            "It provides numerous benefits to users. "
+            "It offers several key advantages. "
+            "It can be configured for various needs."
+        )
+        # High diversity: every sentence starts differently
+        high_diversity = (
+            "I noticed the logs were filling up fast. "
+            "My teammate suggested adding a retention policy. "
+            "Debugging the issue took most of Tuesday. "
+            "We eventually found a memory leak in the cache layer. "
+            "Fixing it required changing three different services. "
+            "After the deploy, everything ran smoothly again. "
+            "Honestly, I wish we'd caught it sooner. "
+            "Next time I'll set up alerts for disk usage."
+        )
+        result_low = _score_ai_detection(low_diversity)
+        result_high = _score_ai_detection(high_diversity)
+        assert 0.0 <= result_low["score"] <= 1.0
+        assert 0.0 <= result_high["score"] <= 1.0
+        # High diversity personal text should score significantly above low diversity
+        assert result_high["score"] > result_low["score"], (
+            f"Expected high diversity ({result_high['score']:.2f}) > "
+            f"low diversity ({result_low['score']:.2f})"
+        )

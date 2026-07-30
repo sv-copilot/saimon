@@ -162,12 +162,33 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "body_template": {"content_type": "generate"},
     },
 
+    # ── Verify Tools (continued) ────────────────────────────────
+    "saimon_extract_claims": {
+        "description": (
+            "Extract falsifiable claims from source text with confidence "
+            "scores. Returns a list of claims with topics, confidence "
+            "ratings, and rationales. Persists claims as observations "
+            "in the knowledge graph when DB is available."
+        ),
+        "service": "verify",
+        "method": "POST",
+        "path": "/tools/extract_claims",
+        "body_template": {
+            "content_type": "extract",
+            "parameters": {"source_text": "{source_text}", "max_claims": "{max_claims}"},
+        },
+    },
+
     # ── Evaluate Tools ──────────────────────────────────────────
     "saimon_evaluate_content": {
         "description": (
             "Score generated content against quality criteria (clarity, "
             "completeness, coherence, conciseness, tone_match, ai_detection). "
-            "Returns scored results with per-criterion breakdown."
+            "Returns scored results with per-criterion breakdown. "
+            "The ai_detection criterion uses 12 deterministic heuristic "
+            "checks (template phrases, hedging, adjective inflation, "
+            "burstiness, perplexity proxy, corporate neutrality, etc.) "
+            "— not an ML classifier."
         ),
         "service": "evaluate",
         "method": "POST",
@@ -220,6 +241,34 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
             "parameters": {"content": "{content}", "format": "{format}"},
         },
     },
+
+    # ── Composite Pipeline Tools ────────────────────────────────
+    "saimon_generate_verified": {
+        "description": (
+            "Generate research content AND verify all factual claims in "
+            "a single call. Chains: generate → [ai_detection] → extract "
+            "claims → verify each claim → annotate. Each claim is "
+            "verified with adversarial checking, risk_profile=high, and "
+            "citation verification. Returns annotated content with "
+            "[VERIFIED ✓] / [UNVERIFIED ⚠ reason] markers, a "
+            "verification summary, ai_detection score (optional), "
+            "evidence links, and a list of degraded steps."
+        ),
+        "service": "generate",  # primary service for URL routing
+        "method": "POST",
+        "path": "/tools/generate_content",  # placeholder — handled by pipeline
+        "body_template": {
+            "content_type": "{content_type}",
+            "parameters": {
+                "prompt": "{prompt}",
+                "tone": "{tone}",
+                "sources": "{sources}",
+                "ai_detection": "{ai_detection}",
+                "cross_check": "{cross_check}",
+            },
+        },
+        "composite": True,  # marker: routed to _run_generate_verified_pipeline
+    },
 }
 
 
@@ -266,6 +315,234 @@ async def _call_saimon(
         )
         resp.raise_for_status()
         return resp.json()
+
+
+async def _run_generate_verified_pipeline(
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """Composite pipeline: generate → evaluate → extract → verify → annotate.
+
+    Each step is wrapped in try/except for graceful degradation.
+    Returns a dict with keys:
+      - content (str): annotated generated content
+      - verification_summary (dict): per-claim verdicts
+      - ai_detection_score (dict | None): optional AI detection results
+      - evidence_links (list): citation evidence links
+      - degraded_steps (list[str]): steps that failed gracefully
+    """
+    degraded: list[str] = []
+    result: dict[str, Any] = {}
+
+    # ── Step 1: Generate content ────────────────────────────────
+    prompt = arguments.get("prompt", "")
+    content_type = arguments.get("content_type", "research_note")
+    tone = arguments.get("tone", "neutral")
+    sources = arguments.get("sources", [])
+
+    gen_args: dict[str, Any] = {
+        "prompt": prompt,
+        "content_type": content_type,
+        "tone": tone,
+    }
+    if sources:
+        gen_args["sources"] = sources
+
+    content: str = ""
+    try:
+        gen_resp = await _call_saimon("saimon_generate_content", gen_args)
+        gen_data = gen_resp.get("data", {})
+        if isinstance(gen_data, dict):
+            content = gen_data.get("content", str(gen_data))
+        else:
+            content = str(gen_data)
+    except Exception as exc:
+        degraded.append(f"generate: {exc}")
+        return {
+            "status": "error",
+            "errors": [f"Generate step failed: {exc}"],
+            "degraded_steps": degraded,
+        }
+
+    # ── Step 2: Optional AI detection ───────────────────────────
+    ai_detection_score: dict[str, Any] | None = None
+    ai_detection_enabled = arguments.get("ai_detection", False)
+    # Accept string "true"/"false" from MCP argument serialization
+    if isinstance(ai_detection_enabled, str):
+        ai_detection_enabled = ai_detection_enabled.lower() in ("true", "1", "yes")
+
+    if ai_detection_enabled:
+        try:
+            eval_resp = await _call_saimon("saimon_evaluate_content", {
+                "content": content,
+                "criteria": "ai_detection",
+            })
+            eval_data = eval_resp.get("data", {})
+            if isinstance(eval_data, dict):
+                scores = eval_data.get("scores", [])
+                overall = eval_data.get(
+                    "overall_score",
+                    sum(s.get("score", 0) for s in scores) / max(len(scores), 1) if scores else None,
+                )
+                ai_detection_score = {
+                    "scores": scores,
+                    "overall_score": overall,
+                }
+        except Exception as exc:
+            degraded.append(f"ai_detection: {exc}")
+
+    # ── Step 3: Extract claims ──────────────────────────────────
+    claims: list[dict[str, Any]] = []
+    try:
+        claims_resp = await _call_saimon("saimon_extract_claims", {
+            "source_text": content,
+        })
+        claims_data = claims_resp.get("data", {})
+        if isinstance(claims_data, dict):
+            claims = claims_data.get("claims", [])
+    except Exception as exc:
+        degraded.append(f"extract_claims: {exc}")
+        claims = []
+
+    # ── Step 4: Verify each claim ───────────────────────────────
+    cross_check = arguments.get("cross_check", False)
+    if isinstance(cross_check, str):
+        cross_check = cross_check.lower() in ("true", "1", "yes")
+
+    verified_claims: list[dict[str, Any]] = []
+    all_evidence_links: list[dict[str, Any]] = []
+    for i, claim in enumerate(claims):
+        claim_text = claim.get("claim_text", str(claim)) if isinstance(claim, dict) else str(claim)
+        try:
+            verify_args: dict[str, Any] = {
+                "claim": claim_text,
+                "adversarial": True,
+                "risk_profile": "high",
+                "verify_citations": True,
+                "use_shadow_sources": True,
+            }
+            verify_resp = await _call_saimon("saimon_verify_claim", verify_args)
+            verify_data = verify_resp.get("data", {})
+            if isinstance(verify_data, dict):
+                overall_v = verify_data.get("overall_verdict", "inconclusive")
+                confidence_v = verify_data.get("overall_confidence", 0.0)
+                abstained = verify_data.get("abstained", False)
+                dispute = verify_data.get("adversarial", {})
+                links = verify_data.get("evidence_links", [])
+
+                claim_result: dict[str, Any] = {
+                    "claim_text": claim_text,
+                    "claim_index": i,
+                    "verdict": overall_v,
+                    "confidence": confidence_v,
+                    "abstained": abstained,
+                }
+                if isinstance(dispute, dict) and dispute.get("disputed"):
+                    claim_result["disputed"] = True
+                    claim_result["adversarial_perspective"] = dispute.get(
+                        "adversarial_perspective", ""
+                    )
+
+                verified_claims.append(claim_result)
+                all_evidence_links.extend(links)
+        except Exception as exc:
+            degraded.append(f"verify_claim[{i}]: {exc}")
+            verified_claims.append({
+                "claim_text": claim_text,
+                "claim_index": i,
+                "verdict": "error",
+                "confidence": 0.0,
+                "error": str(exc),
+            })
+
+    # ── Step 4b: Optional cross-check (second verify pass) ──────
+    if cross_check:
+        for i, claim in enumerate(claims):
+            claim_text = claim.get("claim_text", str(claim)) if isinstance(claim, dict) else str(claim)
+            try:
+                verify_args_2: dict[str, Any] = {
+                    "claim": claim_text,
+                    "adversarial": True,
+                    "risk_profile": "high",
+                    "verify_citations": True,
+                    "use_shadow_sources": True,
+                }
+                verify_resp_2 = await _call_saimon("saimon_verify_claim", verify_args_2)
+                verify_data_2 = verify_resp_2.get("data", {})
+                if isinstance(verify_data_2, dict):
+                    cross_verdict = verify_data_2.get("overall_verdict", "inconclusive")
+                    # Compare with first pass
+                    first = verified_claims[i] if i < len(verified_claims) else {}
+                    first_verdict = first.get("verdict", "unknown")
+                    if cross_verdict != first_verdict:
+                        verified_claims[i]["cross_check_disagreement"] = True
+                        verified_claims[i]["cross_check_verdict"] = cross_verdict
+                    else:
+                        verified_claims[i]["cross_check_agreement"] = True
+            except Exception as exc:
+                degraded.append(f"cross_check[{i}]: {exc}")
+
+    # ── Step 5: Annotate content ────────────────────────────────
+    annotated = content
+    for vc in verified_claims:
+        claim_text = vc.get("claim_text", "")
+        verdict = vc.get("verdict", "inconclusive")
+        if verdict == "error":
+            marker = f"[UNVERIFIED ⚠ verification error]"
+        elif verdict == "supported":
+            marker = "[VERIFIED ✓]"
+        elif verdict == "refuted":
+            marker = f"[UNVERIFIED ⚠ refuted]"
+        elif verdict == "inconclusive":
+            marker = f"[UNVERIFIED ⚠ inconclusive]"
+        else:
+            marker = f"[UNVERIFIED ⚠ {verdict}]"
+
+        # Insert marker near the claim text if found in content
+        if claim_text and claim_text in annotated:
+            annotated = annotated.replace(
+                claim_text, f"{marker} {claim_text}", 1
+            )
+
+    # ── Step 6: Build verification summary ──────────────────────
+    total = len(verified_claims)
+    supported = sum(1 for vc in verified_claims if vc.get("verdict") == "supported")
+    refuted = sum(1 for vc in verified_claims if vc.get("verdict") == "refuted")
+    inconclusive = sum(1 for vc in verified_claims if vc.get("verdict") == "inconclusive")
+    errors = sum(1 for vc in verified_claims if vc.get("verdict") == "error")
+    disputed = sum(1 for vc in verified_claims if vc.get("disputed"))
+
+    verification_summary: dict[str, Any] = {
+        "total_claims": total,
+        "supported": supported,
+        "refuted": refuted,
+        "inconclusive": inconclusive,
+        "errors": errors,
+        "disputed": disputed,
+        "verified_claims": verified_claims,
+    }
+
+    if cross_check:
+        cross_agreements = sum(
+            1 for vc in verified_claims if vc.get("cross_check_agreement")
+        )
+        cross_disagreements = sum(
+            1 for vc in verified_claims if vc.get("cross_check_disagreement")
+        )
+        verification_summary["cross_check"] = {
+            "agreements": cross_agreements,
+            "disagreements": cross_disagreements,
+        }
+
+    result = {
+        "status": "degraded" if degraded else "success",
+        "content": annotated,
+        "verification_summary": verification_summary,
+        "ai_detection_score": ai_detection_score,
+        "evidence_links": all_evidence_links,
+        "degraded_steps": degraded if degraded else None,
+    }
+
+    return result
 
 
 def _format_result(data: dict[str, Any]) -> str:
@@ -382,6 +659,84 @@ def _format_result(data: dict[str, Any]) -> str:
     return json.dumps(data, indent=2)
 
 
+def _format_composite_result(data: dict[str, Any]) -> str:
+    """Format the generate_verified composite result into readable text."""
+    status = data.get("status", "unknown")
+    content = data.get("content", "")
+    degraded = data.get("degraded_steps") or []
+    vs = data.get("verification_summary", {})
+    ai_score = data.get("ai_detection_score")
+    evidence_links = data.get("evidence_links") or []
+
+    lines = [
+        f"Status: {status}",
+        "",
+    ]
+
+    if degraded:
+        lines.append(f"⚠ Degraded steps ({len(degraded)}):")
+        for d in degraded:
+            lines.append(f"  - {d}")
+        lines.append("")
+
+    if ai_score is not None:
+        overall = ai_score.get("overall_score", "N/A")
+        lines.append(f"AI Detection Score: {overall}")
+        scores = ai_score.get("scores", [])
+        for s in scores:
+            lines.append(
+                f"  {s.get('criterion', '?')}: {s.get('score', '?')}"
+                f" — {s.get('justification', '')[:120]}"
+            )
+        lines.append("")
+
+    # Verification summary
+    lines.append("── Verification Summary ──")
+    lines.append(f"Claims found: {vs.get('total_claims', 0)}")
+    lines.append(f"  ✓ Supported:   {vs.get('supported', 0)}")
+    lines.append(f"  ✗ Refuted:     {vs.get('refuted', 0)}")
+    lines.append(f"  ? Inconclusive:{vs.get('inconclusive', 0)}")
+    lines.append(f"  ⚠ Errors:      {vs.get('errors', 0)}")
+    if vs.get("disputed"):
+        lines.append(f"  ⚡ Disputed:    {vs.get('disputed', 0)}")
+
+    cross = vs.get("cross_check")
+    if cross:
+        lines.append(f"\nCross-check: {cross.get('agreements', 0)} agreements, "
+                      f"{cross.get('disagreements', 0)} disagreements")
+
+    # Per-claim details
+    verified_claims = vs.get("verified_claims", [])
+    if verified_claims:
+        lines.append("\n── Claim Verdicts ──")
+        for vc in verified_claims:
+            idx = vc.get("claim_index", "?")
+            verdict = vc.get("verdict", "?")
+            conf = vc.get("confidence", 0.0)
+            claim_preview = vc.get("claim_text", "")[:80]
+            marker = ("✓" if verdict == "supported"
+                      else "✗" if verdict == "refuted"
+                      else "?" if verdict == "inconclusive"
+                      else "⚠")
+            lines.append(f"  [{idx}] {marker} ({conf:.2f}) {claim_preview}")
+            if vc.get("disputed"):
+                lines.append(f"       ⚡ Adversarial disagrees: {vc.get('adversarial_perspective', '')}")
+
+    if evidence_links:
+        lines.append(f"\n── Evidence Links ({len(evidence_links)}) ──")
+        for el in evidence_links[:10]:
+            si = el.get("source_identifier", "?")
+            conf = el.get("confidence", 0.0)
+            flagged = " ⚠ FLAGGED" if el.get("flagged") else ""
+            lines.append(f"  {si} (conf={conf:.2f}){flagged}")
+
+    lines.append("")
+    lines.append("── Annotated Content ──")
+    lines.append(content)
+
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # MCP Protocol Loop
 # ---------------------------------------------------------------------------
@@ -457,6 +812,30 @@ async def main() -> None:
                     "id": req_id,
                     "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
                 }
+            elif TOOL_REGISTRY[tool_name].get("composite"):
+                # Composite tool — handled by pipeline function
+                try:
+                    data = await _run_generate_verified_pipeline(arguments)
+                    text = _format_composite_result(data)
+                    response = {
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "result": {
+                            "content": [{"type": "text", "text": text}],
+                        },
+                    }
+                except Exception as exc:
+                    response = {
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "result": {
+                            "content": [{
+                                "type": "text",
+                                "text": f"Error in generate_verified pipeline: {exc}",
+                            }],
+                            "isError": True,
+                        },
+                    }
             else:
                 try:
                     data = await _call_saimon(tool_name, arguments)

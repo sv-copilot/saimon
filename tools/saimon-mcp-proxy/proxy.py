@@ -291,6 +291,17 @@ async def _call_saimon(
     # Drop template placeholders that weren't filled in (e.g. "{criteria}")
     # so the server doesn't receive literal placeholder strings.
     body = json.loads(json.dumps(tool["body_template"]))
+
+    # Substitute top-level fields (e.g. content_type for browse_by_type)
+    for key in list(body.keys()):
+        value = body[key]
+        if isinstance(value, str) and value.startswith("{") and value.endswith("}"):
+            param_name = value[1:-1]
+            if param_name in arguments:
+                body[key] = arguments[param_name]
+            elif key != "content_type":
+                del body[key]  # drop unresolved non-routing placeholders
+
     if "parameters" in body:
         for key in list(body["parameters"].keys()):
             value = body["parameters"][key]

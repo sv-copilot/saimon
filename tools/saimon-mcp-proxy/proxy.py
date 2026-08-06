@@ -222,8 +222,8 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "method": "POST",
         "path": "/tools/browse_by_type",
         "body_template": {
-            "content_type": "explore",
-            "parameters": {"content_type": "{content_type}"},
+            "content_type": "{content_type}",
+            "parameters": {},
         },
     },
 

@@ -223,7 +223,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "path": "/tools/browse_by_type",
         "body_template": {
             "content_type": "explore",
-            "parameters": {"content_type": "{type_name}"},
+            "parameters": {"content_type": "{content_type}"},
         },
     },
 

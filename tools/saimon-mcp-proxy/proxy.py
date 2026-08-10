@@ -119,7 +119,13 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "path": "/tools/verify_claim",
         "body_template": {
             "content_type": "verify",
-            "parameters": {"claim": "{claim}", "use_shadow_sources": True},
+            "parameters": {
+                "claim": "{claim}",
+                "use_shadow_sources": True,
+                "adversarial": "{adversarial}",
+                "risk_profile": "{risk_profile}",
+                "verify_citations": "{verify_citations}",
+            },
         },
     },
     "saimon_list_verification_methods": {
@@ -269,6 +275,24 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
             },
         },
         "composite": True,  # marker: routed to _run_generate_verified_pipeline
+    },
+    "saimon_audit_content": {
+        "description": (
+            "Audit existing text for AI fingerprints and factual reliability. "
+            "Chains: ai_detection → extract claims → verify each claim → "
+            "audit report. No generation step. Returns AI detection score "
+            "with flags, claim-by-claim verification results, evidence links, "
+            "and a human-readable summary."
+        ),
+        "service": "evaluate",  # primary service for URL routing
+        "method": "POST",
+        "path": "/tools/evaluate_content",  # placeholder — handled by pipeline
+        "body_template": {
+            "content_type": "audit",
+            "parameters": {"content": "{content}"},
+        },
+        "composite": True,
+        "pipeline": "audit_content",
     },
 }
 
@@ -791,6 +815,204 @@ def _format_composite_result(data: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Audit Content Composite Pipeline (PIPELINE-AUDIT-1)
+# ---------------------------------------------------------------------------
+
+async def _run_audit_pipeline(
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """Composite pipeline: ai_detection → extract claims → verify → report.
+
+    Takes existing text (no generation). Returns audit report with
+    AI detection score, claim-by-claim verification, and summary.
+    """
+    degraded: list[str] = []
+    content = arguments.get("content", "")
+
+    if not content or not content.strip():
+        return {
+            "status": "error",
+            "errors": ["No content provided for audit"],
+            "degraded_steps": [],
+        }
+
+    # ── Step 1: AI detection ────────────────────────────────────
+    ai_detection_score: dict[str, Any] | None = None
+    try:
+        eval_resp = await _call_saimon("saimon_evaluate_content", {
+            "content": content,
+            "criteria": "ai_detection",
+        })
+        eval_data = eval_resp.get("data", {})
+        if isinstance(eval_data, dict):
+            scores = eval_data.get("scores", [])
+            overall = eval_data.get(
+                "overall_score",
+                sum(s.get("score", 0) for s in scores) / max(len(scores), 1)
+                if scores else None,
+            )
+            flags = eval_data.get("flags", [])
+            ai_detection_score = {
+                "scores": scores,
+                "overall_score": overall,
+                "flags": flags,
+            }
+    except Exception as exc:
+        degraded.append(f"ai_detection: {exc}")
+
+    # ── Step 2: Extract claims ──────────────────────────────────
+    claims: list[dict[str, Any]] = []
+    try:
+        claims_resp = await _call_saimon("saimon_extract_claims", {
+            "source_text": content,
+        })
+        claims_data = claims_resp.get("data", {})
+        if isinstance(claims_data, dict):
+            claims = claims_data.get("claims", [])
+    except Exception as exc:
+        degraded.append(f"extract_claims: {exc}")
+
+    # ── Step 3: Verify each claim (up to 10) ────────────────────
+    verified_claims: list[dict[str, Any]] = []
+    all_evidence_links: list[dict[str, Any]] = []
+    for i, claim in enumerate(claims[:10]):
+        claim_text = (
+            claim.get("claim_text", str(claim))
+            if isinstance(claim, dict) else str(claim)
+        )
+        try:
+            verify_args: dict[str, Any] = {
+                "claim": claim_text,
+                "adversarial": True,
+                "risk_profile": "high",
+                "verify_citations": True,
+                "use_shadow_sources": True,
+            }
+            verify_resp = await _call_saimon("saimon_verify_claim", verify_args)
+            verify_data = verify_resp.get("data", {})
+            if isinstance(verify_data, dict):
+                verified_claims.append({
+                    "claim_text": claim_text,
+                    "claim_index": i,
+                    "verdict": verify_data.get("overall_verdict", "inconclusive"),
+                    "confidence": verify_data.get("overall_confidence", 0.0),
+                    "abstained": verify_data.get("abstained", False),
+                    "methods": verify_data.get("verifications", []),
+                })
+                links = verify_data.get("evidence_links", [])
+                all_evidence_links.extend(links)
+        except Exception as exc:
+            degraded.append(f"verify_claim[{i}]: {exc}")
+            verified_claims.append({
+                "claim_text": claim_text,
+                "claim_index": i,
+                "verdict": "error",
+                "confidence": 0.0,
+                "error": str(exc),
+            })
+
+    # ── Step 4: Build audit report ──────────────────────────────
+    total = len(verified_claims)
+    supported = sum(1 for vc in verified_claims if vc.get("verdict") == "supported")
+    refuted = sum(1 for vc in verified_claims if vc.get("verdict") == "refuted")
+    inconclusive = sum(1 for vc in verified_claims if vc.get("verdict") == "inconclusive")
+    errors = sum(1 for vc in verified_claims if vc.get("verdict") == "error")
+
+    return {
+        "status": "degraded" if degraded else "success",
+        "ai_detection": ai_detection_score,
+        "claims": {
+            "total": len(claims),
+            "verified": total - errors,
+            "unverified": inconclusive,
+            "disputed": refuted,
+        },
+        "verifications": verified_claims,
+        "evidence_links": all_evidence_links,
+        "summary": (
+            f"{len(claims)} claims extracted. "
+            f"{supported} supported, {refuted} refuted, "
+            f"{inconclusive} inconclusive, {errors} errors."
+        ),
+        "degraded_steps": degraded if degraded else None,
+    }
+
+
+def _format_audit_result(data: dict[str, Any]) -> str:
+    """Format the audit_content composite result into readable text."""
+    lines: list[str] = []
+
+    status = data.get("status", "unknown")
+    lines.append(f"Audit Status: {status.upper()}")
+    lines.append("=" * 60)
+
+    # ── AI Detection ─────────────────────────────────────────────
+    ai = data.get("ai_detection")
+    if ai and ai.get("overall_score") is not None:
+        score = ai["overall_score"]
+        risk = "LIKELY AI-GENERATED" if score < 0.3 else (
+            "POSSIBLY AI-ASSISTED" if score < 0.5 else "LIKELY HUMAN"
+        )
+        lines.append(f"\nAI Detection Score: {score:.2f} ({risk})")
+        flags = ai.get("flags", [])
+        if flags:
+            lines.append("  Flags: " + ", ".join(str(f) for f in flags))
+        # Per-criterion details
+        for s in ai.get("scores", []):
+            lines.append(f"  {s.get('criterion', '?'):20s}: {s.get('score', 0):.2f}")
+    else:
+        lines.append("\nAI Detection: not available")
+
+    # ── Claims Summary ───────────────────────────────────────────
+    claims = data.get("claims", {})
+    lines.append(f"\n── Claims ──")
+    lines.append(f"  Total: {claims.get('total', 0)}")
+    lines.append(f"  Verified: {claims.get('verified', 0)}")
+    lines.append(f"  Unverified: {claims.get('unverified', 0)}")
+    lines.append(f"  Disputed: {claims.get('disputed', 0)}")
+
+    # ── Per-Claim Verdicts ───────────────────────────────────────
+    verifications = data.get("verifications", [])
+    if verifications:
+        lines.append(f"\n── Claim-by-Claim Results ({len(verifications)}) ──")
+        for vc in verifications:
+            verdict = vc.get("verdict", "?")
+            icon = {
+                "supported": "✅",
+                "refuted": "❌",
+                "inconclusive": "⚠️",
+                "error": "💥",
+            }.get(verdict, "❓")
+            conf = vc.get("confidence", 0)
+            lines.append(
+                f"  {icon} [{verdict.upper():12s}] (conf={conf:.2f}) "
+                f"{vc.get('claim_text', '')[:100]}"
+            )
+
+    # ── Evidence Links ───────────────────────────────────────────
+    evidence = data.get("evidence_links", [])
+    if evidence:
+        lines.append(f"\n── Evidence Links ({len(evidence)}) ──")
+        for el in evidence[:10]:
+            si = el.get("source_identifier", "?")
+            conf = el.get("confidence", 0.0)
+            lines.append(f"  {si} (conf={conf:.2f})")
+
+    # ── Summary ──────────────────────────────────────────────────
+    lines.append(f"\n── Summary ──")
+    lines.append(data.get("summary", "No summary available"))
+
+    # ── Degraded ─────────────────────────────────────────────────
+    degraded = data.get("degraded_steps")
+    if degraded:
+        lines.append(f"\n── Degraded Steps ──")
+        for d in degraded:
+            lines.append(f"  ⚠ {d}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # MCP Protocol Loop
 # ---------------------------------------------------------------------------
 
@@ -866,10 +1088,27 @@ async def main() -> None:
                     "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
                 }
             elif TOOL_REGISTRY[tool_name].get("composite"):
-                # Composite tool — handled by pipeline function
+                # Composite tool — dispatched by pipeline name
+                pipeline_name = TOOL_REGISTRY[tool_name].get(
+                    "pipeline", "generate_verified"
+                )
+                pipelines: dict[str, tuple[Any, Any]] = {
+                    "generate_verified": (
+                        _run_generate_verified_pipeline,
+                        _format_composite_result,
+                    ),
+                    "audit_content": (
+                        _run_audit_pipeline,
+                        _format_audit_result,
+                    ),
+                }
                 try:
-                    data = await _run_generate_verified_pipeline(arguments)
-                    text = _format_composite_result(data)
+                    pipeline_fn, format_fn = pipelines.get(
+                        pipeline_name,
+                        (_run_generate_verified_pipeline, _format_composite_result),
+                    )
+                    data = await pipeline_fn(arguments)
+                    text = format_fn(data)
                     response = {
                         "jsonrpc": "2.0",
                         "id": req_id,
@@ -884,7 +1123,7 @@ async def main() -> None:
                         "result": {
                             "content": [{
                                 "type": "text",
-                                "text": f"Error in generate_verified pipeline: {exc}",
+                                "text": f"Error in {pipeline_name} pipeline: {exc}",
                             }],
                             "isError": True,
                         },

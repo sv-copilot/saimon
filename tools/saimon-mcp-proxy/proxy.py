@@ -263,6 +263,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
                 "prompt": "{prompt}",
                 "tone": "{tone}",
                 "sources": "{sources}",
+                "auto_search": "{auto_search}",
                 "ai_detection": "{ai_detection}",
                 "cross_check": "{cross_check}",
             },
@@ -317,6 +318,35 @@ async def _call_saimon(
         return resp.json()
 
 
+async def _auto_search_sources(
+    prompt: str, limit: int = 5,
+) -> list[dict[str, Any]]:
+    """Call saimon_search_scholarly and map results to SourceReference dicts.
+
+    Raises on network/auth errors so the caller can record degraded steps.
+    Returns empty list when search succeeds but finds no results.
+    """
+    search_resp = await _call_saimon("saimon_search_scholarly", {
+        "query": prompt,
+        "limit": limit,
+    })
+
+    results = (search_resp.get("data") or {}).get("results") or []
+    if not isinstance(results, list):
+        return []
+
+    sources: list[dict[str, Any]] = []
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        sources.append({
+            "type": r.get("type", "academic_paper"),
+            "identifier": r.get("doi") or r.get("title", "unknown"),
+            "relevance_score": r.get("relevance_score"),
+        })
+    return sources
+
+
 async def _run_generate_verified_pipeline(
     arguments: dict[str, Any],
 ) -> dict[str, Any]:
@@ -338,6 +368,29 @@ async def _run_generate_verified_pipeline(
     content_type = arguments.get("content_type", "research_note")
     tone = arguments.get("tone", "neutral")
     sources = arguments.get("sources", [])
+
+    # ── Step 0: Optional auto-search for sources ─────────────────
+    auto_search = arguments.get("auto_search", False)
+    if isinstance(auto_search, str):
+        auto_search = auto_search.lower() in ("true", "1", "yes")
+
+    if auto_search and prompt:
+        try:
+            discovered = await _auto_search_sources(prompt)
+            if discovered:
+                existing_ids: set[str] = {
+                    s.get("identifier") if isinstance(s, dict) else str(s)
+                    for s in (sources if isinstance(sources, list) else [])
+                }
+                for d in discovered:
+                    if d.get("identifier") not in existing_ids:
+                        if isinstance(sources, list):
+                            sources.append(d)
+                        else:
+                            sources = [d]
+                        existing_ids.add(d.get("identifier", ""))
+        except Exception as exc:
+            degraded.append(f"auto_search: {exc}")
 
     gen_args: dict[str, Any] = {
         "prompt": prompt,

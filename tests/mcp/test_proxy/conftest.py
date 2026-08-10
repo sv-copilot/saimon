@@ -120,3 +120,50 @@ def mock_evaluate_ai_detection() -> dict[str, object]:
             "overall_score": 0.65,
         },
     }
+
+
+@pytest.fixture
+def mock_search_results() -> dict[str, object]:
+    """Mock saimon_search_scholarly response with 2 academic papers."""
+    return {
+        "status": "success",
+        "data": {
+            "query": "quantum entanglement",
+            "total_results": 2,
+            "results": [
+                {
+                    "type": "academic_paper",
+                    "identifier": "doi:10.1234/qe.2024",
+                    "doi": "10.1234/qe.2024",
+                    "title": "Quantum Entanglement: A Survey",
+                    "authors": ["Bell, John"],
+                    "year": 2024,
+                    "relevance_score": 0.95,
+                    "source_index": "annas_archive",
+                },
+                {
+                    "type": "academic_paper",
+                    "identifier": "doi:10.5678/qc.2023",
+                    "doi": "10.5678/qc.2023",
+                    "title": "Entanglement in Quantum Computing",
+                    "authors": ["Preskill, John"],
+                    "year": 2023,
+                    "relevance_score": 0.88,
+                    "source_index": "libgen",
+                },
+            ],
+        },
+    }
+
+
+@pytest.fixture
+def mock_search_empty() -> dict[str, object]:
+    """Mock saimon_search_scholarly response: no results."""
+    return {
+        "status": "success",
+        "data": {
+            "query": "nonexistent topic xyz",
+            "total_results": 0,
+            "results": [],
+        },
+    }

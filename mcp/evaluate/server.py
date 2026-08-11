@@ -21,6 +21,7 @@ from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
 from research_shared.llm import LLMClient, LLMError
+from research_shared.seed_data import CONTENT_TYPES as SEED_CONTENT_TYPES
 
 # ---------------------------------------------------------------------------
 # backend injection (must be before lifespan)
@@ -206,6 +207,28 @@ def _error(trace_id: str, message: str) -> ResearchResponse:
 # scoring engine
 # ---------------------------------------------------------------------------
 
+# ── content type lookup (for form factor resolution) ──────────────
+
+_CONTENT_TYPES: dict[str, dict[str, Any]] = {
+    ct["name"]: ct for ct in SEED_CONTENT_TYPES
+}
+
+
+def _resolve_form_factor(content_type: str | None) -> str:
+    """Return the form_factor for a content type.
+
+    Ported from legacy content_generation_voice_rubric.py:48-56.
+    Valid values: bullet, short_paragraph, paragraph, section, passage.
+    Defaults to 'passage' for unknown or unset types.
+    """
+    if not content_type:
+        return "passage"
+    ct = _CONTENT_TYPES.get(content_type, {})
+    return ct.get("form_factor", "passage")
+
+
+# ── scoring prompts and heuristics ─────────────────────────────────
+
 _EVAL_PROMPT = """You are a content quality evaluator. Score the following content
 against these criteria: {criteria}.
 
@@ -245,7 +268,9 @@ from statistics import mean as _mean
 from statistics import stdev as _stdev
 
 
-def _score_ai_detection(content: str, _tone: str | None = None) -> dict[str, Any]:
+def _score_ai_detection(
+    content: str, _tone: str | None = None, content_type: str | None = None,
+) -> dict[str, Any]:
     """Score content for AI-generated fingerprints using deterministic heuristics.
 
     Returns 0.0 (definitely AI) to 1.0 (passes as human).
@@ -310,7 +335,8 @@ def _score_ai_detection(content: str, _tone: str | None = None) -> dict[str, Any
     adj_per_100 = adj_hits / max(1, word_count / 100)
     check3 = max(0.0, 1.0 - adj_per_100)
 
-    # ---- Check 4: Bullet-point addiction ----
+    # ---- Check 4: Bullet-point addiction (form-factor-aware) ----
+    form_factor = _resolve_form_factor(content_type)
     bullet_lines = sum(
         1 for line in lines
         if line.strip().startswith(("-", "*"))
@@ -328,12 +354,31 @@ def _score_ai_detection(content: str, _tone: str | None = None) -> dict[str, Any
     else:
         bullet_ratio = 0.0
 
-    if bullet_ratio > 0.7:
-        check4 = 0.0
-    elif bullet_ratio > 0.4:
-        check4 = 0.5
+    # ── Form-factor-aware thresholds ──
+    if form_factor == "bullet":
+        # Bullet content is expected to have high bullet ratio — relaxed
+        if bullet_ratio > 0.95:
+            check4 = 0.3  # still penalize if it's ALL bullets
+        elif bullet_ratio > 0.8:
+            check4 = 0.7
+        else:
+            check4 = 1.0
+    elif form_factor in ("short_paragraph", "paragraph"):
+        # Short text: moderate tolerance
+        if bullet_ratio > 0.7:
+            check4 = 0.0
+        elif bullet_ratio > 0.4:
+            check4 = 0.5
+        else:
+            check4 = 1.0
     else:
-        check4 = 1.0
+        # Default (section, passage): strict — bullets should be sparse
+        if bullet_ratio > 0.7:
+            check4 = 0.0
+        elif bullet_ratio > 0.4:
+            check4 = 0.5
+        else:
+            check4 = 1.0
 
     # ---- Check 5: No personal stance (regex-based) ----
     _PERSONAL_REGEX = _re.compile(
@@ -534,7 +579,8 @@ def _score_ai_detection(content: str, _tone: str | None = None) -> dict[str, Any
 
 
 def _score_criterion(
-    criterion: str, content: str, tone: str | None = None
+    criterion: str, content: str, tone: str | None = None,
+    content_type: str | None = None,
 ) -> dict[str, Any]:
     """Return a score for a single criterion (heuristic fallback)."""
     word_count = len(content.split())
@@ -565,7 +611,7 @@ def _score_criterion(
             "score": 0.72,
             "justification": f"Requested tone: {tone or 'neutral'}. Heuristic tone_match score.",
         },
-        "ai_detection": lambda: _score_ai_detection(content, tone),
+        "ai_detection": lambda: _score_ai_detection(content, tone, content_type=content_type),
     }
 
     scorer = scorers.get(criterion)
@@ -678,13 +724,13 @@ async def evaluate_content(
         try:
             scores = await _llm_evaluate(llm_criteria, content, tone)
         except (LLMError, NotImplementedError, _json.JSONDecodeError):
-            scores = [_score_criterion(c, content, tone) for c in llm_criteria]
+            scores = [_score_criterion(c, content, tone, content_type=payload.content_type) for c in llm_criteria]
     elif llm_criteria:
-        scores = [_score_criterion(c, content, tone) for c in llm_criteria]
+        scores = [_score_criterion(c, content, tone, content_type=payload.content_type) for c in llm_criteria]
 
     # Always append ai_detection via deterministic heuristic if requested
     if has_ai_detection:
-        scores.append(_score_ai_detection(content, tone))
+        scores.append(_score_ai_detection(content, tone, content_type=payload.content_type))
 
     # Compute overall score
     overall = _compute_overall(scores)

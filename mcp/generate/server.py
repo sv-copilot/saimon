@@ -269,6 +269,52 @@ def _error(trace_id: str, message: str) -> ResearchResponse:
 # LLM generation helper
 # ---------------------------------------------------------------------------
 
+def _get_type_prompt(
+    content_type: str, prompt: str, tone: str, sources_block: str,
+    extra_params: str = "",
+) -> str:
+    """Build a content-type-specific system prompt.
+
+    Resolves the content type from the registry, extracts its system_prompt
+    and banlist, and builds a targeted prompt for the LLM. Falls back to a
+    generic template for unknown or unconfigured content types.
+    """
+    ct = _CONTENT_TYPES.get(content_type, {})
+    system_prompt = ct.get("system_prompt")
+    banlist: list[str] = ct.get("banlist", [])
+
+    if system_prompt:
+        banlist_text = (
+            "\n".join(
+                f"- Do NOT use the phrase: '{phrase}'"
+                for phrase in banlist
+            )
+            if banlist
+            else ""
+        )
+        return (
+            f"{system_prompt}\n\n"
+            f"Generate a {content_type.replace('_', ' ')} with:\n"
+            f"- Prompt: {prompt}\n"
+            f"- Tone: {tone}\n"
+            f"{extra_params}\n"
+            f"{banlist_text}\n\n"
+            "Produce the final content directly. Do not include meta-commentary,\n"
+            "review headers, or self-critique. Write as if you are the author.\n\n"
+            "Do not invent statistics, dates, or names. "
+            "Stick to claims you can support.\n\n"
+            f"{sources_block}"
+        )
+
+    # ── Fallback: generic template for types without profile ──
+    return _DIRECT_PROMPT_TEMPLATE.format(
+        content_type=content_type.replace("_", " "),
+        prompt=prompt, tone=tone,
+        extra_params=extra_params,
+        sources_block=sources_block,
+    )
+
+
 _DIRECT_PROMPT_TEMPLATE = """You are a content generation assistant.
 
 Generate a {content_type} with the following parameters:
@@ -378,15 +424,26 @@ def _quality_gate_check(
 
     Returns {passed: bool, reason: str|None}.
     Rejects content that contains meta-commentary, voice-risk patterns,
-    broken attribution, or forbidden phrases.
+    broken attribution, or forbidden phrases. Uses per-type banlists
+    from the content type registry when available.
     """
     import re
 
     text_lower = text.lower()
-    forbidden = forbidden_phrases or _DEFAULT_FORBIDDEN_PHRASES
+
+    # ── Build forbidden list: defaults + per-type banlist ──
+    ct = _CONTENT_TYPES.get(content_type, {})
+    type_banlist: list[str] = ct.get("banlist", [])
+    all_forbidden: list[str] = list(_DEFAULT_FORBIDDEN_PHRASES)
+    for phrase in (forbidden_phrases or []):
+        if phrase not in all_forbidden:
+            all_forbidden.append(phrase)
+    for phrase in type_banlist:
+        if phrase not in all_forbidden:
+            all_forbidden.append(phrase)
 
     # ── forbidden phrases ──
-    for phrase in forbidden:
+    for phrase in all_forbidden:
         if phrase.lower() in text_lower:
             return {"passed": False, "reason": f"Forbidden phrase detected: {phrase!r}"}
 
@@ -493,14 +550,16 @@ async def _generate_via_llm(
 
     sources_block = _format_sources_text(sources) if sources else ""
 
-    template = _DIRECT_PROMPT_TEMPLATE if skip_critique else _VERIFIED_PROMPT_TEMPLATE
-    llm_prompt = template.format(
-        content_type=content_type.replace("_", " "),
-        prompt=prompt,
-        tone=tone,
-        extra_params=extra,
-        sources_block=sources_block,
-    )
+    if skip_critique:
+        llm_prompt = _get_type_prompt(content_type, prompt, tone, sources_block, extra)
+    else:
+        llm_prompt = _VERIFIED_PROMPT_TEMPLATE.format(
+            content_type=content_type.replace("_", " "),
+            prompt=prompt,
+            tone=tone,
+            extra_params=extra,
+            sources_block=sources_block,
+        )
 
     # Turn 1: generate draft
     draft = await _llm_client.generate(llm_prompt)  # type: ignore[union-attr]

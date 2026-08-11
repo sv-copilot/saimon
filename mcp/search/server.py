@@ -158,6 +158,17 @@ _TOOLS = [
         },
     },
     {
+        "name": "source_discovery",
+        "description": (
+            "Extract references (DOIs, URLs, arXiv IDs) from text and resolve "
+            "to real source metadata via shadow libraries."
+        ),
+        "parameters": {
+            "text": "str (required)",
+            "max_results": "int (optional, default 10, max 20)",
+        },
+    },
+    {
         "name": "list_source_indexes",
         "description": "List available source indexes (knowledge graph, shadow libraries, web).",
         "parameters": {},
@@ -435,6 +446,33 @@ async def search_shadow_libraries(
 
 
 # ---------------------------------------------------------------------------
+# helpers: shadow library resolution
+# ---------------------------------------------------------------------------
+
+async def _search_all_adapters(
+    query: str, limit: int = 1, source_indexes: list[str] | None = None
+) -> list[SourceSearchResult]:
+    """Search all shadow library adapters for a query.
+
+    Queries each adapter in parallel, gracefully handling individual failures.
+    Deduplicates and truncates to limit.
+    """
+    adapters = _get_shadow_adapters(source_indexes)
+    if not adapters:
+        return []
+
+    all_results: list[SourceSearchResult] = []
+    for adapter in adapters:
+        try:
+            results = await adapter.search(query, limit=limit, offset=0)
+            all_results.extend(results)
+        except Exception:  # noqa: BLE001 — each adapter may fail independently
+            continue
+
+    return deduplicate(all_results)[:limit]
+
+
+# ---------------------------------------------------------------------------
 # tool: list_source_indexes (primary)
 # ---------------------------------------------------------------------------
 
@@ -664,4 +702,73 @@ async def saimon_list_audit_log(
         data={"entries": [], "total": 0, "note": "DB not available — audit log is stored in PostgreSQL."},
     )
     logger.log_response(status=resp.status)
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# tool: source_discovery
+# ---------------------------------------------------------------------------
+
+@app.post("/tools/source_discovery")
+async def source_discovery(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    """Extract references from text and resolve to real source metadata.
+
+    Tier A: deterministic DOI/URL/arXiv extraction via regex.
+    Resolution: queries shadow library adapters for each extracted identifier.
+    """
+    _require_auth(request)
+
+    text = payload.parameters.get("text", "")
+    max_results = min(int(payload.parameters.get("max_results", 10)), 20)
+
+    logger = build_audit_logger(payload, request, _auth, "search-mcp")
+    logger.log_request(
+        content_type=payload.content_type,
+        tool="source_discovery",
+        text_length=len(text),
+        max_results=max_results,
+    )
+
+    # Step 1: Extract reference candidates from text
+    from research_shared.source_discovery import extract_reference_candidates
+
+    candidates = extract_reference_candidates(text, max_results=max_results)
+
+    # Step 2: Resolve each candidate via shadow library adapters
+    resolved: list[dict[str, Any]] = []
+    for c in candidates:
+        query = c.doi or c.url or c.arxiv_id or ""
+        if query:
+            try:
+                results = await _search_all_adapters(query, limit=1)
+                if results:
+                    resolved.append(results[0].model_dump())
+            except Exception:  # noqa: BLE001 — individual failure doesn't block others
+                pass
+
+    resp = _ok(
+        trace_id=payload.trace_id,
+        data={
+            "candidates": [
+                {
+                    "kind": c.kind,
+                    "label": c.label,
+                    "doi": c.doi,
+                    "url": c.url,
+                    "arxiv_id": c.arxiv_id,
+                }
+                for c in candidates
+            ],
+            "resolved": resolved,
+            "total_candidates": len(candidates),
+            "total_resolved": len(resolved),
+        },
+    )
+    logger.log_response(
+        status=resp.status,
+        total_candidates=len(candidates),
+        total_resolved=len(resolved),
+    )
     return resp

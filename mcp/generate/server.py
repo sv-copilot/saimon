@@ -15,6 +15,8 @@ Supports DB re-seeding via SeedLoader injection.
 
 from __future__ import annotations
 
+import logging as _logging
+import os as _os
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -515,6 +517,297 @@ async def _generate_via_llm(
 
 
 # ---------------------------------------------------------------------------
+# AI detection loop (#39) — inter-service evaluate + iterate
+# ---------------------------------------------------------------------------
+
+_evaluate_mcp_url = _os.environ.get("EVALUATE_MCP_URL", "http://evaluate-mcp:8004")
+_ai_detect_max_retries = int(_os.environ.get("SAIMON_AI_DETECT_MAX_RETRIES", "3"))
+_ai_detect_threshold = float(_os.environ.get("SAIMON_AI_DETECT_THRESHOLD", "0.5"))
+
+
+async def _call_evaluate(content: str) -> dict[str, Any]:
+    """Call the evaluate-mcp service to score AI detection on content.
+
+    Returns the full evaluate_content response dict.  On any error,
+    returns a neutral fallback with score 0.5.
+    """
+    import os as _os
+    import httpx
+
+    api_key = _os.environ.get("SAIMON_API_KEY", "")
+    url = f"{_evaluate_mcp_url}/tools/evaluate_content"
+    body = {
+        "trace_id": "ai-detect-loop",
+        "content_type": "evaluate",
+        "parameters": {
+            "content": content,
+            "criteria": ["ai_detection"],
+        },
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                url,
+                json=body,
+                headers={"X-Saimon-API-Key": api_key},
+            )
+            if resp.status_code == 200:
+                return resp.json()
+            else:
+                _log = _logging.getLogger("saimon.generate.ai_detect")
+                _log.warning(
+                    "Evaluate service returned %d: %s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+    except Exception:
+        _log = _logging.getLogger("saimon.generate.ai_detect")
+        _log.warning("Evaluate service call failed", exc_info=True)
+
+    # Neutral fallback
+    return {
+        "data": {
+            "scores": [
+                {
+                    "criterion": "ai_detection",
+                    "score": 0.5,
+                    "max_score": 1.0,
+                    "justification": "Evaluate service unavailable — neutral fallback.",
+                }
+            ]
+        }
+    }
+
+
+def _parse_failing_flags(justification: str | None) -> list[str]:
+    """Parse flag names from evaluate justification string.
+
+    Pattern: "Flags: {flag1} ({score1}); {flag2} ({score2})."
+    Extracts flag names, stripping leading numbers (e.g.,
+    "3 template phrases" → "template phrases").
+    """
+    if not justification:
+        return []
+
+    import re
+
+    # Find the "Flags:" section
+    flags_match = re.search(r"Flags:\s*(.+?)\.\s*\(", justification)
+    if not flags_match:
+        return []
+
+    flags_text = flags_match.group(1)
+    flags: list[str] = []
+    for segment in flags_text.split(";"):
+        segment = segment.strip()
+        # Remove the trailing " (score)" part
+        cleaned = re.sub(r"\s*\([^)]*\)$", "", segment).strip()
+        # Strip leading numbers (e.g., "3 template phrases" → "template phrases")
+        cleaned = re.sub(r"^\d+\s+", "", cleaned)
+        if cleaned:
+            flags.append(cleaned)
+
+    return flags
+
+
+# ── Anti-pattern prompt map ──
+
+_ANTI_PATTERN_MAP: dict[str, str] = {
+    "template phrases": (
+        "Avoid formulaic phrases like 'delve into', 'moreover', 'furthermore', "
+        "'it is worth noting', 'crucial to understand'. Use plain, natural language."
+    ),
+    "corporate neutrality": (
+        "Take a clear stance. Avoid weak constructions like 'can reduce', "
+        "'may help', 'offers several'. Say what you actually think."
+    ),
+    "low burstiness": (
+        "Vary sentence and paragraph rhythm. Mix long, flowing passages "
+        "with short, punchy statements."
+    ),
+    "uniform sentences": (
+        "Vary sentence length significantly. Mix 5-word and 25-word "
+        "sentences to create natural rhythm."
+    ),
+    "low lexical diversity": (
+        "Use more varied vocabulary. Avoid repeating the same words "
+        "and phrases throughout the text."
+    ),
+    "no personal stance": (
+        "Add personal perspective. Use first-person language like "
+        "'I', 'we', 'my', 'our'. Share real experiences or opinions."
+    ),
+    "formulaic transitions": (
+        "Vary paragraph transitions. Avoid predictable patterns like "
+        "'First', 'Secondly', 'Finally', 'In conclusion'."
+    ),
+    "bullet-point addiction": (
+        "Reduce bullet points and numbered lists. Write in flowing "
+        "paragraphs with natural transitions."
+    ),
+    "over-hedging": (
+        "Reduce hedging language. Make stronger, more direct statements "
+        "instead of 'however', 'nevertheless', 'on one hand'."
+    ),
+    "inflated adjectives": (
+        "Cut inflated adjectives like 'robust', 'comprehensive', "
+        "'multifaceted', 'holistic'. Use specific, concrete terms instead."
+    ),
+    "narrow punctuation": (
+        "Use varied punctuation: em-dashes, semicolons, colons, "
+        "parentheses. Avoid repetitive period-comma patterns."
+    ),
+    "low starter diversity": (
+        "Vary sentence starters. Don't start every sentence with "
+        "'The', 'This', 'It', 'These'. Mix it up."
+    ),
+}
+
+
+def _build_anti_pattern_prompt(flags: list[str]) -> str:
+    """Build anti-pattern guidance prompt from flagged issues.
+
+    Maps each flag name to specific writing improvement guidance.
+    Returns empty string if no recognized flags.
+    """
+    if not flags:
+        return ""
+
+    lines: list[str] = [
+        "CRITICAL WRITING GUIDANCE: The previous draft was flagged for "
+        "these AI-detected patterns. Fix them in your rewrite:",
+        "",
+    ]
+    for flag in flags:
+        guidance = _ANTI_PATTERN_MAP.get(flag)
+        if guidance:
+            lines.append(f"- {flag}: {guidance}")
+
+    if len(lines) > 2:  # Has actual guidance beyond header
+        return "\n".join(lines)
+    return ""
+
+
+async def _iterate_until_human_like(
+    original_prompt: str,
+    content: str,
+    content_type: str,
+    tone: str,
+    ct_schema: dict[str, Any] | None,
+    sources: list[Any] | None,
+) -> tuple[str, list[dict[str, Any]]]:
+    """Auto-iterate content regeneration until AI detection passes.
+
+    Calls evaluate service to score content, parses failing flags,
+    builds anti-pattern guidance, and regenerates.  Tracks best
+    attempt across retries.
+
+    Returns (best_content, iteration_log).
+    """
+    # Read env at call time so tests can monkeypatch
+    max_retries = int(_os.environ.get("SAIMON_AI_DETECT_MAX_RETRIES", str(_ai_detect_max_retries)))
+    threshold = float(_os.environ.get("SAIMON_AI_DETECT_THRESHOLD", str(_ai_detect_threshold)))
+
+    _log = _logging.getLogger("saimon.generate.ai_detect")
+
+    iteration_log: list[dict[str, Any]] = []
+    best_content = content
+    best_score = 0.0
+
+    if max_retries <= 0:
+        _log.debug("AI detect loop disabled (SAIMON_AI_DETECT_MAX_RETRIES=%d)", max_retries)
+        return content, iteration_log
+
+    for attempt in range(1, max_retries + 2):  # +2: initial eval + max_retries retries
+        # Evaluate current content
+        try:
+            eval_response = await _call_evaluate(content)
+        except Exception:
+            _log.warning("Evaluate call raised, using neutral fallback", exc_info=True)
+            eval_response = {
+                "data": {
+                    "scores": [
+                        {
+                            "criterion": "ai_detection",
+                            "score": 0.5,
+                            "max_score": 1.0,
+                            "justification": "Error — neutral fallback.",
+                        }
+                    ]
+                }
+            }
+
+        scores = eval_response.get("data", {}).get("scores", [])
+        ai_score = 0.5
+        justification = "Unknown"
+        for s in scores:
+            if s.get("criterion") == "ai_detection":
+                ai_score = s.get("score", 0.5)
+                justification = s.get("justification", "")
+
+        _log.info(
+            "AI detect attempt %d: score=%.2f threshold=%.2f",
+            attempt, ai_score, threshold,
+        )
+
+        # Track best
+        if ai_score >= best_score:
+            best_score = ai_score
+            best_content = content
+
+        iteration_log.append({
+            "attempt": attempt,
+            "score": ai_score,
+            "justification": justification,
+        })
+
+        # PASS: at or above threshold
+        if ai_score >= threshold:
+            _log.info("AI detection passed on attempt %d (%.2f ≥ %.2f)", attempt, ai_score, threshold)
+            return content, iteration_log
+
+        # Out of retries — return best
+        if attempt > max_retries:
+            _log.info(
+                "AI detection loop exhausted (max_retries=%d), best_score=%.2f",
+                max_retries, best_score,
+            )
+            return best_content, iteration_log
+
+        # FAIL: parse flags and regenerate
+        flags = _parse_failing_flags(justification)
+        anti_prompt = _build_anti_pattern_prompt(flags)
+
+        if anti_prompt:
+            revised_prompt = f"{anti_prompt}\n\n---\n\n{original_prompt}"
+        else:
+            revised_prompt = (
+                f"REWRITE GUIDANCE: The previous draft was flagged as AI-generated. "
+                f"Write in a more natural, human voice with varied sentence structure, "
+                f"personal perspective, and concrete language.\n\n"
+                f"---\n\n{original_prompt}"
+            )
+
+        _log.info(
+            "Regenerating (attempt %d): flags=%s",
+            attempt, flags,
+        )
+
+        try:
+            content = await _generate_via_llm(
+                revised_prompt, content_type, tone, ct_schema,
+                sources=sources, skip_critique=True,
+            )
+        except Exception:
+            _log.warning("Regeneration failed on attempt %d", attempt, exc_info=True)
+            # Keep previous content and try again
+            continue
+
+    return best_content, iteration_log
+
+
+# ---------------------------------------------------------------------------
 # embedding helper
 # ---------------------------------------------------------------------------
 
@@ -653,6 +946,16 @@ async def generate_content(
                 skip_critique=True,
             )
 
+            # ── AI detection loop: iterate until human-like ──
+            content, iteration_log = await _iterate_until_human_like(
+                original_prompt=prompt,
+                content=content,
+                content_type=content_type,
+                tone=tone,
+                ct_schema=ct_schema,
+                sources=payload.sources,
+            )
+
             # ── post-generation quality gates ──
             gate = _quality_gate_check(content, content_type)
             if not gate["passed"]:
@@ -668,6 +971,7 @@ async def generate_content(
                 "tone": tone,
                 "word_count": len(content.split()),
                 "backend": "llm",
+                "iteration_log": iteration_log,
             }
             resp = _ok(
                 trace_id=payload.trace_id,

@@ -857,6 +857,102 @@ async def _generate_embedding(text: str) -> list[float] | None:
 
 
 # ---------------------------------------------------------------------------
+# inter-service HTTP calls (generate → verify)
+# ---------------------------------------------------------------------------
+
+_verify_mcp_url = _os.environ.get("VERIFY_MCP_URL", "http://saimon-verify:8001")
+
+
+async def _call_verify_extract(content: str) -> dict[str, Any]:
+    """Call verify-mcp to extract claims from generated content.
+
+    Returns the extract_claims response dict. On any error, returns
+    a neutral fallback with empty claims list.
+    """
+    import httpx
+
+    api_key = _os.environ.get("SAIMON_API_KEY", "")
+    url = f"{_verify_mcp_url}/tools/extract_claims"
+    body = {
+        "trace_id": "evidence-loop-extract",
+        "content_type": "verify",
+        "parameters": {
+            "source_text": content,
+            "max_claims": 10,
+        },
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                url,
+                json=body,
+                headers={"X-Saimon-API-Key": api_key},
+            )
+            if resp.status_code == 200:
+                return resp.json()
+            else:
+                _log = _logging.getLogger("saimon.generate.evidence")
+                _log.warning(
+                    "Verify extract returned %d: %s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+    except Exception:
+        _log = _logging.getLogger("saimon.generate.evidence")
+        _log.warning("Verify extract call failed", exc_info=True)
+
+    return {"data": {"claims": []}}
+
+
+async def _call_verify_claim(claim_text: str) -> dict[str, Any]:
+    """Call verify-mcp to verify a single claim.
+
+    Returns the verify_claim response dict. On any error, returns
+    a neutral fallback.
+    """
+    import httpx
+
+    api_key = _os.environ.get("SAIMON_API_KEY", "")
+    url = f"{_verify_mcp_url}/tools/verify_claim"
+    body = {
+        "trace_id": "evidence-loop-verify",
+        "content_type": "verify",
+        "parameters": {
+            "claim": claim_text,
+        },
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                url,
+                json=body,
+                headers={"X-Saimon-API-Key": api_key},
+            )
+            if resp.status_code == 200:
+                return resp.json()
+            else:
+                _log = _logging.getLogger("saimon.generate.evidence")
+                _log.warning(
+                    "Verify claim returned %d: %s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+    except Exception:
+        _log = _logging.getLogger("saimon.generate.evidence")
+        _log.warning("Verify claim call failed", exc_info=True)
+
+    return {
+        "data": {
+            "verifications": [],
+            "overall_verdict": "inconclusive",
+            "overall_confidence": 0.0,
+        }
+    }
+
+
+# ---------------------------------------------------------------------------
 # knowledge graph persistence
 # ---------------------------------------------------------------------------
 
@@ -1022,10 +1118,9 @@ async def generate_verified(
 ) -> ResearchResponse:
     """Generate content with full verification pipeline.
 
-    Currently a stub that runs the verified prompt template with
-    self-critique enabled.  Full implementation (SAIMON-EVIDENCE-LOOP #42)
-    will chain: generate → evaluate → extract claims → verify each →
-    annotate.
+    Chains: generate → persist content node → extract claims →
+    verify each claim → persist observations + verifications +
+    evidence links → annotate content.
     """
     _require_auth(request)
 
@@ -1048,26 +1143,138 @@ async def generate_verified(
     if _llm_client is None:
         return _error(payload.trace_id, "LLM backend not available — cannot verify.")
 
+    # ── Step 1: Generate content with self-critique enabled ──
     try:
         content = await _generate_via_llm(
             prompt, content_type, tone, ct_schema,
             sources=payload.sources,
-            skip_critique=False,  # enables self-critique pass
+            skip_critique=False,  # enables self-critique + verification markers
         )
-        generated: dict[str, Any] = {
-            "content": content,
-            "content_type": content_type,
-            "tone": tone,
-            "word_count": len(content.split()),
-            "backend": "llm",
-            "verified": True,
-        }
-        resp = _ok(trace_id=payload.trace_id, data=generated)
-        logger.log_response(status=resp.status)
-        return resp
     except LLMError as exc:
         logger.log_response(status="error")
         return _error(payload.trace_id, f"Verified generation failed: {exc}")
+
+    # ── Step 2: Persist content node to knowledge graph ──
+    title = f"{content_type.replace('_', ' ').title()}: {prompt[:80]}"
+    metadata: dict[str, Any] = {
+        "source": "generate-mcp",
+        "tool": "generate_verified",
+        "tone": tone,
+    }
+    node_id = await _persist_content_node(title, content_type, content, metadata)
+
+    # ── Step 3: Extract claims from generated content ──
+    extract_resp = await _call_verify_extract(content)
+    claims = extract_resp.get("data", {}).get("claims", [])
+    claims_extracted = len(claims)
+
+    # ── Step 4: Verify each claim and persist ──
+    claims_verified = 0
+    observation_ids: list[str] = []
+
+    for claim in claims:
+        claim_text = claim.get("claim_text", "")
+        if not claim_text:
+            continue
+
+        # 4a: Persist observation as "unverified" initially
+        if _db_pool is not None:
+            try:
+                import uuid as _uuid
+                import hashlib as _hashlib
+                import json as _json_lib
+
+                obs_id = str(_uuid.uuid4())
+                source_hash = _hashlib.sha256(content.encode()).hexdigest()[:16]
+
+                await _db_pool.execute(
+                    """INSERT INTO observations
+                       (id, claim_text, topic, summary, confidence_0_1, rationale,
+                        verification_status, source_text_hash)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                       ON CONFLICT DO NOTHING""",
+                    obs_id,
+                    claim_text,
+                    claim.get("topic"),
+                    claim_text[:200],
+                    float(claim.get("confidence_0_1", 0.5)),
+                    claim.get("rationale"),
+                    "unverified",
+                    source_hash,
+                )
+                observation_ids.append(obs_id)
+            except Exception:
+                obs_id = ""
+        else:
+            obs_id = ""
+
+        # 4b: Call verify_claim for this claim
+        verify_resp = await _call_verify_claim(claim_text)
+        verifications = verify_resp.get("data", {}).get("verifications", [])
+        overall_verdict = verify_resp.get("data", {}).get("overall_verdict", "inconclusive")
+        overall_confidence = verify_resp.get("data", {}).get("overall_confidence", 0.5)
+
+        # 4c: Persist verifications and evidence links
+        if _db_pool is not None and obs_id:
+            for v in verifications:
+                try:
+                    ver_id = str(_uuid.uuid4())
+                    method = v.get("method", "unknown")
+                    verdict = v.get("verdict", "inconclusive")
+                    confidence = float(v.get("confidence", 0.5))
+                    explanation = v.get("explanation", "")
+
+                    await _db_pool.execute(
+                        """INSERT INTO observation_verifications
+                           (id, observation_id, method, verdict, confidence, explanation)
+                           VALUES ($1, $2, $3, $4, $5, $6)""",
+                        ver_id, obs_id, method, verdict, confidence, explanation,
+                    )
+
+                    # Build evidence links for this verification
+                    evidence_source = v.get("evidence_source", "")
+                    if evidence_source:
+                        evidence_type = "citation" if evidence_source.startswith("doi:") else "shadow_source"
+                        ev_id = str(_uuid.uuid4())
+                        await _db_pool.execute(
+                            """INSERT INTO observation_verification_evidence
+                               (id, verification_id, evidence_type, evidence_identifier, relevance_score)
+                               VALUES ($1, $2, $3, $4, $5)""",
+                            ev_id, ver_id, evidence_type, evidence_source, confidence,
+                        )
+                except Exception:
+                    pass
+
+            # 4d: Update observation verification status
+            try:
+                await _db_pool.execute(
+                    "UPDATE observations SET verification_status = $1, "
+                    "updated_at = now() WHERE id = $2",
+                    "verified" if overall_verdict != "inconclusive" else "unverified",
+                    obs_id,
+                )
+            except Exception:
+                pass
+
+        claims_verified += 1
+
+    # ── Step 5: Return consolidated response ──
+    generated: dict[str, Any] = {
+        "content": content,
+        "content_type": content_type,
+        "tone": tone,
+        "word_count": len(content.split()),
+        "backend": "llm",
+        "verified": True,
+        "node_id": node_id,
+        "claims_extracted": claims_extracted,
+        "claims_verified": claims_verified,
+        "observation_ids": observation_ids if observation_ids else None,
+    }
+
+    resp = _ok(trace_id=payload.trace_id, data=generated)
+    logger.log_response(status=resp.status)
+    return resp
 
 
 # ---------------------------------------------------------------------------

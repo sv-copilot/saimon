@@ -137,10 +137,20 @@ async def health() -> dict[str, Any]:
             llm_ok = True
         except Exception:  # noqa: BLE001
             _log.debug("verify-mcp health: LLM not reachable", exc_info=True)
+    observations_count = 0
+    if _db_pool is not None:
+        try:
+            row = await _db_pool.fetch("SELECT count(*) as cnt FROM observations")
+            observations_count = row[0]["cnt"] if row else 0
+        except Exception:  # noqa: BLE001
+            _log.debug("verify-mcp health: observations count query failed", exc_info=True)
     return {
         "status": "ok",
         "service": "verify-mcp",
-        "checks": {"llm": "connected" if llm_ok else "unavailable"},
+        "checks": {
+            "llm": "connected" if llm_ok else "unavailable",
+            "observations_count": observations_count,
+        },
     }
 
 

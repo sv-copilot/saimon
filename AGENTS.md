@@ -168,9 +168,6 @@ tracked in
 | DEPLOY-HARDEN-1 | `slice/DEPLOY-HARDEN-1` | ✅ merged | Secrets management, graceful shutdown, deep health checks, CI/CD, prod compose; 432 tests |
 | LIVE-INTEGRATION-1 | `slice/LIVE-INTEGRATION-1` | ✅ merged | Real LLM (DeepSeek via openai), real DB (asyncpg), live E2E integration tests (17 tests); 432 tests |
 | DOMAIN-TOOLS-1 | `slice/DOMAIN-TOOLS-1` | ✅ merged | Job Hunt domain: 5 content types, 3 voice profiles, 10 seed requests, generate_job_hunt_content tool; 488 tests |
-| SHADOW-SEARCH-1 | `slice/SHADOW-SEARCH-1` | ✅ merged | Shadow library source integration: search tool, verify pipeline, 5 adapters, terminology fix; 616 tests |
-| HARDEN-1 | `slice/HARDEN-1` | ✅ merged | Rate limiting, input validation, SQL injection audit, key rotation, Docker hardening, audit completeness, dependency pinning, backup/restore, degradation matrix, test hardening; 773 tests |
-| AI-DETECTION-1 | `slice/AI-DETECTION-1` | ✅ merged | `mcp/evaluate/`: deterministic AI detection criterion (6 pattern checks), no LLM dependency; 780 tests |
 
 ## Session Startup Protocol
 
@@ -260,7 +257,20 @@ git checkout ai-dev && git pull origin ai-dev
 
 ### Step 5 — Tree-sync the planning tree
 
-After merging, update the canonical planning tree in simon-projects:
+After merging, update the Slice Inventory table below:
+- Change the merged slice's status from `✅ built` to `✅ merged`
+- The table is the source of truth for what's in `ai-dev`
+
+### Step 6 — Start next slice
+
+Only after all mergeable slices are consolidated.
+
+**Finding the next slice:** Check the Slice Inventory table above for the
+first slice with status `📋 designed`.  Read its design doc under
+`.docs/planning/projects/saimon/<SLICE>-design.md` for the full spec.
+
+If no designed slice exists, check `.docs/project_intake.json` for
+upcoming work.
 
 ```bash
 cd /Users/simon/projects
@@ -325,6 +335,26 @@ git merge slice/<PARENT>   # bring in unmerged dependency
 
 Then follow TDD: RED → GREEN → REFACTOR → PROVE.
 
+## Slice Inventory
+
+| Slice | Branch | Status | What |
+|---|---|---|---|
+| SHARED-LIB-1 | `slice/SHARED-LIB-1` | ✅ merged | `research_shared/`: envelope, llm, db, auth, resilience, audit |
+| MCP-SEARCH-1 | `slice/MCP-SEARCH-1` | ✅ merged | `mcp/search/`: FastAPI server, 5 tool endpoints |
+| MCP-GENERATE-1 | `slice/MCP-GENERATE-1` | ✅ merged | `mcp/generate/`: LLM content generation MCP |
+| MCP-EXPORT-1 | `slice/MCP-EXPORT-1` | ✅ merged | `mcp/export/`: output formatting MCP |
+| MCP-EVALUATE-1 | `slice/MCP-EVALUATE-1` | ✅ merged | `mcp/evaluate/`: quality gate MCP |
+| MCP-VERIFY-1 | `slice/MCP-VERIFY-1` | ✅ merged | `mcp/verify/`: fact-checking MCP |
+| MCP-EXPLORE-1 | `slice/MCP-EXPLORE-1` | ✅ merged | `mcp/explore/`: discovery MCP |
+| DOCKER-1 | `slice/DOCKER-1` | ✅ merged | Dockerfile, docker-compose (7 svc + PG16), entrypoint, .dockerignore, schema.sql |
+| DOMAIN-BOOTSTRAP-1 | `slice/DOMAIN-BOOTSTRAP-1` | ✅ merged | `research_shared/seed_data.py`: 13 content types, 5 voice profiles, 15 seed requests; updated schema.sql |
+| MCP-INTEGRATION-1 | `slice/MCP-INTEGRATION-1` | ✅ merged | Wire MCPs to real backends: LLM, DB, seed_data; 333 tests + 26 integration tests |
+| SELF-EXTEND-2 | `slice/SELF-EXTEND-2` | ✅ merged | `seed_loader.py` + generate-mcp self-extend wiring; 358 tests |
+| DEPLOY-HARDEN-1 | `slice/DEPLOY-HARDEN-1` | ✅ merged | Secrets management, graceful shutdown, deep health checks, CI/CD, prod compose; 432 tests |
+| LIVE-INTEGRATION-1 | `slice/LIVE-INTEGRATION-1` | ✅ merged | Real LLM (DeepSeek via openai), real DB (asyncpg), live E2E integration tests (17 tests); 432 tests |
+| DOMAIN-TOOLS-1 | `slice/DOMAIN-TOOLS-1` | ✅ merged | Job Hunt domain: 5 content types, 3 voice profiles, 10 seed requests, generate_job_hunt_content tool; 488 tests |
+| SHADOW-SEARCH-1 | `slice/SHADOW-SEARCH-1` | ✅ built | Shadow library source integration: search tool, verify pipeline, 5 adapters, terminology fix; 616 tests |
+
 ## Recursive Prompt for New Sessions
 
 When continuing development in a new session, paste this prompt to
@@ -362,30 +392,25 @@ ai-dev or the operator explicitly defers one.
 
 ## 3. Start the next slice
 
-Once consolidated, check the canonical planning tree for the next
-ready slice:
-
-```bash
-cd /Users/simon/projects
-python3 scripts/select_next_automation_slice.py \
-  --tree .docs/planning/projects/saimon/slice_dependency_tree.json
-```
-
-If a slice is returned, read its detail doc from
-`.docs/planning/projects/saimon/slices/<SLICE-ID>.md`.
-
-If no slice is ready, shape the next one (add to tree +
-write detail doc) before implementing.
+Once consolidated, check the Slice Inventory for the first slice with
+status `📋 designed`.  Read its design doc under
+`.docs/planning/projects/saimon/<SLICE>-design.md` for the full spec
+and TDD outline.  Create a new branch from ai-dev, then follow TDD:
+RED → GREEN → REFACTOR → PROVE.
 
 ## 4. Current state (auto-updated)
 
-- 17 slices merged (see Historical Slice Inventory above)
+- 16 of 16 slices merged (all mergeable) + SHADOW-SEARCH-1 built (ready for PR)
 - All 6 MCPs wired to LLM/DB backends with dependency injection
-- 780 tests passing, ruff clean, compileall OK
-- AI detection: 6 deterministic pattern checks in evaluate-mcp (ai_detection criterion)
-- research_shared/: 14 modules
-- Canonical planning tree: simon-projects/.docs/planning/projects/saimon/slice_dependency_tree.json
-- Next: check planning tree with select_next_automation_slice.py
+- 616 tests passing, ruff clean, compileall OK
+- Terminology fix applied: list_sources → list_source_indexes
+- Shadow library integration: search_shadow_libraries tool, 5 adapters, dedup engine, shadow_registry
+- research_shared/: envelope, llm, db, auth, resilience, audit, self_extend, seed_data, seed_loader, shadow_registry, adapters/ (14 modules)
+- Content types sourced from seed_data.py (14 types including bibliography, 5 voice profiles)
+- Runtime self-extension: unknown types trigger research → auto-register via SelfExtender
+- DB re-seed resilience: SeedLoader loads canonical data on demand
+- All 4 success criteria from project_intake.json met
+- Next: TBD — check .docs/project_intake.json
 
 ## 5. Environment
 
@@ -413,16 +438,17 @@ simon-projects/.docs/planning/projects/saimon/slice_dependency_tree.json
 comes next.
 
 Current state:
-- 17 slices merged (see Historical Slice Inventory in AGENTS.md)
+- research_shared/ is built (9 modules: envelope, llm, db, auth,
+  resilience, audit, self_extend, seed_data, seed_loader).
+- 16 of 16 slices merged (all mergeable) + SHADOW-SEARCH-1 built (ready for PR)
 - All 6 MCPs wired to LLM/DB backends with dependency injection
-- 780 tests passing, ruff clean, compileall OK
-- AI detection: 6 deterministic pattern checks in evaluate-mcp
-- Canonical planning tree: simon-projects/.docs/planning/projects/saimon/
+- 616 tests passing, ruff clean, compileall OK
+- Runtime self-extension: unknown types → research → auto-register via SelfExtender
+- DB re-seed resilience: SeedLoader loads canonical data on demand
+- Shadow library integration: search_shadow_libraries, 5 adapters, dedup, verify
+- All 4 success criteria from project_intake.json met
 
-Next: check the planning tree with:
-  cd /Users/simon/projects
-  python3 scripts/select_next_automation_slice.py \
-    --tree .docs/planning/projects/saimon/slice_dependency_tree.json
+Next: TBD — check .docs/project_intake.json
 
 Follow the Session Startup Protocol in AGENTS.md: consolidate prior
 work, tree-sync after each merge, then start the next slice from the

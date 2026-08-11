@@ -23,6 +23,7 @@ from research_shared.adapters.dedup import deduplicate
 from research_shared.adapters.internet_archive import InternetArchiveAdapter
 from research_shared.adapters.libgen import LibGenAdapter
 from research_shared.adapters.scihub import SciHubAdapter
+from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.db import DatabaseError, DatabasePool
 from research_shared.envelope import ResearchRequest, ResearchResponse
@@ -31,7 +32,47 @@ from research_shared.lifespan import build_lifespan
 from research_shared.shadow_registry import ShadowRegistry
 
 # ---------------------------------------------------------------------------
-# backend injection (must be before lifespan — it references set_db_pool)
+# application factory
+# ---------------------------------------------------------------------------
+
+_lifespan = build_lifespan("search-mcp", db_pool_ref=lambda: _db_pool)
+app = FastAPI(title="search-mcp", version="0.1.0", lifespan=_lifespan)
+
+# ---------------------------------------------------------------------------
+# shadow library registry
+# ---------------------------------------------------------------------------
+
+_shadow_registry = ShadowRegistry()
+
+# Register all Tier S + A adapters
+_shadow_registry.register(AnnasArchiveAdapter())
+_shadow_registry.register(LibGenAdapter())
+_shadow_registry.register(SciHubAdapter())
+_shadow_registry.register(InternetArchiveAdapter())
+_shadow_registry.register(AcademicTorrentsAdapter())
+
+_SHADOW_LABELS: dict[str, str] = {
+    "annas_archive": "Anna's Archive",
+    "libgen": "Library Genesis (LibGen)",
+    "scihub": "Sci-Hub / SciDB",
+    "internet_archive": "Internet Archive",
+    "academic_torrents": "Academic Torrents",
+}
+
+
+def _get_shadow_adapters(source_indexes: list[str] | None = None) -> list:
+    """Return adapters filtered by optional source_indexes list."""
+    if source_indexes:
+        return [
+            a for a in _shadow_registry.list_all()
+            if a.name in source_indexes
+        ]
+    # Default: all Tier S + A adapters
+    return _shadow_registry.filter(tier="S") + _shadow_registry.filter(tier="A")
+
+
+# ---------------------------------------------------------------------------
+# backend injection
 # ---------------------------------------------------------------------------
 
 _db_pool: DatabasePool | None = None
@@ -177,16 +218,6 @@ _TOOLS = [
         "name": "get_source_index_detail",
         "description": "Get metadata for a specific source index.",
         "parameters": {"source_index_id": "str"},
-    },
-    {
-        "name": "saimon_list_audit_log",
-        "description": "List audit log entries for observability and compliance. "
-                       "Operator-only tool.",
-        "parameters": {
-            "limit": "int (optional, default 50, max 200)",
-            "service_name": "str (optional, filter by service)",
-            "event_type": "str (optional, filter by event type)",
-        },
     },
 ]
 
@@ -355,7 +386,7 @@ async def search_shadow_libraries(
     limit = min(int(payload.parameters.get("limit", 10)), 50)
     offset = int(payload.parameters.get("offset", 0))
 
-    logger = build_audit_logger(payload, request, _auth, "search-mcp")
+    logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="search_shadow_libraries",
@@ -389,28 +420,6 @@ async def search_shadow_libraries(
     # Deduplicate across source indexes
     deduped = deduplicate(all_results)
 
-    # ── cache results in shadow_sources_cache ────────────────
-    if _db_pool is not None:
-        for r in deduped:
-            if r.doi:
-                try:
-                    await _db_pool.execute(
-                        "INSERT INTO shadow_sources_cache (doi, title, authors, year, "
-                        "abstract_snippet, source_index, file_type) "
-                        "VALUES ($1, $2, $3, $4, $5, $6, $7) "
-                        "ON CONFLICT (doi) DO UPDATE SET "
-                        "title = EXCLUDED.title, last_accessed = now()",
-                        r.doi.strip().lower(),
-                        r.title,
-                        _json.dumps(r.authors),
-                        r.year,
-                        r.abstract_snippet,
-                        r.source_index,
-                        r.file_type,
-                    )
-                except Exception:  # noqa: BLE001, S110
-                    pass  # cache write is best-effort
-
     # Apply limit
     deduped = deduped[:limit]
 
@@ -432,12 +441,6 @@ async def search_shadow_libraries(
             "query": query,
             "total_results": len(results_data),
             "results": results_data,
-            "note": (
-                "Shadow library adapters are in mock/placeholder mode. "
-                "Results show representative metadata structure but not real "
-                "paper data. Live scraping requires adapter HTTP wiring "
-                "(planned for a future slice)."
-            ),
         },
         citations=citations,
     )
@@ -482,6 +485,18 @@ async def list_source_indexes(
 ) -> ResearchResponse:
     """List available source indexes (knowledge graph, shadow libraries, web)."""
     _require_auth(request)
+
+    query = payload.parameters.get("query")
+    if not query:
+        resp = _ok(
+            trace_id=payload.trace_id,
+            data={"query": "", "total_results": 0, "results": []},
+        )
+        return resp
+
+    requested_indexes: list[str] | None = payload.parameters.get("source_indexes")
+    limit = min(int(payload.parameters.get("limit", 10)), 50)
+    offset = int(payload.parameters.get("offset", 0))
 
     logger = build_audit_logger(payload, request, _auth, "search-mcp")
     logger.log_request(

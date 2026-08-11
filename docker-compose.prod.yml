@@ -69,6 +69,9 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      EVALUATE_MCP_URL: ${EVALUATE_MCP_URL:-http://evaluate-mcp:8004}
+      SAIMON_AI_DETECT_MAX_RETRIES: ${SAIMON_AI_DETECT_MAX_RETRIES:-3}
+      SAIMON_AI_DETECT_THRESHOLD: ${SAIMON_AI_DETECT_THRESHOLD:-0.5}
       SAIMON_ENV: production
     logging:
       driver: json-file

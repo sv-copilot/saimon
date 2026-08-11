@@ -204,9 +204,8 @@ class TestSelfExtenderInjection:
         # SelfExtender should have been called to ensure the type exists
         mock_extender.ensure_type.assert_called_once_with("custom_type")
 
-        # LLM should have been called for generation
-        # Self-critique pass (#29) adds a second LLM call for review
-        assert mock_llm.generate.call_count == 2
+        # LLM should have been called for generation (single-turn, #38)
+        assert mock_llm.generate.call_count == 1
 
     def test_generate_content_known_type_skips_self_extend(
         self, monkeypatch, api_key, sample_trace_id

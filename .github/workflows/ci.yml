@@ -2,9 +2,9 @@ name: Saimon CI
 
 on:
   push:
-    branches: [main, ai-dev, dev]
+    branches: [main, rc, dev]
   pull_request:
-    branches: [main, ai-dev, dev]
+    branches: [main, rc, dev]
 
 env:
   REGISTRY: ghcr.io
@@ -42,12 +42,12 @@ jobs:
       - name: Run tests
         run: python -m pytest tests/ -q
 
-  # ── Build & push Docker image (dev branch only, pushes to GHCR) ─
+  # ── Build & push Docker image (dev and main branches, pushes to GHCR) ─
   docker-push:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: validate
-    if: github.ref == 'refs/heads/dev'
+    if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main'
     permissions:
       contents: read
       packages: write
@@ -71,8 +71,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=dev
-            type=sha,prefix=dev-
+            type=ref,event=branch
+            type=sha,prefix=
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -124,12 +124,49 @@ jobs:
             done
             echo "Deploy complete."
 
-  # ── Docker build only (non-dev branches, for verification) ──────
+  # ── Deploy to production (main branch only) ──────────────────────────
+  deploy-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: docker-push
+    if: github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            set -e
+            cd /data/planning/saimon
+            echo "Pulling latest main image..."
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+            echo "Restarting services..."
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate
+            echo "Cleaning up old images..."
+            docker image prune -f
+            echo "Health checks..."
+            for port in 8101 8102 8103 8104 8105 8106; do
+              for i in 1 2 3 4 5; do
+                status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/health 2>/dev/null || echo '000')
+                if [ "$status" = "200" ]; then
+                  echo "  port $port: OK"
+                  break
+                fi
+                sleep 3
+              done
+            done
+            echo "Deploy complete."
+
+  # ── Docker build only (rc branch, for verification) ──────
   docker-build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: validate
-    if: github.ref != 'refs/heads/dev'
+    if: github.ref == 'refs/heads/rc'
 
     steps:
       - uses: actions/checkout@v4

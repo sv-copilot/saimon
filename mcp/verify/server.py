@@ -835,50 +835,59 @@ def _verify_method(
 
     verifiers: dict[str, Any] = {
         "source_corroboration": lambda: {
-            "verdict": "supported",
-            "confidence": 0.82,
+            "verdict": "inconclusive",
+            "confidence": 0.25,
             "explanation": (
-                f"Cross-referenced claim '{claim[:60]}...' "
+                f"Could not cross-reference claim '{claim[:60]}...' "
                 f"against {source_count} sources. "
-                "Placeholder verdict — production would use LLM "
-                "to assess source agreement."
+                "LLM backend not available — stub returns inconclusive. "
+                "Set DEEPSEEK_API_KEY and inject an LLMClient for "
+                "real source corroboration."
             ),
         },
         "logical_consistency": lambda: {
-            "verdict": "supported",
-            "confidence": 0.78,
+            "verdict": "inconclusive",
+            "confidence": 0.25,
             "explanation": (
-                f"Claim '{claim[:60]}...' is internally consistent. "
-                "Placeholder verdict — production would use LLM "
-                "to detect logical fallacies."
+                f"Could not assess logical consistency of "
+                f"'{claim[:60]}...'. "
+                "LLM backend not available — stub returns inconclusive. "
+                "Set DEEPSEEK_API_KEY and inject an LLMClient for "
+                "real logical analysis."
             ),
         },
         "authority_check": lambda: {
-            "verdict": "supported",
-            "confidence": 0.80,
+            "verdict": "inconclusive",
+            "confidence": 0.25,
             "explanation": (
-                f"Claim '{claim[:60]}...' aligns with authoritative sources. "
-                "Placeholder verdict — production would use LLM "
-                "to check against domain authorities."
+                f"Could not verify '{claim[:60]}...' against "
+                "authoritative sources. "
+                "LLM backend not available — stub returns inconclusive. "
+                "Set DEEPSEEK_API_KEY and inject an LLMClient for "
+                "real authority checking."
             ),
         },
         "temporal_validity": lambda: {
-            "verdict": "supported",
-            "confidence": 0.72,
+            "verdict": "inconclusive",
+            "confidence": 0.25,
             "explanation": (
-                f"Claim '{claim[:60]}...' appears current. "
-                "Placeholder verdict — production would use LLM "
-                "to check temporal relevance."
+                f"Could not check temporal validity of "
+                f"'{claim[:60]}...'. "
+                "LLM backend not available — stub returns inconclusive. "
+                "Set DEEPSEEK_API_KEY and inject an LLMClient for "
+                "real temporal validation."
             ),
         },
         "shadow_source_corroboration": lambda: {
             "verdict": "inconclusive",
-            "confidence": 0.50,
+            "confidence": 0.25,
             "explanation": (
-                f"Cross-referenced claim '{claim[:60]}...' against "
-                f"shadow library sources (Sci-Hub, LibGen, Anna's Archive). "
-                "Placeholder verdict — production would resolve DOIs and "
-                "compare claim against extracted passages."
+                f"Could not cross-reference claim '{claim[:60]}...' "
+                "against shadow library sources (Sci-Hub, LibGen, "
+                "Anna's Archive). "
+                "LLM backend not available — stub returns inconclusive. "
+                "Set DEEPSEEK_API_KEY and inject an LLMClient for "
+                "real shadow source corroboration."
             ),
         },
     }

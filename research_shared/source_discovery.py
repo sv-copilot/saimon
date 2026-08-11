@@ -3,13 +3,23 @@
 Port of backend/services/source_discovery_service.py Tier A logic.
 Extracts DOIs, URLs, and arXiv IDs from text using regex patterns.
 No API calls — pure deterministic extraction.
+
+Tier B configuration — when Tier A finds too few candidates, the search MCP
+can fall back to Serper.dev web search. See SOURCE_DISCOVERY_MIN_CANDIDATES.
 """
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from urllib.parse import unquote, urlparse, urlunparse
+
+# ── Tier B config ──────────────────────────────────────────────────
+
+SOURCE_DISCOVERY_MIN_CANDIDATES = int(
+    os.environ.get("SOURCE_DISCOVERY_MIN_CANDIDATES", "3")
+)
 
 # ── Reference section heading ───────────────────────────────────────
 

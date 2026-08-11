@@ -521,6 +521,7 @@ async def _generate_via_llm(
 # ---------------------------------------------------------------------------
 
 _evaluate_mcp_url = _os.environ.get("EVALUATE_MCP_URL", "http://evaluate-mcp:8004")
+_SEARCH_MCP_URL = _os.environ.get("SEARCH_MCP_URL", "http://saimon-search:8001")
 _ai_detect_max_retries = int(_os.environ.get("SAIMON_AI_DETECT_MAX_RETRIES", "3"))
 _ai_detect_threshold = float(_os.environ.get("SAIMON_AI_DETECT_THRESHOLD", "0.5"))
 
@@ -993,6 +994,39 @@ async def _persist_content_node(
 
 
 # ---------------------------------------------------------------------------
+# auto source discovery (#43) — inter-service search → generate
+# ---------------------------------------------------------------------------
+
+async def _auto_discover_sources(prompt: str) -> list[Any]:
+    """Call search MCP source_discovery and return resolved sources.
+
+    Best-effort: if search MCP is unreachable or returns no results,
+    returns empty list — generation continues without sources.
+    """
+    import httpx
+    import uuid as _uuid
+
+    api_key = _os.environ.get("SAIMON_API_KEY", "")
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{_SEARCH_MCP_URL}/tools/source_discovery",
+                json={
+                    "trace_id": str(_uuid.uuid4()),
+                    "content_type": "discovery",
+                    "parameters": {"text": prompt, "max_results": 5},
+                },
+                headers={"X-Saimon-API-Key": api_key},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("data", {}).get("resolved", [])
+    except Exception:  # noqa: BLE001 — best-effort
+        pass
+    return []
+
+
+# ---------------------------------------------------------------------------
 # tool: generate_content
 # ---------------------------------------------------------------------------
 
@@ -1033,12 +1067,32 @@ async def generate_content(
     citations = [s.identifier for s in payload.sources] if payload.sources else []
     tone = payload.parameters.get("tone", "neutral")
 
+    # ── auto-discover sources from prompt text ──
+    auto_discover = payload.parameters.get("auto_discover", True)
+    sources = list(payload.sources) if payload.sources else []
+
+    if auto_discover and _llm_client is not None:
+        try:
+            discovered = await _auto_discover_sources(prompt)
+            for d in discovered:
+                src_obj = type('Source', (), {
+                    'identifier': d.get('doi', d.get('identifier', '')),
+                    'type': d.get('source_index', 'discovered'),
+                    'title': d.get('title', ''),
+                    'authors': d.get('authors', []),
+                    'year': d.get('year'),
+                })()
+                sources.append(src_obj)
+                citations.append(d.get('doi', d.get('identifier', '')))
+        except Exception:  # noqa: BLE001 — best-effort
+            pass
+
     # ── try LLM backend ──
     if _llm_client is not None:
         try:
             content = await _generate_via_llm(
                 prompt, content_type, tone, ct_schema,
-                sources=payload.sources,
+                sources=sources if sources else None,
                 skip_critique=True,
             )
 
@@ -1049,7 +1103,7 @@ async def generate_content(
                 content_type=content_type,
                 tone=tone,
                 ct_schema=ct_schema,
-                sources=payload.sources,
+                sources=sources if sources else None,
             )
 
             # ── post-generation quality gates ──

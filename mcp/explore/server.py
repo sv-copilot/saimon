@@ -87,10 +87,18 @@ async def health() -> dict[str, Any]:
             db_ok = True
         except Exception:  # noqa: BLE001
             _log.debug("explore-mcp health: DB not reachable", exc_info=True)
+    kg_nodes = 0
+    if _db_pool is not None and db_ok:
+        try:
+            row = await _db_pool.fetch("SELECT count(*) as cnt FROM knowledge_graph_nodes")
+            kg_nodes = row[0]["cnt"] if row else 0
+        except Exception:  # noqa: BLE001
+            _log.debug("explore-mcp health: KG node count query failed", exc_info=True)
     return {
         "status": "ok",
         "service": "explore-mcp",
-        "checks": {"database": "connected" if db_ok else "unavailable"},
+        "checks": {"database": "connected" if db_ok else "unavailable",
+                   "kg_nodes": kg_nodes},
     }
 
 

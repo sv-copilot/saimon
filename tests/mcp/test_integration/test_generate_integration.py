@@ -157,9 +157,8 @@ class TestLLMBackendInjection:
         data = response.json()
         assert data["status"] == "success"
 
-        # Verify LLM was called
-        # Self-critique pass (#29) adds a second LLM call for review
-        assert mock_llm.generate.call_count == 2
+        # Verify LLM was called (single-turn with skip_critique=True, #38)
+        assert mock_llm.generate.call_count == 1
         # First call is generation, second is self-critique review
         first_call = mock_llm.generate.call_args_list[0]
         prompt_arg = first_call[0][0] if first_call[0] else first_call[1].get("prompt", "")

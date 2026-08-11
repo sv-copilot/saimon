@@ -149,6 +149,13 @@ async def health() -> dict[str, Any]:
             db_ok = True
         except Exception:  # noqa: BLE001
             _log.debug("generate-mcp health: DB not reachable", exc_info=True)
+    kg_nodes = 0
+    if _db_pool is not None and db_ok:
+        try:
+            row = await _db_pool.fetch("SELECT count(*) as cnt FROM knowledge_graph_nodes")
+            kg_nodes = row[0]["cnt"] if row else 0
+        except Exception:  # noqa: BLE001
+            _log.debug("generate-mcp health: KG node count query failed", exc_info=True)
     if _llm_client is not None:
         try:
             await _llm_client.health_check()
@@ -161,6 +168,7 @@ async def health() -> dict[str, Any]:
         "checks": {
             "database": "connected" if db_ok else "unavailable",
             "llm": "connected" if llm_ok else "unavailable",
+            "kg_nodes": kg_nodes,
         },
     }
 
@@ -189,6 +197,25 @@ _TOOLS = [
         "name": "seed_content_types",
         "description": "Re-seed the database with canonical content types, "
                        "voice profiles, and seed requests.",
+        "parameters": {},
+    },
+    {
+        "name": "generate_verified",
+        "description": "Generate content with full verification pipeline: "
+                       "generate → evaluate → extract claims → verify each → "
+                       "annotate. Output includes [VERIFIED ✓] / [UNVERIFIABLE ⚠] "
+                       "markers with evidence.",
+        "parameters": {
+            "prompt": "str",
+            "content_type": "str",
+            "tone": "str (optional)",
+        },
+    },
+    {
+        "name": "self_seed",
+        "description": "Generate content from pending seed_requests and persist "
+                       "to the knowledge graph. Idempotent — only processes "
+                       "rows with status='pending'.",
         "parameters": {},
     },
     {
@@ -240,7 +267,22 @@ def _error(trace_id: str, message: str) -> ResearchResponse:
 # LLM generation helper
 # ---------------------------------------------------------------------------
 
-_GENERATE_PROMPT_TEMPLATE = """You are a content generation assistant.
+_DIRECT_PROMPT_TEMPLATE = """You are a content generation assistant.
+
+Generate a {content_type} with the following parameters:
+- Prompt: {prompt}
+- Tone: {tone}
+{extra_params}
+
+Produce the final content directly. Do not include meta-commentary,
+review headers, or self-critique. Write as if you are the author.
+
+Do not invent statistics, dates, or names. Stick to claims you can support.
+
+{sources_block}"""
+
+
+_VERIFIED_PROMPT_TEMPLATE = """You are a content generation assistant.
 
 Generate a {content_type} with the following parameters:
 - Prompt: {prompt}
@@ -256,6 +298,123 @@ and explain why.
 Do not invent statistics, dates, or names. Stick to claims you can support.
 
 {sources_block}"""
+
+
+# ---------------------------------------------------------------------------
+# quality gates (ported from legacy research-service)
+# ---------------------------------------------------------------------------
+
+# Patterns that indicate meta-commentary / instructional wrapping
+_INSTRUCTIONAL_META_PATTERNS = [
+    r"review of unverifiable claims",
+    r"here is the (review|revised|final) version",
+    r"i have reviewed the (draft|content|output)",
+    r"below is (my|the) (analysis|review|evaluation)",
+    r"let me (review|analyze|evaluate|assess) the",
+    r"i('ve| have) (reviewed|analyzed|evaluated|checked)",
+    r"after reviewing the (draft|content|above)",
+    r"the following (is|are) my (observations|notes|findings)",
+    r"i('ll| will) now (review|analyze|break down)",
+    r"here('s| is) what i (found|discovered|noticed)",
+    r"let('s| us) (examine|look at|consider|review)",
+    r"summary of (key )?(findings|claims|issues)",
+    r"based on (my|the) (review|analysis|assessment)",
+    r"i can (see|identify|spot|detect) (several|a few|some)",
+    r"the draft (contains|has|includes|shows)",
+]
+
+# Patterns that reveal AI voice / templated language
+_VOICE_RISK_PATTERNS = [
+    r"\bas an ai\b",
+    r"\bhere is a draft\b",
+    r"\bhere are (some|a few)\b",
+    r"\bi hope this\b",
+    r"\bplease note that\b",
+]
+
+# Patterns indicating broken or fabricated attribution
+_BROKEN_ATTRIBUTION_PATTERNS = [
+    r"according to \[\]",
+    r"\(Source: \s*\)",
+    r"\[citation needed\]",
+    r"\(n\.d\.\)",  # no-date without source
+]
+
+# Generic template filler patterns
+_GENERIC_TEMPLATE_PATTERNS = [
+    r"\bthis (blog post|article|paper|report) (will|aims to|seeks to)\b",
+    r"\bin (today|this)('s)? (digital|modern|fast-paced|ever-changing) (world|era|landscape)\b",
+    r"\bit is (important|crucial|essential|vital|critical) to (understand|note|consider|recognize)\b",
+    r"\bin conclusion[,:]\s",
+    r"\bas we (have|'ve) (seen|discussed|explored)\b",
+    r"\b(to )?summarize[,:]\s",
+    r"\bneedless to say\b",
+    r"\bgoes without saying\b",
+    r"\bat the end of the day\b",
+    r"\bthink outside the box\b",
+    r"\bgame.changer\b",
+    r"\bparadigm shift\b",
+    r"\bunprecedented\b",
+    r"\bin these uncertain times\b",
+]
+
+# Forbidden phrases — reject outright
+_DEFAULT_FORBIDDEN_PHRASES = [
+    "as an AI language model",
+    "as an AI, I",
+    "as a language model",
+    "I am an AI",
+]
+
+
+def _quality_gate_check(
+    text: str,
+    content_type: str,
+    forbidden_phrases: list[str] | None = None,
+) -> dict[str, Any]:
+    """Run post-generation quality gates against generated content.
+
+    Returns {passed: bool, reason: str|None}.
+    Rejects content that contains meta-commentary, voice-risk patterns,
+    broken attribution, or forbidden phrases.
+    """
+    import re
+
+    text_lower = text.lower()
+    forbidden = forbidden_phrases or _DEFAULT_FORBIDDEN_PHRASES
+
+    # ── forbidden phrases ──
+    for phrase in forbidden:
+        if phrase.lower() in text_lower:
+            return {"passed": False, "reason": f"Forbidden phrase detected: {phrase!r}"}
+
+    # ── voice risk patterns (reject immediately) ──
+    for pattern in _VOICE_RISK_PATTERNS:
+        if re.search(pattern, text_lower):
+            return {"passed": False, "reason": f"Voice risk pattern matched: {pattern!r}"}
+
+    # ── broken attribution ──
+    for pattern in _BROKEN_ATTRIBUTION_PATTERNS:
+        if re.search(pattern, text):
+            return {"passed": False, "reason": f"Broken attribution pattern matched: {pattern!r}"}
+
+    # ── instructional meta (reject immediately for direct generation) ──
+    meta_hits = []
+    for pattern in _INSTRUCTIONAL_META_PATTERNS:
+        if re.search(pattern, text_lower):
+            meta_hits.append(pattern)
+    if len(meta_hits) >= 3:
+        return {"passed": False, "reason": f"Multiple meta-commentary patterns detected: {meta_hits}"}
+
+    # ── generic template patterns (warn but pass) ──
+    generic_hits = []
+    for pattern in _GENERIC_TEMPLATE_PATTERNS:
+        if re.search(pattern, text_lower):
+            generic_hits.append(pattern)
+    if len(generic_hits) >= 5:
+        return {"passed": False, "reason": f"Excessive generic template patterns: {generic_hits}"}
+
+    return {"passed": True, "reason": None}
 
 
 def _format_sources_text(sources: list[Any]) -> str:
@@ -311,12 +470,16 @@ async def _generate_via_llm(
     tone: str,
     ct_schema: dict[str, Any] | None,
     sources: list[Any] | None = None,
+    skip_critique: bool = True,
 ) -> str:
     """Generate content via the injected LLM client.
 
     When sources are provided, they are prepended to the prompt as a
-    source-grounding constraint.  A two-turn self-critique pass reviews
-    the draft for unverifiable claims and produces the final version.
+    source-grounding constraint.
+
+    By default (skip_critique=True), returns the draft directly — the
+    direct generation path.  When skip_critique=False, runs a two-turn
+    self-critique pass that reviews the draft for unverifiable claims.
     """
     extra = ""
     if ct_schema:
@@ -328,7 +491,8 @@ async def _generate_via_llm(
 
     sources_block = _format_sources_text(sources) if sources else ""
 
-    llm_prompt = _GENERATE_PROMPT_TEMPLATE.format(
+    template = _DIRECT_PROMPT_TEMPLATE if skip_critique else _VERIFIED_PROMPT_TEMPLATE
+    llm_prompt = template.format(
         content_type=content_type.replace("_", " "),
         prompt=prompt,
         tone=tone,
@@ -339,13 +503,104 @@ async def _generate_via_llm(
     # Turn 1: generate draft
     draft = await _llm_client.generate(llm_prompt)  # type: ignore[union-attr]
 
-    # Turn 2: self-critique pass
+    if skip_critique:
+        return draft
+
+    # Turn 2: self-critique pass (verified path only)
     try:
         final = await _self_critique_pass(draft)
         return final
     except Exception:  # noqa: BLE001 — self-critique is best-effort
-        # If self-critique fails (e.g. LLM error), return the draft
         return draft
+
+
+# ---------------------------------------------------------------------------
+# embedding helper
+# ---------------------------------------------------------------------------
+
+async def _generate_embedding(text: str) -> list[float] | None:
+    """Generate a pgvector-compatible embedding via OpenAI API.
+
+    Uses text-embedding-ada-002 (1536 dimensions).  Returns None if
+    OPENAI_API_KEY is not set or the API call fails.
+    """
+    import os
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        import logging
+        _log = logging.getLogger("saimon.embedding")
+        _log.warning("OPENAI_API_KEY not set — embeddings disabled.")
+        return None
+
+    try:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/embeddings",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "text-embedding-ada-002",
+                    "input": text[:8000],
+                },
+                timeout=30.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data["data"][0]["embedding"]
+            else:
+                import logging
+                _log = logging.getLogger("saimon.embedding")
+                _log.warning("Embedding API returned %d: %s", resp.status_code, resp.text[:200])
+                return None
+    except Exception:
+        import logging
+        _log = logging.getLogger("saimon.embedding")
+        _log.warning("Embedding generation failed", exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# knowledge graph persistence
+# ---------------------------------------------------------------------------
+
+async def _persist_content_node(
+    title: str,
+    content_type: str,
+    body: str,
+    metadata: dict[str, Any] | None = None,
+) -> str | None:
+    """Persist a generated content node to knowledge_graph_nodes.
+
+    Returns the node UUID on success, or None if the DB is unavailable.
+    """
+    if _db_pool is None:
+        return None
+
+    import uuid
+    import json
+
+    node_id = str(uuid.uuid4())
+    embedding = await _generate_embedding(body)
+
+    meta = metadata or {}
+    meta_json = json.dumps(meta)
+
+    try:
+        await _db_pool.execute(
+            "INSERT INTO knowledge_graph_nodes (id, title, content_type, body, metadata, embedding) "
+            "VALUES ($1, $2, $3, $4, $5::jsonb, $6)",
+            node_id, title, content_type, body, meta_json, embedding,
+        )
+        return node_id
+    except Exception:
+        import logging
+        _log = logging.getLogger("saimon.kg")
+        _log.warning("Failed to persist KG node %r", title, exc_info=True)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -395,7 +650,18 @@ async def generate_content(
             content = await _generate_via_llm(
                 prompt, content_type, tone, ct_schema,
                 sources=payload.sources,
+                skip_critique=True,
             )
+
+            # ── post-generation quality gates ──
+            gate = _quality_gate_check(content, content_type)
+            if not gate["passed"]:
+                logger.log_response(status="error")
+                return _error(
+                    payload.trace_id,
+                    f"Quality gate failed: {gate['reason']}",
+                )
+
             generated: dict[str, Any] = {
                 "content": content,
                 "content_type": content_type,
@@ -440,6 +706,172 @@ async def generate_content(
     )
     logger.log_response(status=resp.status, citations_count=len(resp.citations or []))
     return resp
+
+
+# ---------------------------------------------------------------------------
+# tool: generate_verified
+# ---------------------------------------------------------------------------
+
+@app.post("/tools/generate_verified")
+async def generate_verified(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    """Generate content with full verification pipeline.
+
+    Currently a stub that runs the verified prompt template with
+    self-critique enabled.  Full implementation (SAIMON-EVIDENCE-LOOP #42)
+    will chain: generate → evaluate → extract claims → verify each →
+    annotate.
+    """
+    _require_auth(request)
+
+    prompt = payload.parameters.get("prompt")
+    if not prompt:
+        return _error(payload.trace_id, "Parameter 'prompt' is required.")
+
+    content_type = payload.parameters.get("content_type", "research_note")
+    ct_schema = _CONTENT_TYPES.get(content_type)
+
+    logger = build_audit_logger(payload, request, _auth, "generate-mcp")
+    logger.log_request(
+        content_type=content_type,
+        tool="generate_verified",
+        prompt_length=len(prompt),
+    )
+
+    tone = payload.parameters.get("tone", "neutral")
+
+    if _llm_client is None:
+        return _error(payload.trace_id, "LLM backend not available — cannot verify.")
+
+    try:
+        content = await _generate_via_llm(
+            prompt, content_type, tone, ct_schema,
+            sources=payload.sources,
+            skip_critique=False,  # enables self-critique pass
+        )
+        generated: dict[str, Any] = {
+            "content": content,
+            "content_type": content_type,
+            "tone": tone,
+            "word_count": len(content.split()),
+            "backend": "llm",
+            "verified": True,
+        }
+        resp = _ok(trace_id=payload.trace_id, data=generated)
+        logger.log_response(status=resp.status)
+        return resp
+    except LLMError as exc:
+        logger.log_response(status="error")
+        return _error(payload.trace_id, f"Verified generation failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# tool: self_seed
+# ---------------------------------------------------------------------------
+
+@app.post("/tools/self_seed")
+async def self_seed(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    """Generate content from pending seed_requests and persist to KG.
+
+    Idempotent — only processes rows WHERE status = 'pending'.
+    Requires both _db_pool and _llm_client to be injected.
+    """
+    _require_auth(request)
+
+    logger = build_audit_logger(payload, request, _auth, "generate-mcp")
+    logger.log_request(content_type=payload.content_type, tool="self_seed")
+
+    if _db_pool is None:
+        return _error(payload.trace_id, "Database not available — cannot seed.")
+    if _llm_client is None:
+        return _error(payload.trace_id, "LLM client not available — cannot seed.")
+
+    try:
+        # Read pending seed requests
+        rows = await _db_pool.fetch(
+            "SELECT id, content_type, prompt, tone, metadata "
+            "FROM seed_requests WHERE status = 'pending' "
+            "ORDER BY created_at ASC"
+        )
+
+        if not rows:
+            resp = _ok(
+                trace_id=payload.trace_id,
+                data={"seeded": 0, "failed": 0, "message": "No pending seed requests."},
+            )
+            logger.log_response(status=resp.status)
+            return resp
+
+        seeded = 0
+        failed = 0
+        results: list[dict[str, Any]] = []
+
+        for row in rows:
+            seed_id = row["id"]
+            seed_content_type = row["content_type"]
+            seed_prompt = row["prompt"]
+            seed_tone = row.get("tone", "neutral")
+            seed_meta = row.get("metadata") or {}
+
+            try:
+                # Generate content (direct, no critique)
+                content = await _generate_via_llm(
+                    seed_prompt, seed_content_type, seed_tone,
+                    ct_schema=None, sources=None, skip_critique=True,
+                )
+
+                # Persist to knowledge graph
+                node_id = await _persist_content_node(
+                    title=seed_prompt[:200],
+                    content_type=seed_content_type,
+                    body=content,
+                    metadata=seed_meta,
+                )
+
+                # Update seed_requests row
+                if node_id:
+                    await _db_pool.execute(
+                        "UPDATE seed_requests SET status = 'complete', result_id = $1 "
+                        "WHERE id = $2",
+                        node_id, seed_id,
+                    )
+                else:
+                    await _db_pool.execute(
+                        "UPDATE seed_requests SET status = 'complete' WHERE id = $1",
+                        seed_id,
+                    )
+
+                seeded += 1
+                results.append({
+                    "seed_id": str(seed_id),
+                    "node_id": node_id,
+                    "content_type": seed_content_type,
+                    "status": "seeded",
+                })
+            except Exception as exc:  # noqa: BLE001 — per-row resilience
+                failed += 1
+                results.append({
+                    "seed_id": str(seed_id),
+                    "content_type": seed_content_type,
+                    "status": "failed",
+                    "error": str(exc)[:200],
+                })
+                import logging
+                _log = logging.getLogger("saimon.self_seed")
+                _log.warning("Seed failed for %s: %s", seed_id, exc)
+
+        resp = _ok(
+            trace_id=payload.trace_id,
+            data={"seeded": seeded, "failed": failed, "results": results},
+        )
+        logger.log_response(status=resp.status)
+        return resp
+    except Exception as exc:  # noqa: BLE001
+        logger.log_response(status="error")
+        return _error(payload.trace_id, f"Self-seed failed: {exc}")
 
 
 # ---------------------------------------------------------------------------

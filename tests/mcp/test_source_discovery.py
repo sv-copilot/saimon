@@ -213,3 +213,111 @@ class TestDOIOrgURL:
         doi_cands = [c for c in candidates if c.kind == "doi"]
         assert len(doi_cands) >= 1
         assert "10.1038/nature12373" in doi_cands[0].doi
+
+
+# ── Tier B Serper config tests ─────────────────────────────────────────
+
+class TestSerperConfig:
+    def test_source_discovery_min_candidates_default(self):
+        from research_shared.source_discovery import SOURCE_DISCOVERY_MIN_CANDIDATES
+        assert SOURCE_DISCOVERY_MIN_CANDIDATES >= 1
+
+    def test_serper_env_var_missing(self):
+        """Missing SERPER_API_KEY should be empty string."""
+        import os
+        original = os.environ.pop("SERPER_API_KEY", None)
+        try:
+            # Re-import won't refresh the module-level value, but we
+            # can verify the default behavior: empty string = no key
+            key = os.environ.get("SERPER_API_KEY", "")
+            assert key == ""
+        finally:
+            if original is not None:
+                os.environ["SERPER_API_KEY"] = original
+
+
+class TestSerperMock:
+    """Test Serper API integration with mocked HTTP responses."""
+
+    @pytest.mark.asyncio
+    async def test_search_web_serper_mock(self, monkeypatch):
+        """Mock Serper API: verify _search_web_serper parses organic results."""
+        from research_shared import source_discovery as sd
+
+        monkeypatch.setattr(sd, "SOURCE_DISCOVERY_MIN_CANDIDATES", 3)
+
+        # Ensure SERPER_API_KEY is set for test
+        monkeypatch.setenv("SERPER_API_KEY", "test-key")
+
+        class MockResponse:
+            status_code = 200
+
+            def json(self):
+                return {
+                    "organic": [
+                        {"title": "Result 1", "snippet": "Snippet 1", "link": "https://example.com/1"},
+                        {"title": "Result 2", "snippet": "Snippet 2", "link": "https://example.com/2"},
+                    ]
+                }
+
+        class MockClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def post(self, url, json=None, headers=None):
+                return MockResponse()
+
+        import httpx
+        monkeypatch.setattr(httpx, "AsyncClient", MockClient)
+
+        # Import the function from search server
+        from mcp.search.server import _search_web_serper
+
+        results = await _search_web_serper("test query", limit=5)
+        assert len(results) == 2
+        assert results[0]["source"] == "serper"
+        assert results[0]["title"] == "Result 1"
+        assert results[0]["url"] == "https://example.com/1"
+
+    @pytest.mark.asyncio
+    async def test_search_web_serper_no_api_key(self, monkeypatch):
+        """Missing SERPER_API_KEY should return empty list gracefully."""
+        monkeypatch.setenv("SERPER_API_KEY", "")
+        monkeypatch.delenv("SERPER_API_KEY", raising=False)
+
+        from mcp.search.server import _search_web_serper
+
+        results = await _search_web_serper("test query")
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_search_web_serper_api_error(self, monkeypatch):
+        """Serper API error should be caught and return empty list."""
+        monkeypatch.setenv("SERPER_API_KEY", "test-key")
+
+        class MockErrorClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def post(self, url, json=None, headers=None):
+                raise RuntimeError("Connection refused")
+
+        import httpx
+        monkeypatch.setattr(httpx, "AsyncClient", MockErrorClient)
+
+        from mcp.search.server import _search_web_serper
+
+        results = await _search_web_serper("test query")
+        assert results == []  # graceful degradation

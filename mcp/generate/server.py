@@ -792,7 +792,7 @@ async def self_seed(
     try:
         # Read pending seed requests
         rows = await _db_pool.fetch(
-            "SELECT id, content_type, prompt, tone, metadata "
+            "SELECT id, content_type, prompt, parameters "
             "FROM seed_requests WHERE status = 'pending' "
             "ORDER BY created_at ASC"
         )
@@ -813,8 +813,9 @@ async def self_seed(
             seed_id = row["id"]
             seed_content_type = row["content_type"]
             seed_prompt = row["prompt"]
-            seed_tone = row.get("tone", "neutral")
-            seed_meta = row.get("metadata") or {}
+            seed_params = row.get("parameters") or {}
+            seed_tone = seed_params.get("tone", "neutral") if isinstance(seed_params, dict) else "neutral"
+            seed_meta = seed_params if isinstance(seed_params, dict) else {}
 
             try:
                 # Generate content (direct, no critique)

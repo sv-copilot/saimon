@@ -592,6 +592,7 @@ async def _call_evaluate(content: str) -> dict[str, Any]:
     returns a neutral fallback with score 0.5.
     """
     import os as _os
+
     import httpx
 
     api_key = _os.environ.get("SAIMON_API_KEY", "")
@@ -1029,8 +1030,8 @@ async def _persist_content_node(
     if _db_pool is None:
         return None
 
-    import uuid
     import json
+    import uuid
 
     node_id = str(uuid.uuid4())
     embedding = await _generate_embedding(body)
@@ -1062,8 +1063,9 @@ async def _auto_discover_sources(prompt: str) -> list[Any]:
     Best-effort: if search MCP is unreachable or returns no results,
     returns empty list — generation continues without sources.
     """
-    import httpx
     import uuid as _uuid
+
+    import httpx
 
     api_key = _os.environ.get("SAIMON_API_KEY", "")
     try:
@@ -1293,9 +1295,8 @@ async def generate_verified(
         # 4a: Persist observation as "unverified" initially
         if _db_pool is not None:
             try:
-                import uuid as _uuid
                 import hashlib as _hashlib
-                import json as _json_lib
+                import uuid as _uuid
 
                 obs_id = str(_uuid.uuid4())
                 source_hash = _hashlib.sha256(content.encode()).hexdigest()[:16]

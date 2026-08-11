@@ -10,7 +10,6 @@ Without a DB, falls back to synthetic placeholder results.
 
 from __future__ import annotations
 
-import json as _json
 import os as _os
 from typing import Any
 
@@ -368,7 +367,7 @@ async def _search_web_serper(query: str, limit: int = 5) -> list[dict[str, Any]]
                 }
                 for r in data.get("organic", [])[:limit]
             ]
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort Serper call
         import logging
         _log = logging.getLogger("saimon.search.serper")
         _log.warning("Serper API call failed", exc_info=True)
@@ -783,7 +782,7 @@ async def source_discovery(
     )
 
     # Step 1: Extract reference candidates from text
-    from research_shared.source_discovery import extract_reference_candidates, SOURCE_DISCOVERY_MIN_CANDIDATES
+    from research_shared.source_discovery import extract_reference_candidates
 
     candidates = extract_reference_candidates(text, max_results=max_results)
 

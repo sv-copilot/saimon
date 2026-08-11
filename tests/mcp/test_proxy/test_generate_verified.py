@@ -279,3 +279,176 @@ class TestGenerateVerified:
         assert result["verification_summary"]["total_claims"] == 3
         degraded = result["degraded_steps"] or []
         assert any("ai_detection" in d for d in degraded)
+
+
+class TestAutoSearch:
+    """Unit tests for the auto_search feature (PIPELINE-AUTOSEARCH-1)."""
+
+    @pytest.mark.asyncio
+    async def test_auto_search_discovers_sources(
+        self,
+        sample_prompt,
+        mock_generated_content,
+        mock_extracted_claims,
+        mock_verify_supported,
+        mock_search_results,
+    ):
+        """When auto_search: true, search is called and results are fed as sources."""
+        proxy = _import_proxy_module()
+        pipeline = proxy._run_generate_verified_pipeline
+
+        gen_data = {"status": "success", "data": {"content": mock_generated_content}}
+        extract_data = {
+            "status": "success",
+            "data": {"claims": mock_extracted_claims, "count": len(mock_extracted_claims)},
+        }
+
+        call_log: list[str] = []
+
+        async def mock_call_saimon(tool_name, arguments):
+            call_log.append(tool_name)
+            if tool_name == "saimon_search_scholarly":
+                return mock_search_results
+            elif tool_name == "saimon_generate_content":
+                return gen_data
+            elif tool_name == "saimon_extract_claims":
+                return extract_data
+            elif tool_name == "saimon_verify_claim":
+                return mock_verify_supported
+            return {"status": "error"}
+
+        with patch.object(proxy, "_call_saimon", side_effect=mock_call_saimon):
+            result = await pipeline({
+                "prompt": sample_prompt,
+                "auto_search": True,
+            })
+
+        assert result["status"] == "success"
+        assert "saimon_search_scholarly" in call_log, "auto_search should call search"
+        # Search should be called before generate
+        search_idx = call_log.index("saimon_search_scholarly")
+        gen_idx = call_log.index("saimon_generate_content")
+        assert search_idx < gen_idx, "search must happen before generate"
+
+    @pytest.mark.asyncio
+    async def test_auto_search_graceful_on_search_failure(
+        self,
+        sample_prompt,
+        mock_generated_content,
+        mock_extracted_claims,
+        mock_verify_supported,
+    ):
+        """When search fails, pipeline continues without sources (graceful degradation)."""
+        proxy = _import_proxy_module()
+        pipeline = proxy._run_generate_verified_pipeline
+
+        gen_data = {"status": "success", "data": {"content": mock_generated_content}}
+        extract_data = {
+            "status": "success",
+            "data": {"claims": mock_extracted_claims, "count": len(mock_extracted_claims)},
+        }
+
+        async def mock_call_saimon(tool_name, arguments):
+            if tool_name == "saimon_search_scholarly":
+                raise RuntimeError("search unavailable")
+            elif tool_name == "saimon_generate_content":
+                return gen_data
+            elif tool_name == "saimon_extract_claims":
+                return extract_data
+            elif tool_name == "saimon_verify_claim":
+                return mock_verify_supported
+            return {"status": "error"}
+
+        with patch.object(proxy, "_call_saimon", side_effect=mock_call_saimon):
+            result = await pipeline({
+                "prompt": sample_prompt,
+                "auto_search": True,
+            })
+
+        assert result["status"] == "degraded"
+        assert "[VERIFIED ✓]" in result["content"]
+        degraded = result.get("degraded_steps") or []
+        assert any("auto_search" in d for d in degraded)
+
+    @pytest.mark.asyncio
+    async def test_auto_search_false_preserves_manual_sources(
+        self,
+        sample_prompt,
+        mock_generated_content,
+        mock_extracted_claims,
+        mock_verify_supported,
+    ):
+        """When auto_search is false (default), search is NOT called."""
+        proxy = _import_proxy_module()
+        pipeline = proxy._run_generate_verified_pipeline
+
+        gen_data = {"status": "success", "data": {"content": mock_generated_content}}
+        extract_data = {
+            "status": "success",
+            "data": {"claims": mock_extracted_claims, "count": len(mock_extracted_claims)},
+        }
+
+        call_log: list[str] = []
+
+        async def mock_call_saimon(tool_name, arguments):
+            call_log.append(tool_name)
+            if tool_name == "saimon_generate_content":
+                return gen_data
+            elif tool_name == "saimon_extract_claims":
+                return extract_data
+            elif tool_name == "saimon_verify_claim":
+                return mock_verify_supported
+            return {"status": "error"}
+
+        with patch.object(proxy, "_call_saimon", side_effect=mock_call_saimon):
+            result = await pipeline({
+                "prompt": sample_prompt,
+                "sources": [{"type": "manual", "identifier": "custom-source"}],
+            })
+
+        assert result["status"] == "success"
+        assert "saimon_search_scholarly" not in call_log, (
+            "search should not be called when auto_search is false"
+        )
+
+    @pytest.mark.asyncio
+    async def test_auto_search_empty_results_no_error(
+        self,
+        sample_prompt,
+        mock_generated_content,
+        mock_extracted_claims,
+        mock_verify_supported,
+        mock_search_empty,
+    ):
+        """When search returns no results, pipeline continues without degraded step."""
+        proxy = _import_proxy_module()
+        pipeline = proxy._run_generate_verified_pipeline
+
+        gen_data = {"status": "success", "data": {"content": mock_generated_content}}
+        extract_data = {
+            "status": "success",
+            "data": {"claims": mock_extracted_claims, "count": len(mock_extracted_claims)},
+        }
+
+        async def mock_call_saimon(tool_name, arguments):
+            if tool_name == "saimon_search_scholarly":
+                return mock_search_empty
+            elif tool_name == "saimon_generate_content":
+                return gen_data
+            elif tool_name == "saimon_extract_claims":
+                return extract_data
+            elif tool_name == "saimon_verify_claim":
+                return mock_verify_supported
+            return {"status": "error"}
+
+        with patch.object(proxy, "_call_saimon", side_effect=mock_call_saimon):
+            result = await pipeline({
+                "prompt": sample_prompt,
+                "auto_search": True,
+            })
+
+        assert result["status"] == "success"
+        # Empty results should NOT produce a degraded step (not an error)
+        degraded = result.get("degraded_steps")
+        if degraded:
+            assert not any("auto_search" in d for d in degraded)

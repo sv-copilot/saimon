@@ -36,63 +36,58 @@ class SciHubAdapter:
     async def search(
         self, query: str, limit: int = 10, offset: int = 0
     ) -> list[SourceSearchResult]:
-        """Search SciDB for *query* (delegated to SciDB subset).
+        """Sci-Hub is NOT a search engine — return empty list.
 
-        Sci-Hub itself is not a search engine; this searches the
-        SciDB index that sits on top of Sci-Hub's corpus.
+        Sci-Hub's primary function is DOI resolution, not keyword
+        search.  For search, use Anna's Archive or LibGen.
         """
-        if not query.strip():
-            return []
-
-        _ = (self._http, offset)  # reserved
-        logger.debug("SciDB search: %r (limit=%d)", query, limit)
-
-        results: list[SourceSearchResult] = []
-        for i in range(min(limit, 3)):
-            results.append(
-                SourceSearchResult(
-                    type="academic_paper",
-                    identifier=f"doi:10.1000/scihub-placeholder-{i}",
-                    doi=f"10.1000/scihub-placeholder-{i}",
-                    title=f"SciDB result {i + 1} for: {query}",
-                    authors=[f"Researcher {chr(65 + i)}"],
-                    year=2019 + i,
-                    source_index=self.name,
-                    source_index_label="Sci-Hub / SciDB",
-                    relevance_score=round(0.88 - i * 0.1, 2),
-                    full_text_available=True,
-                    file_type="pdf",
-                )
-            )
-        return results
+        _ = (query, limit, offset)
+        logger.info("Sci-Hub search called — returning empty (not a search engine)")
+        return []
 
     # ── DOI resolution ────────────────────────────────────────────
 
     async def resolve_doi(self, doi: str) -> SourceSearchResult | None:
         """Resolve a DOI via Sci-Hub.
 
-        Sci-Hub is the canonical DOI resolver for paywalled papers.
-        Given a DOI, it returns the full PDF.
-
-        In production, this would hit `sci-hub.ru/DOI_HERE` and
-        confirm the PDF is available.
+        Checks https://sci-hub.ru/{doi} with a HEAD request.
+        Returns a SourceSearchResult if the PDF is available.
         """
         if not doi.strip():
             return None
 
-        _ = self._http  # reserved
         logger.debug("Sci-Hub DOI resolve: %r", doi)
 
-        return SourceSearchResult(
-            type="academic_paper",
-            identifier=f"doi:{doi}",
-            doi=doi,
-            title=f"Sci-Hub paper for DOI: {doi}",
-            authors=["Unknown"],
-            source_index=self.name,
-            source_index_label="Sci-Hub / SciDB",
-            relevance_score=0.92,
-            full_text_available=True,
-            file_type="pdf",
-            download_url=f"https://sci-hub.ru/{doi}",
-        )
+        if self._http is None:
+            import httpx
+            client = httpx.AsyncClient()
+        else:
+            client = self._http
+
+        try:
+            url = f"https://sci-hub.ru/{doi}"
+            resp = await client.head(url, timeout=15.0, follow_redirects=True)
+            if resp.status_code == 200:
+                content_type = resp.headers.get("content-type", "")
+                is_pdf = "pdf" in content_type.lower() or "octet-stream" in content_type.lower()
+                return SourceSearchResult(
+                    type="academic_paper",
+                    identifier=f"doi:{doi}",
+                    doi=doi,
+                    title=f"Paper for DOI: {doi}",
+                    authors=[],
+                    source_index=self.name,
+                    source_index_label="Sci-Hub",
+                    relevance_score=0.92,
+                    full_text_available=is_pdf,
+                    file_type="pdf" if is_pdf else None,
+                    download_url=url,
+                )
+            logger.warning("Sci-Hub DOI resolve returned %d for %s", resp.status_code, doi)
+            return None
+        except Exception:
+            logger.warning("Sci-Hub DOI resolve failed for %s", doi, exc_info=True)
+            return None
+        finally:
+            if self._http is None and client is not None:
+                await client.aclose()

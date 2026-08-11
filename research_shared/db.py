@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -178,3 +179,21 @@ class DatabasePool:
         if self._pool is not None:
             await self._pool.close()
             self._pool = None
+
+    @asynccontextmanager
+    async def transaction(self):
+        """Async context manager for transactional work.
+
+        Acquires a connection from the pool, starts a transaction,
+        yields the connection, and commits on success or rolls back
+        on exception.
+
+        Usage:
+            async with db.transaction() as conn:
+                await conn.execute("INSERT INTO ...")
+                await conn.execute("UPDATE ...")
+        """
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                yield conn

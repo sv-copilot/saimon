@@ -3,6 +3,11 @@
 -- The platform should survive a DB wipe and re-seed from seed_requests.
 
 -- ---------------------------------------------------------------------------
+-- extensions
+-- ---------------------------------------------------------------------------
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- ---------------------------------------------------------------------------
 -- content_type_registry — extensible content type definitions
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS content_type_registry (
@@ -15,6 +20,37 @@ CREATE TABLE IF NOT EXISTS content_type_registry (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ---------------------------------------------------------------------------
+-- sources — registered data source indexes (shadow libraries, web, KG)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sources (
+    id              SERIAL PRIMARY KEY,
+    type            TEXT NOT NULL,                    -- 'shadow_library', 'knowledge_graph', 'web_page'
+    identifier      TEXT NOT NULL UNIQUE,             -- e.g. 'annas_archive', 'libgen', 'scihub'
+    label           TEXT NOT NULL,                    -- human-readable label
+    tier            TEXT NOT NULL DEFAULT 'B',        -- S, A, B, C (reliability tier)
+    status          TEXT NOT NULL DEFAULT 'active',   -- active, degraded, disabled
+    description     TEXT NOT NULL DEFAULT '',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sources_type
+    ON sources(type);
+
+-- Seed default sources
+INSERT INTO sources (type, identifier, label, tier, description)
+VALUES
+    ('knowledge_graph', 'kg-root',     'Knowledge Graph Root',        'S', 'Root node of the knowledge graph'),
+    ('knowledge_graph', 'kg-concepts', 'Knowledge Graph Concepts',    'S', 'Concept nodes in the knowledge graph'),
+    ('web_page',        'web-index',   'Web Index',                   'A', 'General web search index'),
+    ('shadow_library',  'annas_archive','Anna''s Archive',            'S', 'The largest open-source shadow library'),
+    ('shadow_library',  'libgen',      'Library Genesis (LibGen)',    'S', 'Scientific articles and books'),
+    ('shadow_library',  'scihub',      'Sci-Hub / SciDB',             'S', 'Paywalled academic paper access'),
+    ('shadow_library',  'academic_torrents', 'Academic Torrents',     'A', 'Bulk academic dataset torrents'),
+    ('shadow_library',  'internet_archive',  'Internet Archive',      'A', 'Digital library with books, papers, and web archives')
+ON CONFLICT (identifier) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
 -- knowledge_graph_nodes — the core graph entity

@@ -12,9 +12,9 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 
-from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.envelope import ResearchRequest, ResearchResponse
+from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
 
 # ---------------------------------------------------------------------------
@@ -30,6 +30,7 @@ app = FastAPI(title="export-mcp", version="0.1.0", lifespan=_lifespan)
 
 _auth_config = AuthConfig.from_env()
 _auth = AuthValidator(_auth_config)
+apply_hardening(app, _auth)
 
 
 def _require_auth(request: Request) -> None:
@@ -291,7 +292,7 @@ async def export_content(
             f"Unknown format: {fmt!r}. Supported formats: {supported}.",
         )
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="export-mcp")
+    logger = build_audit_logger(payload, request, _auth, "export-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="export_content",
@@ -347,7 +348,7 @@ async def list_formats(
 ) -> ResearchResponse:
     _require_auth(request)
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="export-mcp")
+    logger = build_audit_logger(payload, request, _auth, "export-mcp")
     logger.log_request(content_type=payload.content_type, tool="list_formats")
 
     formats = [
@@ -378,7 +379,7 @@ async def get_format_schema(
     if not format_name:
         return _error(payload.trace_id, "Parameter 'format_name' is required.")
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="export-mcp")
+    logger = build_audit_logger(payload, request, _auth, "export-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="get_format_schema",

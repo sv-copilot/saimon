@@ -35,3 +35,66 @@ def mock_db_url_env(monkeypatch):
         "postgresql://user:pass@localhost:5432/saimon_test",
     )
     yield
+
+
+# ---------------------------------------------------------------------------
+# Real DB fixture — skips if no DATABASE_URL or DB unreachable
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def db_pool():
+    """Return a connected DatabasePool, or skip the test if DB unavailable.
+
+    Set DATABASE_URL in the environment to run these tests against
+    a real PostgreSQL instance.  Tests using this fixture are skipped
+    in CI without a database.
+    """
+    database_url = os.getenv("DATABASE_URL", "")
+    if not database_url:
+        pytest.skip("DATABASE_URL not set — skipping DB tests")
+
+    from research_shared.db import DatabasePool
+
+    pool = DatabasePool(database_url)
+    try:
+        await pool.connect()
+        # Verify basic connectivity
+        await pool.fetch("SELECT 1")
+    except Exception as exc:
+        await pool.close()
+        pytest.skip(f"Database unreachable: {exc}")
+
+    yield pool
+
+    # Cleanup
+    try:
+        await pool.close()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# pytest marker: skip_db_if_unavailable
+# ---------------------------------------------------------------------------
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "skip_db_if_unavailable: mark test as requiring a real PostgreSQL database",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """If DATABASE_URL is not set, skip all tests marked skip_db_if_unavailable."""
+    database_url = os.getenv("DATABASE_URL", "")
+    if database_url:
+        return  # DB is available, don't skip
+
+    skip_marker = pytest.mark.skip(
+        reason="DATABASE_URL not set — skipping DB-dependent tests"
+    )
+    for item in items:
+        if item.get_closest_marker("skip_db_if_unavailable"):
+            item.add_marker(skip_marker)

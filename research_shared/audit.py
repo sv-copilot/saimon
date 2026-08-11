@@ -8,8 +8,20 @@ observability without an external tracing service.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any, TextIO
+
+_log = logging.getLogger("saimon.audit")
+
+# Module-level DB pool for audit writes — set via set_audit_db_pool()
+_audit_db_pool: Any = None
+
+
+def set_audit_db_pool(pool: Any | None) -> None:
+    """Inject a DatabasePool for writing audit entries to the audit_log table."""
+    global _audit_db_pool
+    _audit_db_pool = pool
 
 
 class AuditLogger:
@@ -32,10 +44,12 @@ class AuditLogger:
         trace_id: str | None = None,
         service_name: str = "saimon",
         output: TextIO | None = None,
+        caller_key_hash: str | None = None,
     ) -> None:
         self.trace_id = trace_id
         self.service_name = service_name
         self._output = output
+        self.caller_key_hash = caller_key_hash
 
     # ------------------------------------------------------------------
     # builder
@@ -47,6 +61,7 @@ class AuditLogger:
             trace_id=trace_id,
             service_name=self.service_name,
             output=self._output,
+            caller_key_hash=self.caller_key_hash,
         )
 
     # ------------------------------------------------------------------
@@ -63,12 +78,42 @@ class AuditLogger:
         }
         if self.trace_id:
             record["trace_id"] = self.trace_id
+        if self.caller_key_hash:
+            record["caller_key_hash"] = self.caller_key_hash
 
         line = json.dumps(record, default=str)
         if self._output is not None:
             self._output.write(line + "\n")
         else:
             print(line)
+
+        # ── also write to audit_log table if DB is connected ──
+        if _audit_db_pool is not None and self.trace_id:
+            self._schedule_db_write(record)
+
+    def _schedule_db_write(self, record: dict[str, Any]) -> None:
+        """Write an audit entry to the audit_log table (fire-and-forget)."""
+        import asyncio
+
+        async def _write():
+            try:
+                await _audit_db_pool.execute(
+                    "INSERT INTO audit_log (trace_id, service_name, event_type, payload) "
+                    "VALUES ($1, $2, $3, $4)",
+                    record.get("trace_id", "unknown"),
+                    self.service_name,
+                    record.get("event", "unknown"),
+                    json.dumps(record, default=str),
+                )
+            except Exception:  # noqa: BLE001, S110 — audit write must never crash
+                pass
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_write())
+        except RuntimeError:
+            # No running event loop — skip DB write
+            pass
 
     def debug(self, event: str, **kwargs: Any) -> None:
         self._emit("debug", event, **kwargs)

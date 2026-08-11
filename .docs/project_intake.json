@@ -9,7 +9,7 @@
   "product": {
     "goal": "A self-extending platform of 6 atomic MCP services that share one knowledge graph and adapt to new content types via research-backed self-extension.",
     "target_users": [
-      "Spencer Varadi (primary — personal infrastructure)",
+      "Primary user (personal infrastructure)",
       "OpenClaw agent (secondary — consumes MCPs as tools)",
       "VS Code Cline agent (tertiary — BUILD mode dispatch only)"
     ],

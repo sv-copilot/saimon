@@ -11,14 +11,15 @@ services:
   # PostgreSQL 16 — shared knowledge graph
   # -----------------------------------------------------------------------
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: saimon-postgres
     environment:
       POSTGRES_USER: saimon
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-saimon-dev}
       POSTGRES_DB: saimon
-    ports:
-      - "5432:5432"
+    # Port exposed via staging/prod override files
+    # ports:
+    #   - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
@@ -67,6 +68,9 @@ services:
       DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      EVALUATE_MCP_URL: ${EVALUATE_MCP_URL:-http://evaluate-mcp:8004}
+      SAIMON_AI_DETECT_MAX_RETRIES: ${SAIMON_AI_DETECT_MAX_RETRIES:-3}
+      SAIMON_AI_DETECT_THRESHOLD: ${SAIMON_AI_DETECT_THRESHOLD:-0.5}
     ports:
       - "8002:8002"
     depends_on:

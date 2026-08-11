@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "saimon-researcher": {
+      "type": "sse",
+      "url": "https://mcp-staging.spencervaradi.com/saimon"
+    }
+  }
+}

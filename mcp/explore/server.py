@@ -12,22 +12,15 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 
-from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.db import DatabaseError, DatabasePool
 from research_shared.envelope import ResearchRequest, ResearchResponse
+from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
 from research_shared.seed_data import CONTENT_TYPES as SEED_CONTENT_TYPES
 
 # ---------------------------------------------------------------------------
-# application factory
-# ---------------------------------------------------------------------------
-
-_lifespan = build_lifespan("explore-mcp", db_pool_ref=lambda: _db_pool)
-app = FastAPI(title="explore-mcp", version="0.1.0", lifespan=_lifespan)
-
-# ---------------------------------------------------------------------------
-# backend injection
+# backend injection (must be before lifespan)
 # ---------------------------------------------------------------------------
 
 _db_pool: DatabasePool | None = None
@@ -40,11 +33,19 @@ def set_db_pool(pool: DatabasePool | None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# application factory
+# ---------------------------------------------------------------------------
+
+_lifespan = build_lifespan("explore-mcp", db_pool_ref=lambda: _db_pool, db_pool_setter=set_db_pool)
+app = FastAPI(title="explore-mcp", version="0.1.0", lifespan=_lifespan)
+
+# ---------------------------------------------------------------------------
 # auth (fail-closed)
 # ---------------------------------------------------------------------------
 
 _auth_config = AuthConfig.from_env()
 _auth = AuthValidator(_auth_config)
+apply_hardening(app, _auth)
 
 
 def _require_auth(request: Request) -> None:
@@ -86,10 +87,18 @@ async def health() -> dict[str, Any]:
             db_ok = True
         except Exception:  # noqa: BLE001
             _log.debug("explore-mcp health: DB not reachable", exc_info=True)
+    kg_nodes = 0
+    if _db_pool is not None and db_ok:
+        try:
+            row = await _db_pool.fetch("SELECT count(*) as cnt FROM knowledge_graph_nodes")
+            kg_nodes = row[0]["cnt"] if row else 0
+        except Exception:  # noqa: BLE001
+            _log.debug("explore-mcp health: KG node count query failed", exc_info=True)
     return {
         "status": "ok",
         "service": "explore-mcp",
-        "checks": {"database": "connected" if db_ok else "unavailable"},
+        "checks": {"database": "connected" if db_ok else "unavailable",
+                   "kg_nodes": kg_nodes},
     }
 
 
@@ -190,7 +199,7 @@ async def explore_content(
 
     limit = min(int(payload.parameters.get("limit", 10)), 100)
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="explore-mcp")
+    logger = build_audit_logger(payload, request, _auth, "explore-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="explore_content",
@@ -202,17 +211,18 @@ async def explore_content(
     if _db_pool is not None:
         try:
             rows = await _db_pool.fetch(
-                "SELECT id, title, content_type, relevance, summary "
+                "SELECT id, title, content_type, body, "
+                "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
                 "FROM knowledge_graph_nodes "
-                "WHERE title ILIKE $1 OR content ILIKE $1 "
-                "ORDER BY relevance DESC LIMIT $2",
+                "WHERE title ILIKE $1 OR body ILIKE $1 "
+                "ORDER BY created_at DESC LIMIT $2",
                 f"%{query}%", limit,
             )
             results = [dict(r) for r in rows]
             resp = _ok(
                 trace_id=payload.trace_id,
                 data={"query": query, "results": results, "total": len(results)},
-                citations=[r["id"] for r in results],
+                citations=[str(r["id"]) for r in results],
             )
             logger.log_response(
                 status=resp.status, citations_count=len(resp.citations or [])
@@ -243,7 +253,7 @@ async def explore_content(
             "results": results,
             "total": len(results),
         },
-        citations=[r["id"] for r in results],
+        citations=[str(r["id"]) for r in results],
     )
     logger.log_response(
         status=resp.status, citations_count=len(resp.citations or [])
@@ -274,7 +284,7 @@ async def browse_by_type(
     limit = min(int(payload.parameters.get("limit", 10)), 100)
     offset = max(int(payload.parameters.get("offset", 0)), 0)
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="explore-mcp")
+    logger = build_audit_logger(payload, request, _auth, "explore-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="browse_by_type",
@@ -287,7 +297,7 @@ async def browse_by_type(
     if _db_pool is not None:
         try:
             rows = await _db_pool.fetch(
-                "SELECT id, title, content_type, summary, created_at "
+                "SELECT id, title, content_type, body, created_at "
                 "FROM knowledge_graph_nodes "
                 "WHERE content_type = $1 "
                 "ORDER BY created_at DESC LIMIT $2 OFFSET $3",
@@ -302,7 +312,7 @@ async def browse_by_type(
                     "total": len(items),
                     "offset": offset,
                 },
-                citations=[item["id"] for item in items],
+                citations=[str(item["id"]) for item in items],
             )
             logger.log_response(
                 status=resp.status, citations_count=len(resp.citations or [])
@@ -316,6 +326,7 @@ async def browse_by_type(
         {
             "id": f"{content_type}-{offset + i:03d}",
             "title": f"{content_type.replace('_', ' ').title()} Item {offset + i}",
+            "content_type": content_type,
             "summary": (
                 f"A {content_type.replace('_', ' ')} covering important "
                 f"discoveries and insights in the knowledge graph."
@@ -364,7 +375,7 @@ async def get_related(
     if not item_id:
         return _error(payload.trace_id, "Parameter 'item_id' is required.")
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="explore-mcp")
+    logger = build_audit_logger(payload, request, _auth, "explore-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="get_related",
@@ -375,7 +386,7 @@ async def get_related(
     if _db_pool is not None:
         try:
             rows = await _db_pool.fetch(
-                "SELECT n.id, n.title, e.relationship_type AS relationship, n.summary "
+                "SELECT n.id, n.title, e.relation_type AS relationship, n.body "
                 "FROM knowledge_graph_edges e "
                 "JOIN knowledge_graph_nodes n ON e.target_id = n.id "
                 "WHERE e.source_id = $1 "
@@ -386,7 +397,7 @@ async def get_related(
             resp = _ok(
                 trace_id=payload.trace_id,
                 data={"item_id": item_id, "related": related},
-                citations=[r["id"] for r in related],
+                citations=[str(r["id"]) for r in related],
             )
             logger.log_response(
                 status=resp.status, citations_count=len(resp.citations or [])
@@ -416,7 +427,7 @@ async def get_related(
     resp = _degraded(
         trace_id=payload.trace_id,
         data={"item_id": item_id, "related": related},
-        citations=[r["id"] for r in related],
+        citations=[str(r["id"]) for r in related],
     )
     logger.log_response(
         status=resp.status, citations_count=len(resp.citations or [])
@@ -449,7 +460,7 @@ async def discover_connections(
             errors=errors,
         )
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="explore-mcp")
+    logger = build_audit_logger(payload, request, _auth, "explore-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="discover_connections",
@@ -529,7 +540,7 @@ async def list_content_types(
 ) -> ResearchResponse:
     _require_auth(request)
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="explore-mcp")
+    logger = build_audit_logger(payload, request, _auth, "explore-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="list_content_types",

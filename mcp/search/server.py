@@ -10,6 +10,7 @@ Without a DB, falls back to synthetic placeholder results.
 
 from __future__ import annotations
 
+import json as _json
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -26,6 +27,7 @@ from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.db import DatabaseError, DatabasePool
 from research_shared.envelope import ResearchRequest, ResearchResponse
+from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
 from research_shared.shadow_registry import ShadowRegistry
 
@@ -83,11 +85,52 @@ def set_db_pool(pool: DatabasePool | None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# application factory
+# ---------------------------------------------------------------------------
+
+_lifespan = build_lifespan("search-mcp", db_pool_ref=lambda: _db_pool, db_pool_setter=set_db_pool)
+app = FastAPI(title="search-mcp", version="0.1.0", lifespan=_lifespan)
+
+# ---------------------------------------------------------------------------
+# shadow library registry
+# ---------------------------------------------------------------------------
+
+_shadow_registry = ShadowRegistry()
+
+# Register all Tier S + A adapters
+_shadow_registry.register(AnnasArchiveAdapter())
+_shadow_registry.register(LibGenAdapter())
+_shadow_registry.register(SciHubAdapter())
+_shadow_registry.register(InternetArchiveAdapter())
+_shadow_registry.register(AcademicTorrentsAdapter())
+
+_SHADOW_LABELS: dict[str, str] = {
+    "annas_archive": "Anna's Archive",
+    "libgen": "Library Genesis (LibGen)",
+    "scihub": "Sci-Hub / SciDB",
+    "internet_archive": "Internet Archive",
+    "academic_torrents": "Academic Torrents",
+}
+
+
+def _get_shadow_adapters(source_indexes: list[str] | None = None) -> list:
+    """Return adapters filtered by optional source_indexes list."""
+    if source_indexes:
+        return [
+            a for a in _shadow_registry.list_all()
+            if a.name in source_indexes
+        ]
+    # Default: all Tier S + A adapters
+    return _shadow_registry.filter(tier="S") + _shadow_registry.filter(tier="A")
+
+
+# ---------------------------------------------------------------------------
 # auth (fail-closed)
 # ---------------------------------------------------------------------------
 
 _auth_config = AuthConfig.from_env()
 _auth = AuthValidator(_auth_config)
+apply_hardening(app, _auth)
 
 
 def _require_auth(request: Request) -> None:
@@ -215,7 +258,7 @@ async def search_knowledge_graph(
     payload: ResearchRequest, request: Request
 ) -> ResearchResponse:
     _require_auth(request)
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
+    logger = build_audit_logger(payload, request, _auth, "search-mcp")
     logger.log_request(
         content_type=payload.content_type,
         sources_count=len(payload.sources),
@@ -230,17 +273,18 @@ async def search_knowledge_graph(
     if _db_pool is not None:
         try:
             rows = await _db_pool.fetch(
-                "SELECT id, title, content_type, relevance "
+                "SELECT id, title, content_type, "
+                "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
                 "FROM knowledge_graph_nodes "
-                "WHERE title ILIKE $1 OR content ILIKE $1 "
-                "ORDER BY relevance DESC LIMIT $2",
+                "WHERE title ILIKE $1 OR body ILIKE $1 "
+                "ORDER BY created_at DESC LIMIT $2",
                 f"%{query}%", limit,
             )
             results: list[dict[str, Any]] = [dict(r) for r in rows]
             resp = _ok(
                 trace_id=payload.trace_id,
                 data={"results": results, "total": len(results)},
-                citations=[r["id"] for r in results],
+                citations=[str(r["id"]) for r in results],
             )
             logger.log_response(
                 status=resp.status, citations_count=len(resp.citations or [])
@@ -282,7 +326,7 @@ async def search_web(
     if not query:
         return _error(payload.trace_id, "Parameter 'query' is required.")
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
+    logger = build_audit_logger(payload, request, _auth, "search-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="search_web",
@@ -404,7 +448,19 @@ async def list_source_indexes(
     """List available source indexes (knowledge graph, shadow libraries, web)."""
     _require_auth(request)
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
+    query = payload.parameters.get("query")
+    if not query:
+        resp = _ok(
+            trace_id=payload.trace_id,
+            data={"query": "", "total_results": 0, "results": []},
+        )
+        return resp
+
+    requested_indexes: list[str] | None = payload.parameters.get("source_indexes")
+    limit = min(int(payload.parameters.get("limit", 10)), 50)
+    offset = int(payload.parameters.get("offset", 0))
+
+    logger = build_audit_logger(payload, request, _auth, "search-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="list_source_indexes",
@@ -493,7 +549,7 @@ async def get_source_index_detail(
     if not source_index_id:
         return _error(payload.trace_id, "Parameter 'source_index_id' is required.")
 
-    logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
+    logger = build_audit_logger(payload, request, _auth, "search-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="get_source_index_detail",

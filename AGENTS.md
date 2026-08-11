@@ -14,9 +14,21 @@ new MCPs.
 
 ## Branch Policy
 
-- `main` — stable integration branch for adopters.
-- `ai-dev` — agent integration branch when using Drake automations.
+- `main` — stable production branch.  Triggers CI (validate only).
+- `dev` — staging branch.  Push triggers CI validate → GHCR push → auto-deploy
+  to staging VPS (95.216.208.183).
+- `ai-dev` — agent integration branch for Drake-assisted development.  Triggers
+  CI (validate + Docker build, no push).
 - `slice/*` — feature branches for isolated slices.
+
+### Branch flow
+
+```
+slice/* ──PR──▶ ai-dev ──merge──▶ dev ──CI deploy──▶ staging ──PR──▶ main
+```
+
+- `ai-dev` → `dev`: merge when ready for staging consumption.
+- `dev` → `main`: PR when staging is validated and ready for production.
 
 ## Validation before PR
 
@@ -26,6 +38,7 @@ From repo root:
 python3 -m pytest tests/ -q
 python3 -m compileall research_shared/ mcp/
 ruff check research_shared/ mcp/
+pip-audit --requirement requirements.txt
 ```
 
 ## Scope
@@ -61,10 +74,12 @@ Every slice completes through four gates before merging to `ai-dev`:
 python3 -m pytest tests/ -q
 python3 -m compileall research_shared/ mcp/
 ruff check research_shared/ mcp/
+pip-audit --requirement requirements.txt
 ```
 
-All three must pass clean. If `ruff` or `pytest-asyncio` are missing,
-install them with `python3 -m pip install ruff pytest-asyncio`.
+All four must pass clean. If `ruff`, `pytest-asyncio`, or `pip-audit`
+are missing, install them with
+`python3 -m pip install ruff pytest-asyncio pip-audit`.
 
 ### 2. Create PR
 
@@ -100,7 +115,42 @@ git checkout -b slice/NEXT
 git merge slice/PARENT   # bring in unmerged dependency
 ```
 
-## Slice Inventory
+## Slice Lifecycle
+
+All slice planning and state tracking lives in the **canonical planning tree**
+at `simon-projects/.docs/planning/projects/saimon/slice_dependency_tree.json`.
+This file is the single source of truth for what's planned, in progress, merged,
+and promoted.
+
+### The local dev loop
+
+```
+PLAN (simon-projects)  →  IMPLEMENT (saimon)  →  SYNC (simon-projects)
+```
+
+1. **SHAPE** — Add slice to the planning tree, write detail doc in
+   `simon-projects/.docs/planning/projects/saimon/slices/<SLICE-ID>.md`.
+2. **PROMOTE** — Move slice to `state: ready` when ready to implement.
+3. **IMPLEMENT** — Branch `slice/<SLICE-ID>` from `ai-dev`, build + test,
+   open PR to `ai-dev`, merge.
+4. **TREE-SYNC** — Update the planning tree: set `state`, `last_known_pr`,
+   `branch_posture`. Validate with:
+   ```bash
+   cd /Users/simon/projects
+   python3 scripts/validate_slice_dependency_tree.py \
+     --tree .docs/planning/projects/saimon/slice_dependency_tree.json
+   ```
+
+**Never maintain a duplicate slice list in this file.** The planning tree
+is authoritative. The `## Slice Inventory` section below is a read-only
+historical snapshot of slices merged before 2026-07-29.
+
+## Historical Slice Inventory (pre-canonical-tree)
+
+These slices were implemented before the canonical planning tree loop was
+enforced. They are listed here for reference only; all future slices are
+tracked in
+`simon-projects/.docs/planning/projects/saimon/slice_dependency_tree.json`.
 
 | Slice | Branch | Status | What |
 |---|---|---|---|
@@ -205,7 +255,7 @@ After merge, pull the updated `ai-dev`:
 git checkout ai-dev && git pull origin ai-dev
 ```
 
-### Step 5 — Update Slice Inventory
+### Step 5 — Tree-sync the planning tree
 
 After merging, update the Slice Inventory table below:
 - Change the merged slice's status from `✅ built` to `✅ merged`
@@ -223,7 +273,58 @@ If no designed slice exists, check `.docs/project_intake.json` for
 upcoming work.
 
 ```bash
-git checkout -b slice/<NEXT-SLICE>
+cd /Users/simon/projects
+git pull --rebase origin ai-dev
+```
+
+Update `.docs/planning/projects/saimon/slice_dependency_tree.json`:
+- Set `state`: `validated` (merged to `ai-dev`), `promoted` (merged to `dev`)
+- Set `branch_posture.merged_branch`, `branch_posture.promoted_branch`
+- Set `branch_posture.last_known_pr` to the PR number
+- Set `status: done`
+
+Validate and commit:
+```bash
+python3 scripts/validate_slice_dependency_tree.py \
+  --tree .docs/planning/projects/saimon/slice_dependency_tree.json
+python3 -m json.tool .docs/projects-registry.json >/dev/null
+git diff --check
+git add .docs/planning/projects/saimon/
+git commit -m "tree-sync: saimon — <SLICE-ID> validated (PR #<N> merged to ai-dev)"
+git push origin ai-dev
+```
+
+See `.github/skills/tree-sync-after-merge/SKILL.md` for the full procedure.
+
+### Step 6 — Start next slice from the planning tree
+
+Only after all mergeable slices are consolidated and tree-synced.
+
+**Finding the next slice:** Check the canonical planning tree — NOT a local
+table in this file:
+
+```bash
+cd /Users/simon/projects
+python3 scripts/select_next_automation_slice.py \
+  --tree .docs/planning/projects/saimon/slice_dependency_tree.json
+```
+
+If the selector returns a slice, read its detail doc:
+```bash
+cat .docs/planning/projects/saimon/slices/<SLICE-ID>.md
+```
+
+If no slice is ready, check the backlog:
+```bash
+cat .docs/planning/projects/saimon/slice_backlog.md
+```
+
+Then shape the next slice (add to tree + write detail doc) before implementing.
+
+```bash
+cd /Users/simon/saimon
+git checkout ai-dev && git pull origin ai-dev
+git checkout -b slice/<SLICE-ID>
 ```
 
 If the next slice depends on unmerged work, merge the dependency:
@@ -269,8 +370,8 @@ You are working in the Saimon repository (sv-copilot/saimon).
 ## 1. Read the contract
 
 Read AGENTS.md (the full file — it contains the Session Startup
-Protocol, PR workflow, Slice Inventory, and architecture) and
-.docs/project_intake.json.
+Protocol, PR workflow, canonical planning tree reference, and
+architecture) and .docs/project_intake.json.
 
 ## 2. Consolidate prior work
 
@@ -282,7 +383,8 @@ c. For each: create a PR targeting ai-dev if one doesn't exist.
    Use `gh pr create` with base=ai-dev, head=<branch>.
 d. Check CI on each PR. If failing, fix on the branch and push.
 e. Merge ready PRs (squash-merge, delete branch).
-f. Update the Slice Inventory table after each merge.
+f. Tree-sync the planning tree in simon-projects after each merge
+   (see Step 5 above).
 g. Pull ai-dev again.
 
 Do NOT start a new slice until all prior slices are merged into
@@ -313,14 +415,16 @@ RED → GREEN → REFACTOR → PROVE.
 ## 5. Environment
 
 - Branch: ai-dev
-- Python: /Users/simon/.pyenv/versions/3.11.8/bin/python
+- Python: python3.11 (via pyenv or system)
 - Validation: python3 -m pytest tests/ -q
 - Lint: ruff check research_shared/ mcp/
 - Compile: python3 -m compileall research_shared/ mcp/
 
 Begin by reading AGENTS.md in full, then tell me what you see:
 which slices are unmerged, which PRs need attention, and what
-you'll build next.
+you'll build next. Check the canonical planning tree at
+simon-projects/.docs/planning/projects/saimon/slice_dependency_tree.json
+for the authoritative slice state.
 ```
 
 
@@ -328,8 +432,10 @@ you'll build next.
 You are working in the Saimon repository (sv-copilot/saimon).
 
 Read AGENTS.md and .docs/project_intake.json for the full project
-contract. Then read the Slice Inventory table in AGENTS.md to see what
-has been built and what comes next.
+contract. The canonical planning tree lives at
+simon-projects/.docs/planning/projects/saimon/slice_dependency_tree.json
+— that is the authoritative source for what's been built and what
+comes next.
 
 Current state:
 - research_shared/ is built (9 modules: envelope, llm, db, auth,
@@ -344,18 +450,13 @@ Current state:
 
 Next: TBD — check .docs/project_intake.json
 
-Follow the PR & Merge Workflow in AGENTS.md: start a new slice branch
-from ai-dev, merge any unmerged dependencies via `git merge`, then
-follow TDD (RED → GREEN → REFACTOR → PROVE).
+Follow the Session Startup Protocol in AGENTS.md: consolidate prior
+work, tree-sync after each merge, then start the next slice from the
+planning tree. Follow TDD (RED → GREEN → REFACTOR → PROVE).
 
 Branch: ai-dev
-Python: /Users/simon/.pyenv/versions/3.11.8/bin/python
+Python: python3.11 (via pyenv or system)
 
 Begin by reading AGENTS.md, then tell me what you see and what
 you'll build next.
 ```
-
-- Docker (single image, CMD override per MCP)
-- DeepSeek (primary LLM) via OpenAI-compatible API
-
-See `docs/getting-started.md` for a minimal adoption path.

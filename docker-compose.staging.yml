@@ -17,6 +17,8 @@ services:
 
   search-mcp:
     image: ghcr.io/sv-copilot/saimon:dev
+    environment:
+      SERPER_API_KEY: ${SERPER_API_KEY:-}
     logging:
       driver: json-file
       options:

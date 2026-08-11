@@ -11,6 +11,7 @@ Without a DB, falls back to synthetic placeholder results.
 from __future__ import annotations
 
 import json as _json
+import os as _os
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -30,6 +31,12 @@ from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
 from research_shared.shadow_registry import ShadowRegistry
+from research_shared.source_discovery import SOURCE_DISCOVERY_MIN_CANDIDATES
+
+# ── Serper.dev Tier B config ──────────────────────────────────────
+
+_SERPER_API_KEY = _os.environ.get("SERPER_API_KEY", "")
+_SERPER_URL = "https://google.serper.dev/search"
 
 # ---------------------------------------------------------------------------
 # application factory
@@ -178,7 +185,7 @@ _TOOLS = [
     },
     {
         "name": "search_web",
-        "description": "Search external web sources (placeholder).",
+        "description": "Search the web via Serper.dev Google Search API for real-time results.",
         "parameters": {"query": "str"},
     },
     {
@@ -324,8 +331,49 @@ async def search_knowledge_graph(
 
 
 # ---------------------------------------------------------------------------
-# tool: search_web
+# tool: search_web (Tier B — Serper.dev Google Search)
 # ---------------------------------------------------------------------------
+
+
+async def _search_web_serper(query: str, limit: int = 5) -> list[dict[str, Any]]:
+    """Search the web via Serper.dev Google Search API.
+
+    Returns a list of result dicts with title, snippet, url, source.
+    Returns empty list if SERPER_API_KEY is not configured (graceful degradation).
+    """
+    if not _SERPER_API_KEY:
+        return []
+
+    # Resolve after the duplicate at module level
+    serper_key = _os.environ.get("SERPER_API_KEY", "")
+    if not serper_key:
+        return []
+
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                _SERPER_URL,
+                json={"q": query, "num": min(limit, 50)},
+                headers={"X-API-KEY": serper_key},
+            )
+            data = resp.json()
+            return [
+                {
+                    "title": r.get("title", ""),
+                    "snippet": r.get("snippet", ""),
+                    "url": r.get("link", ""),
+                    "source": "serper",
+                }
+                for r in data.get("organic", [])[:limit]
+            ]
+    except Exception:
+        import logging
+        _log = logging.getLogger("saimon.search.serper")
+        _log.warning("Serper API call failed", exc_info=True)
+        return []
+
 
 @app.post("/tools/search_web")
 async def search_web(
@@ -344,21 +392,21 @@ async def search_web(
         query=query,
     )
 
-    # Placeholder — in production this calls an external search API
-    results: list[dict[str, Any]] = [
-        {
-            "url": f"https://example.com/result-{i}",
-            "title": f"Web result {i} for: {query}",
-            "snippet": f"A relevant snippet about {query}.",
-        }
-        for i in range(3)
-    ]
+    results = await _search_web_serper(query)
 
-    resp = _ok(
-        trace_id=payload.trace_id,
-        data={"results": results},
-        citations=[r["url"] for r in results],
-    )
+    if not results:
+        # Degrade gracefully — return empty results
+        resp = _degraded(
+            trace_id=payload.trace_id,
+            data={"results": [], "total": 0, "note": "Serper API key not configured"},
+        )
+    else:
+        resp = _ok(
+            trace_id=payload.trace_id,
+            data={"results": results, "total": len(results)},
+            citations=[r["url"] for r in results if r.get("url")],
+        )
+
     logger.log_response(status=resp.status, citations_count=len(resp.citations or []))
     return resp
 
@@ -485,18 +533,6 @@ async def list_source_indexes(
 ) -> ResearchResponse:
     """List available source indexes (knowledge graph, shadow libraries, web)."""
     _require_auth(request)
-
-    query = payload.parameters.get("query")
-    if not query:
-        resp = _ok(
-            trace_id=payload.trace_id,
-            data={"query": "", "total_results": 0, "results": []},
-        )
-        return resp
-
-    requested_indexes: list[str] | None = payload.parameters.get("source_indexes")
-    limit = min(int(payload.parameters.get("limit", 10)), 50)
-    offset = int(payload.parameters.get("offset", 0))
 
     logger = build_audit_logger(payload, request, _auth, "search-mcp")
     logger.log_request(
@@ -747,9 +783,20 @@ async def source_discovery(
     )
 
     # Step 1: Extract reference candidates from text
-    from research_shared.source_discovery import extract_reference_candidates
+    from research_shared.source_discovery import extract_reference_candidates, SOURCE_DISCOVERY_MIN_CANDIDATES
 
     candidates = extract_reference_candidates(text, max_results=max_results)
+
+    # ── Tier B: Serper web search fallback ──
+    web_results: list[dict[str, Any]] = []
+    tier_used = "A"
+
+    if len(candidates) < SOURCE_DISCOVERY_MIN_CANDIDATES:
+        serper_key = _os.environ.get("SERPER_API_KEY", "")
+        if serper_key:
+            web_results = await _search_web_serper(text, limit=5)
+            if web_results:
+                tier_used = "B"
 
     # Step 2: Resolve each candidate via shadow library adapters
     resolved: list[dict[str, Any]] = []
@@ -777,13 +824,18 @@ async def source_discovery(
                 for c in candidates
             ],
             "resolved": resolved,
+            "web_results": web_results,
             "total_candidates": len(candidates),
             "total_resolved": len(resolved),
+            "total_web_results": len(web_results),
+            "tier_used": tier_used,
         },
     )
     logger.log_response(
         status=resp.status,
         total_candidates=len(candidates),
         total_resolved=len(resolved),
+        tier_used=tier_used,
+        web_results=len(web_results),
     )
     return resp

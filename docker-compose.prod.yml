@@ -43,6 +43,7 @@ services:
       SAIMON_API_KEY: ${SAIMON_API_KEY}
       DATABASE_URL: ${DATABASE_URL}
       SAIMON_ENV: production
+      SERPER_API_KEY: ${SERPER_API_KEY:-}
     logging:
       driver: json-file
       options:

@@ -10,10 +10,21 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import quote
+
+import httpx
 
 from research_shared.adapters.base import SourceSearchResult
 
 logger = logging.getLogger("saimon.adapters.internet_archive")
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+IA_SEARCH_URL = "https://archive.org/advancedsearch.php"
+DEFAULT_ROWS = 10
+DEFAULT_TIMEOUT = 15.0  # seconds
 
 
 class InternetArchiveAdapter:
@@ -38,35 +49,56 @@ class InternetArchiveAdapter:
     ) -> list[SourceSearchResult]:
         """Search Internet Archive for *query*.
 
-        Uses archive.org/advancedsearch.php which returns JSON.
-        Query params: q=QUERY, rows=LIMIT, page=PAGE, output=json.
-
-        Currently returns placeholder results.  Production would call::
-
-            GET /advancedsearch.php?q={query}&rows={limit}&page={page}&output=json
+        Calls archive.org/advancedsearch.php?q=QUERY&rows=LIMIT&page=PAGE&output=json.
+        Returns SourceSearchResult list, or [] on any error.
         """
         if not query.strip():
             return []
 
-        _ = (self._http, offset)  # reserved
+        rows = min(limit, DEFAULT_ROWS)
+        page = (offset // rows) + 1 if offset else 1
+        url = (
+            f"{IA_SEARCH_URL}"
+            f"?q={quote(query)}"
+            f"&rows={rows}"
+            f"&page={page}"
+            f"&output=json"
+        )
+
         logger.debug("Internet Archive search: %r (limit=%d)", query, limit)
 
-        results: list[SourceSearchResult] = []
-        for i in range(min(limit, 5)):
-            results.append(
-                SourceSearchResult(
-                    type="book",
-                    identifier=f"ia:{query.replace(' ', '-')}-{i}",
-                    title=f"Internet Archive result {i + 1} for: {query}",
-                    authors=[f"Author {chr(65 + i)}"],
-                    year=2015 + i,
-                    source_index=self.name,
-                    source_index_label="Internet Archive",
-                    relevance_score=round(0.85 - i * 0.1, 2),
-                    full_text_available=True,
-                    file_type="pdf",
-                )
+        try:
+            client = self._http or httpx
+            # httpx.AsyncClient.get returns a Response; httpx.get is sync
+            if self._http is not None:
+                resp = await client.get(url, timeout=DEFAULT_TIMEOUT)
+            else:
+                # Fallback to synchronous httpx.get when no client injected
+                resp = await _async_get(url)
+        except Exception:
+            logger.exception("Internet Archive search failed for %r", query)
+            return []
+
+        if resp.status_code != 200:
+            logger.warning(
+                "Internet Archive returned HTTP %d for %r", resp.status_code, query
             )
+            return []
+
+        try:
+            data = resp.json()
+        except Exception:
+            logger.exception("Internet Archive JSON parse failed for %r", query)
+            return []
+
+        docs = data.get("response", {}).get("docs", [])
+        if not docs:
+            return []
+
+        results: list[SourceSearchResult] = []
+        for doc in docs[:limit]:
+            results.append(_parse_doc(doc))
+
         return results
 
     # ── DOI resolution ────────────────────────────────────────────
@@ -74,24 +106,117 @@ class InternetArchiveAdapter:
     async def resolve_doi(self, doi: str) -> SourceSearchResult | None:
         """Resolve a DOI via Internet Archive.
 
-        IA may have archived versions of paywalled papers.  This
-        checks the archive.org search for a matching DOI.
+        Searches archive.org for the DOI and returns the first match.
         """
         if not doi.strip():
             return None
 
-        _ = self._http  # reserved
+        url = (
+            f"{IA_SEARCH_URL}"
+            f"?q={quote(doi)}"
+            f"&rows=1"
+            f"&output=json"
+        )
+
         logger.debug("Internet Archive DOI resolve: %r", doi)
 
-        return SourceSearchResult(
-            type="academic_paper",
-            identifier=f"doi:{doi}",
-            doi=doi,
-            title=f"IA paper for DOI: {doi}",
-            authors=["Unknown"],
-            source_index=self.name,
-            source_index_label="Internet Archive",
-            relevance_score=0.75,
-            full_text_available=True,
-            file_type="pdf",
-        )
+        try:
+            client = self._http or httpx
+            if self._http is not None:
+                resp = await client.get(url, timeout=DEFAULT_TIMEOUT)
+            else:
+                resp = await _async_get(url)
+        except Exception:
+            logger.exception("Internet Archive DOI resolve failed for %r", doi)
+            return None
+
+        if resp.status_code != 200:
+            return None
+
+        try:
+            data = resp.json()
+        except Exception:
+            return None
+
+        docs = data.get("response", {}).get("docs", [])
+        if not docs:
+            return None
+
+        result = _parse_doc(docs[0])
+        result.doi = doi  # Override with the requested DOI
+        result.identifier = f"doi:{doi}"
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+async def _async_get(url: str, timeout: float = DEFAULT_TIMEOUT) -> httpx.Response:
+    """Make an async GET request using httpx.AsyncClient."""
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        return await client.get(url)
+
+
+def _parse_doc(doc: dict) -> SourceSearchResult:
+    """Parse a single IA doc dict into a SourceSearchResult."""
+    identifier = doc.get("identifier", "")
+    title = doc.get("title", "Untitled").strip()
+    creators = doc.get("creator", [])
+    if isinstance(creators, str):
+        authors = [creators] if creators.strip() else []
+    elif isinstance(creators, list):
+        authors = [c.strip() for c in creators if c and str(c).strip()]
+    else:
+        authors = []
+
+    raw_year = doc.get("year")
+    year: int | None = None
+    if raw_year is not None:
+        try:
+            year = int(str(raw_year).strip())
+        except (ValueError, TypeError):
+            year = None
+
+    abstract_snippet: str | None = None
+    raw_desc = doc.get("description")
+    if raw_desc and str(raw_desc).strip():
+        abstract_snippet = str(raw_desc).strip()
+
+    raw_doi = doc.get("doi")
+    doi: str | None = None
+    if raw_doi and str(raw_doi).strip():
+        doi = str(raw_doi).strip()
+
+    mediatype = doc.get("mediatype", "")
+    file_type = _map_mediatype(mediatype)
+
+    return SourceSearchResult(
+        type="book",
+        identifier=f"ia:{identifier}" if identifier else f"ia:unknown",
+        doi=doi,
+        title=title or "Untitled",
+        authors=authors,
+        year=year,
+        abstract_snippet=abstract_snippet,
+        source_index="internet_archive",
+        source_index_label="Internet Archive",
+        relevance_score=None,  # IA doesn't provide relevance scores
+        full_text_available=mediatype == "texts",
+        file_type=file_type,
+    )
+
+
+def _map_mediatype(mediatype: str) -> str | None:
+    """Map IA mediatype to a file extension."""
+    mapping = {
+        "texts": "pdf",
+        "audio": "mp3",
+        "movies": "mp4",
+        "image": "jpg",
+        "software": "zip",
+        "data": "json",
+        "web": "html",
+    }
+    return mapping.get(mediatype)

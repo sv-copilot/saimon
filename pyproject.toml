@@ -2,3 +2,6 @@
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "integration: marks tests that make real network calls (skipped in CI)",
+]

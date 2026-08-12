@@ -889,16 +889,6 @@ def _verify_method(
                 "real shadow source corroboration."
             ),
         },
-        "shadow_source_corroboration": lambda: {
-            "verdict": "inconclusive",
-            "confidence": 0.50,
-            "explanation": (
-                f"Cross-referenced claim '{claim[:60]}...' against "
-                f"shadow library sources (Sci-Hub, LibGen, Anna's Archive). "
-                "Placeholder verdict — production would resolve DOIs and "
-                "compare claim against extracted passages."
-            ),
-        },
     }
 
     verifier = verifiers.get(method)

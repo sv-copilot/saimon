@@ -42,6 +42,9 @@ jobs:
       - name: Run tests
         run: python -m pytest tests/ -q
 
+      - name: Validate OpenAPI spec
+        run: python scripts/validate_openapi_spec.py
+
   # ── Build & push Docker image (dev and main branches, pushes to GHCR) ─
   docker-push:
     runs-on: ubuntu-latest

@@ -10,7 +10,6 @@ Without a DB, falls back to synthetic placeholder results.
 
 from __future__ import annotations
 
-import json as _json
 import os as _os
 from typing import Any
 
@@ -164,7 +163,7 @@ async def health() -> dict[str, Any]:
         try:
             await _db_pool.fetch("SELECT 1")
             db_ok = True
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001  # noqa: BLE001
             _log.debug("search-mcp health: DB not reachable", exc_info=True)
     return {
         "status": "ok",
@@ -368,7 +367,7 @@ async def _search_web_serper(query: str, limit: int = 5) -> list[dict[str, Any]]
                 }
                 for r in data.get("organic", [])[:limit]
             ]
-    except Exception:
+    except Exception:  # noqa: BLE001
         import logging
         _log = logging.getLogger("saimon.search.serper")
         _log.warning("Serper API call failed", exc_info=True)
@@ -517,7 +516,7 @@ async def _search_all_adapters(
         try:
             results = await adapter.search(query, limit=limit, offset=0)
             all_results.extend(results)
-        except Exception:  # noqa: BLE001 — each adapter may fail independently
+        except Exception:  # noqa: BLE001, S112 — each adapter may fail independently
             continue
 
     return deduplicate(all_results)[:limit]
@@ -783,7 +782,7 @@ async def source_discovery(
     )
 
     # Step 1: Extract reference candidates from text
-    from research_shared.source_discovery import extract_reference_candidates, SOURCE_DISCOVERY_MIN_CANDIDATES
+    from research_shared.source_discovery import extract_reference_candidates
 
     candidates = extract_reference_candidates(text, max_results=max_results)
 
@@ -807,7 +806,7 @@ async def source_discovery(
                 results = await _search_all_adapters(query, limit=1)
                 if results:
                     resolved.append(results[0].model_dump())
-            except Exception:  # noqa: BLE001 — individual failure doesn't block others
+            except Exception:  # noqa: BLE001, S110 — individual failure doesn't block others
                 pass
 
     resp = _ok(

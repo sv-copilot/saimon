@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json as _json
 import os as _os
+import re as _re
 from typing import Any
 
 import httpx
@@ -887,16 +888,6 @@ def _verify_method(
                 "LLM backend not available — stub returns inconclusive. "
                 "Set DEEPSEEK_API_KEY and inject an LLMClient for "
                 "real shadow source corroboration."
-            ),
-        },
-        "shadow_source_corroboration": lambda: {
-            "verdict": "inconclusive",
-            "confidence": 0.50,
-            "explanation": (
-                f"Cross-referenced claim '{claim[:60]}...' against "
-                f"shadow library sources (Sci-Hub, LibGen, Anna's Archive). "
-                "Placeholder verdict — production would resolve DOIs and "
-                "compare claim against extracted passages."
             ),
         },
     }

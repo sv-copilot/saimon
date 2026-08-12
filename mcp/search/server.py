@@ -163,7 +163,7 @@ async def health() -> dict[str, Any]:
         try:
             await _db_pool.fetch("SELECT 1")
             db_ok = True
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001  # noqa: BLE001
             _log.debug("search-mcp health: DB not reachable", exc_info=True)
     return {
         "status": "ok",
@@ -516,7 +516,7 @@ async def _search_all_adapters(
         try:
             results = await adapter.search(query, limit=limit, offset=0)
             all_results.extend(results)
-        except Exception:  # noqa: BLE001 — each adapter may fail independently
+        except Exception:  # noqa: BLE001, S112 — each adapter may fail independently
             continue
 
     return deduplicate(all_results)[:limit]
@@ -806,7 +806,7 @@ async def source_discovery(
                 results = await _search_all_adapters(query, limit=1)
                 if results:
                     resolved.append(results[0].model_dump())
-            except Exception:  # noqa: BLE001 — individual failure doesn't block others
+            except Exception:  # noqa: BLE001, S110 — individual failure doesn't block others
                 pass
 
     resp = _ok(

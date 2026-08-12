@@ -1001,6 +1001,7 @@ async def _generate_embedding(text: str) -> list[float] | None:
 # ---------------------------------------------------------------------------
 
 _verify_mcp_url = _os.environ.get("VERIFY_MCP_URL", "http://saimon-verify:8001")
+_verify_mcp_api_key = _os.environ.get("VERIFY_MCP_API_KEY", _os.environ.get("SAIMON_API_KEY", ""))
 
 
 async def _call_verify_extract(content: str) -> dict[str, Any]:
@@ -1010,11 +1011,11 @@ async def _call_verify_extract(content: str) -> dict[str, Any]:
     a neutral fallback with empty claims list.
     """
     import httpx
+    import uuid as _uuid
 
-    api_key = _os.environ.get("SAIMON_API_KEY", "")
     url = f"{_verify_mcp_url}/tools/extract_claims"
     body = {
-        "trace_id": "evidence-loop-extract",
+        "trace_id": str(_uuid.uuid4()),
         "content_type": "verify",
         "parameters": {
             "source_text": content,
@@ -1027,7 +1028,7 @@ async def _call_verify_extract(content: str) -> dict[str, Any]:
             resp = await client.post(
                 url,
                 json=body,
-                headers={"X-Saimon-API-Key": api_key},
+                headers={"X-Saimon-API-Key": _verify_mcp_api_key},
             )
             if resp.status_code == 200:
                 return resp.json()
@@ -1052,11 +1053,11 @@ async def _call_verify_claim(claim_text: str) -> dict[str, Any]:
     a neutral fallback.
     """
     import httpx
+    import uuid as _uuid
 
-    api_key = _os.environ.get("SAIMON_API_KEY", "")
     url = f"{_verify_mcp_url}/tools/verify_claim"
     body = {
-        "trace_id": "evidence-loop-verify",
+        "trace_id": str(_uuid.uuid4()),
         "content_type": "verify",
         "parameters": {
             "claim": claim_text,
@@ -1068,7 +1069,7 @@ async def _call_verify_claim(claim_text: str) -> dict[str, Any]:
             resp = await client.post(
                 url,
                 json=body,
-                headers={"X-Saimon-API-Key": api_key},
+                headers={"X-Saimon-API-Key": _verify_mcp_api_key},
             )
             if resp.status_code == 200:
                 return resp.json()

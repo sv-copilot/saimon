@@ -15,6 +15,8 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+from research_shared.resilience import CircuitBreaker
+
 logger = logging.getLogger("saimon.llm")
 
 # ---------------------------------------------------------------------------
@@ -87,6 +89,10 @@ class LLMClient:
             )
         self.config = config
         self._client: Any = None
+        self.circuit_breaker = CircuitBreaker(
+            failure_threshold=int(os.getenv("SAIMON_CB_THRESHOLD", "5")),
+            recovery_timeout=float(os.getenv("SAIMON_CB_RECOVERY", "30")),
+        )
 
     def _get_client(self) -> Any:
         """Lazy-init the OpenAI client for the configured endpoint."""
@@ -111,7 +117,17 @@ class LLMClient:
 
         Falls back to NotImplementedError if the openai package isn't
         installed or no API key is configured.
+
+        Uses a circuit breaker to fail-fast when DeepSeek returns
+        consecutive 429 (rate limit) responses.
         """
+        if not self.circuit_breaker.allows():
+            raise LLMError(
+                "LLM circuit breaker is OPEN — too many consecutive 429s. "
+                "Requests are blocked until the recovery timeout elapses.",
+                code="CIRCUIT_OPEN",
+            )
+
         try:
             client = self._get_client()
             model = kwargs.get("model", self.config.model)
@@ -124,6 +140,17 @@ class LLMClient:
                 temperature=kwargs.get("temperature", 0.7),
             )
             content = response.choices[0].message.content
+
+            # Log token usage for cost tracking
+            if response.usage:
+                logger.info(
+                    "LLM token usage: prompt=%d completion=%d total=%d",
+                    response.usage.prompt_tokens,
+                    response.usage.completion_tokens,
+                    response.usage.total_tokens,
+                )
+
+            self.circuit_breaker.record_success()
             return content or ""
 
         except ImportError:
@@ -132,6 +159,14 @@ class LLMClient:
                 "Install with: pip install openai"
             )
         except Exception as exc:
+            # Detect HTTP 429 (rate limit) from OpenAI client errors
+            status_code = getattr(exc, "status_code", None) or getattr(
+                getattr(exc, "response", None), "status_code", None
+            )
+            if status_code == 429:
+                logger.warning("LLM 429 rate limit — recording circuit breaker failure")
+                self.circuit_breaker.record_failure()
+
             logger.error("LLM generate failed: %s", exc)
             raise LLMError(
                 f"LLM generation failed: {exc}",

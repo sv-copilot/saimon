@@ -21,12 +21,12 @@ _log = _logging.getLogger("saimon.health")
 # ---------------------------------------------------------------------------
 
 _DEFAULT_SERVICE_URLS: dict[str, str] = {
-    "search": "http://saimon-search:8001",
-    "generate": "http://saimon-generate:8002",
-    "export": "http://saimon-export:8005",
-    "evaluate": "http://saimon-evaluate:8003",
-    "verify": "http://saimon-verify:8004",
-    "explore": "http://saimon-explore:8006",
+    "search": "http://search:8001",
+    "generate": "http://localhost:8002",
+    "export": "http://export:8003",
+    "evaluate": "http://evaluate:8004",
+    "verify": "http://verify:8005",
+    "explore": "http://explore:8006",
 }
 
 

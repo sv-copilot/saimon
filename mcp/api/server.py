@@ -24,6 +24,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, field_validator
 
+from research_shared.db import DatabasePool
+
 # ---------------------------------------------------------------------------
 # config
 # ---------------------------------------------------------------------------
@@ -80,9 +82,29 @@ class UserResponse(BaseModel):
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    """Startup: ensure tables exist. Shutdown: no-op."""
-    await _ensure_users_table()
+    """Startup: create DB pool, ensure tables exist. Shutdown: close pool."""
+    global _db_pool
+
+    # Create database pool from environment
+    database_url = _os.environ.get("DATABASE_URL")
+    if database_url:
+        try:
+            _db_pool = DatabasePool(database_url)
+            await _db_pool.connect()
+            await _ensure_users_table()
+        except Exception:
+            # Don't crash — health endpoint will report "not connected"
+            pass
+
     yield
+
+    # Shutdown: close pool
+    if _db_pool is not None:
+        try:
+            await _db_pool.close()
+        except Exception:
+            pass
+        _db_pool = None
 
 
 app = FastAPI(title="api-mcp", version="0.1.0", lifespan=_lifespan)

@@ -298,6 +298,18 @@ _TOOLS = [
         "parameters": {},
     },
     {
+        "name": "store_content",
+        "description": "Persist arbitrary text content to the knowledge graph "
+                       "without verification. Accepts title, content_type, body, "
+                       "and optional metadata. Returns node_id.",
+        "parameters": {
+            "title": "str",
+            "content_type": "str",
+            "body": "str",
+            "metadata": "dict (optional)",
+        },
+    },
+    {
         "name": "generate_job_hunt_content",
         "description": "Generate job hunt domain content: resume, cover "
                        "letter, job match analysis, interview prep, or "
@@ -1473,6 +1485,74 @@ async def generate_verified(
     }
 
     resp = _ok(trace_id=payload.trace_id, data=generated)
+    logger.log_response(status=resp.status)
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# tool: store_content
+# ---------------------------------------------------------------------------
+
+@app.post("/tools/store_content")
+async def store_content(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    """Persist arbitrary content to the knowledge graph without verification.
+
+    Lightweight alternative to generate_verified — takes pre-written text
+    and inserts it into knowledge_graph_nodes with a pgvector embedding.
+    No LLM call, no claim extraction, no verification.
+    """
+    _require_auth(request)
+
+    title = payload.parameters.get("title")
+    content_type = payload.parameters.get("content_type", "note")
+    body = payload.parameters.get("body")
+    metadata = payload.parameters.get("metadata")
+
+    logger = build_audit_logger(payload, request, _auth, "generate-mcp")
+    logger.log_request(
+        content_type=content_type,
+        tool="store_content",
+        title=title,
+        body_length=len(body) if body else 0,
+    )
+
+    if not title:
+        return _error(payload.trace_id, "Parameter 'title' is required.")
+    if not body:
+        return _error(payload.trace_id, "Parameter 'body' is required.")
+
+    if _db_pool is None:
+        return _error(payload.trace_id, "Database not available — cannot store content.")
+
+    # Resolve metadata: accept dict or JSON string
+    meta_dict: dict[str, Any] | None = None
+    if metadata:
+        if isinstance(metadata, dict):
+            meta_dict = metadata
+        elif isinstance(metadata, str):
+            try:
+                import json as _json
+                meta_dict = _json.loads(metadata)
+            except Exception:
+                meta_dict = {"raw": metadata}
+
+    node_id = await _persist_content_node(title, content_type, body, meta_dict)
+
+    if node_id is None:
+        logger.log_response(status="error")
+        return _error(payload.trace_id, "Failed to persist content node.")
+
+    resp = _ok(
+        trace_id=payload.trace_id,
+        data={
+            "node_id": node_id,
+            "title": title,
+            "content_type": content_type,
+            "body_length": len(body),
+        },
+    )
     logger.log_response(status=resp.status)
     return resp
 

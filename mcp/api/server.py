@@ -24,7 +24,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, field_validator
 
-from research_shared.db import DatabasePool
+from research_shared.db import DatabaseConfig, DatabasePool
 
 # ---------------------------------------------------------------------------
 # config
@@ -89,12 +89,15 @@ async def _lifespan(app: FastAPI):
     database_url = _os.environ.get("DATABASE_URL")
     if database_url:
         try:
-            _db_pool = DatabasePool(database_url)
-            await _db_pool.connect()
+            config = DatabaseConfig(database_url=database_url)
+            _db_pool = DatabasePool(config)
+            # Test connection — lazy init will connect on first query
+            await _db_pool.fetchval("SELECT 1")
             await _ensure_users_table()
-        except Exception:
-            # Don't crash — health endpoint will report "not connected"
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger("saimon.api").warning("DB init failed: %s", e)
+            _db_pool = None
 
     yield
 

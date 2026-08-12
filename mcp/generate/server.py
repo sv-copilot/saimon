@@ -136,6 +136,70 @@ _JOB_HUNT_TYPE_NAMES = {ct["name"] for ct in JOB_HUNT_CONTENT_TYPES}
 
 
 # ---------------------------------------------------------------------------
+# quality metrics tracking (#47)
+# ---------------------------------------------------------------------------
+
+_quality_metrics: dict[str, Any] = {
+    "total_generations": 0,
+    "ai_detect_passes": 0,
+    "total_retries": 0,
+    "content_type_counts": {},
+    "llm_consecutive_failures": 0,
+    "last_llm_failure_at": None,
+}
+
+
+def _record_generation_metrics(
+    content_type: str, iteration_log: list[dict[str, Any]] | None = None
+) -> None:
+    """Update quality metrics after a generation."""
+    _quality_metrics["total_generations"] += 1
+
+    if iteration_log:
+        retries = len(iteration_log) - 1 if len(iteration_log) > 1 else 0
+        _quality_metrics["total_retries"] += retries
+        if iteration_log[-1].get("score", 0) >= 0.5:
+            _quality_metrics["ai_detect_passes"] += 1
+
+    # Track content type distribution
+    cts: dict[str, int] = _quality_metrics.setdefault("content_type_counts", {})
+    cts[content_type] = cts.get(content_type, 0) + 1
+
+    # Reset LLM failure counter on success
+    _quality_metrics["llm_consecutive_failures"] = 0
+    _quality_metrics["last_llm_failure_at"] = None
+
+
+def _record_llm_failure() -> None:
+    """Record an LLM failure for health tracking."""
+    import datetime as _dt
+
+    _quality_metrics["llm_consecutive_failures"] += 1
+    _quality_metrics["last_llm_failure_at"] = _dt.datetime.utcnow().isoformat() + "Z"
+    _log = _logging.getLogger("saimon.generate.health")
+    _log.warning(
+        "LLM unreachable — consecutive failures: %d",
+        _quality_metrics["llm_consecutive_failures"],
+    )
+
+
+def _get_quality_summary() -> dict[str, Any]:
+    """Return a snapshot of quality metrics for /health."""
+    total = max(1, _quality_metrics.get("total_generations", 0))
+    return {
+        "total_generations": _quality_metrics["total_generations"],
+        "ai_detect_pass_rate": round(
+            _quality_metrics.get("ai_detect_passes", 0) / total, 2
+        ),
+        "avg_retries": round(
+            _quality_metrics.get("total_retries", 0) / total, 2
+        ),
+        "content_type_counts": _quality_metrics.get("content_type_counts", {}),
+        "llm_consecutive_failures": _quality_metrics.get("llm_consecutive_failures", 0),
+    }
+
+
+# ---------------------------------------------------------------------------
 # health
 # ---------------------------------------------------------------------------
 
@@ -171,8 +235,21 @@ async def health() -> dict[str, Any]:
             "database": "connected" if db_ok else "unavailable",
             "llm": "connected" if llm_ok else "unavailable",
             "kg_nodes": kg_nodes,
+            "quality": _get_quality_summary(),
         },
     }
+
+
+@app.get("/health/aggregate")
+async def health_aggregate() -> dict[str, Any]:
+    """Aggregate health of all 6 MCP services."""
+    from research_shared.health import check_all_services
+
+    api_key = _os.environ.get("SAIMON_API_KEY")
+    result = await check_all_services(api_key=api_key)
+    # Merge in generate-specific quality metrics
+    result["quality"] = _get_quality_summary()
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1176,6 +1253,8 @@ async def generate_content(
                     f"Quality gate failed: {gate['reason']}",
                 )
 
+            _record_generation_metrics(content_type, iteration_log)
+
             generated: dict[str, Any] = {
                 "content": content,
                 "content_type": content_type,
@@ -1194,6 +1273,7 @@ async def generate_content(
             )
             return resp
         except LLMError as exc:
+            _record_llm_failure()
             logger.log_response(status="error")
             return _error(payload.trace_id, f"LLM generation failed: {exc}")
         except NotImplementedError:
@@ -1266,6 +1346,7 @@ async def generate_verified(
             skip_critique=False,  # enables self-critique + verification markers
         )
     except LLMError as exc:
+        _record_llm_failure()
         logger.log_response(status="error")
         return _error(payload.trace_id, f"Verified generation failed: {exc}")
 
@@ -1373,6 +1454,8 @@ async def generate_verified(
         claims_verified += 1
 
     # ── Step 5: Return consolidated response ──
+    _record_generation_metrics(content_type)
+
     generated: dict[str, Any] = {
         "content": content,
         "content_type": content_type,

@@ -180,5 +180,29 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # -----------------------------------------------------------------------
+  # api-mcp — auth, sessions, documents (port 8007)
+  # -----------------------------------------------------------------------
+  api-mcp:
+    build: .
+    image: saimon:latest
+    container_name: saimon-api
+    command: api-mcp
+    environment:
+      PORT: "8007"
+      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+      SAIMON_JWT_SECRET: ${SAIMON_JWT_SECRET:-dev-jwt-secret-change-in-prod}
+    ports:
+      - "8007:8007"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8007/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
 volumes:
   pgdata:

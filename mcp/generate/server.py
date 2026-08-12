@@ -175,7 +175,7 @@ def _record_llm_failure() -> None:
     import datetime as _dt
 
     _quality_metrics["llm_consecutive_failures"] += 1
-    _quality_metrics["last_llm_failure_at"] = _dt.datetime.utcnow().isoformat() + "Z"
+    _quality_metrics["last_llm_failure_at"] = _dt.datetime.now(tz=_dt.timezone.utc).isoformat() + "Z"
     _log = _logging.getLogger("saimon.generate.health")
     _log.warning(
         "LLM unreachable — consecutive failures: %d",
@@ -669,6 +669,7 @@ async def _call_evaluate(content: str) -> dict[str, Any]:
     returns a neutral fallback with score 0.5.
     """
     import os as _os
+
     import httpx
 
     api_key = _os.environ.get("SAIMON_API_KEY", "")
@@ -698,7 +699,7 @@ async def _call_evaluate(content: str) -> dict[str, Any]:
                     resp.status_code,
                     resp.text[:200],
                 )
-    except Exception:
+    except Exception:  # noqa: BLE001
         _log = _logging.getLogger("saimon.generate.ai_detect")
         _log.warning("Evaluate service call failed", exc_info=True)
 
@@ -812,8 +813,10 @@ def _build_anti_pattern_prompt(flags: list[str]) -> str:
         return ""
 
     lines: list[str] = [
-        "CRITICAL WRITING GUIDANCE: The previous draft was flagged for "
-        "these AI-detected patterns. Fix them in your rewrite:",
+        (
+            "CRITICAL WRITING GUIDANCE: The previous draft was flagged for "
+            "these AI-detected patterns. Fix them in your rewrite:"
+        ),
         "",
     ]
     for flag in flags:
@@ -860,7 +863,7 @@ async def _iterate_until_human_like(
         # Evaluate current content
         try:
             eval_response = await _call_evaluate(content)
-        except Exception:
+        except Exception:  # noqa: BLE001
             _log.warning("Evaluate call raised, using neutral fallback", exc_info=True)
             eval_response = {
                 "data": {
@@ -936,7 +939,7 @@ async def _iterate_until_human_like(
                 revised_prompt, content_type, tone, ct_schema,
                 sources=sources, skip_critique=True,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             _log.warning("Regeneration failed on attempt %d", attempt, exc_info=True)
             # Keep previous content and try again
             continue
@@ -986,7 +989,7 @@ async def _generate_embedding(text: str) -> list[float] | None:
                 _log = logging.getLogger("saimon.embedding")
                 _log.warning("Embedding API returned %d: %s", resp.status_code, resp.text[:200])
                 return None
-    except Exception:
+    except Exception:  # noqa: BLE001
         import logging
         _log = logging.getLogger("saimon.embedding")
         _log.warning("Embedding generation failed", exc_info=True)
@@ -1035,7 +1038,7 @@ async def _call_verify_extract(content: str) -> dict[str, Any]:
                     resp.status_code,
                     resp.text[:200],
                 )
-    except Exception:
+    except Exception:  # noqa: BLE001
         _log = _logging.getLogger("saimon.generate.evidence")
         _log.warning("Verify extract call failed", exc_info=True)
 
@@ -1076,7 +1079,7 @@ async def _call_verify_claim(claim_text: str) -> dict[str, Any]:
                     resp.status_code,
                     resp.text[:200],
                 )
-    except Exception:
+    except Exception:  # noqa: BLE001
         _log = _logging.getLogger("saimon.generate.evidence")
         _log.warning("Verify claim call failed", exc_info=True)
 
@@ -1106,8 +1109,8 @@ async def _persist_content_node(
     if _db_pool is None:
         return None
 
-    import uuid
     import json
+    import uuid
 
     node_id = str(uuid.uuid4())
     embedding = await _generate_embedding(body)
@@ -1122,7 +1125,7 @@ async def _persist_content_node(
             node_id, title, content_type, body, meta_json, embedding,
         )
         return node_id
-    except Exception:
+    except Exception:  # noqa: BLE001
         import logging
         _log = logging.getLogger("saimon.kg")
         _log.warning("Failed to persist KG node %r", title, exc_info=True)
@@ -1139,8 +1142,9 @@ async def _auto_discover_sources(prompt: str) -> list[Any]:
     Best-effort: if search MCP is unreachable or returns no results,
     returns empty list — generation continues without sources.
     """
-    import httpx
     import uuid as _uuid
+
+    import httpx
 
     api_key = _os.environ.get("SAIMON_API_KEY", "")
     try:
@@ -1157,7 +1161,7 @@ async def _auto_discover_sources(prompt: str) -> list[Any]:
             if resp.status_code == 200:
                 data = resp.json()
                 return data.get("data", {}).get("resolved", [])
-    except Exception:  # noqa: BLE001 — best-effort
+    except Exception:  # noqa: BLE001, S110 — best-effort
         pass
     return []
 
@@ -1220,7 +1224,7 @@ async def generate_content(
                 })()
                 sources.append(src_obj)
                 citations.append(d.get('doi', d.get('identifier', '')))
-        except Exception:  # noqa: BLE001 — best-effort
+        except Exception:  # noqa: BLE001, S110 — best-effort
             pass
 
     # ── try LLM backend ──
@@ -1374,9 +1378,8 @@ async def generate_verified(
         # 4a: Persist observation as "unverified" initially
         if _db_pool is not None:
             try:
-                import uuid as _uuid
                 import hashlib as _hashlib
-                import json as _json_lib
+                import uuid as _uuid
 
                 obs_id = str(_uuid.uuid4())
                 source_hash = _hashlib.sha256(content.encode()).hexdigest()[:16]
@@ -1397,7 +1400,7 @@ async def generate_verified(
                     source_hash,
                 )
                 observation_ids.append(obs_id)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 obs_id = ""
         else:
             obs_id = ""
@@ -1406,7 +1409,7 @@ async def generate_verified(
         verify_resp = await _call_verify_claim(claim_text)
         verifications = verify_resp.get("data", {}).get("verifications", [])
         overall_verdict = verify_resp.get("data", {}).get("overall_verdict", "inconclusive")
-        overall_confidence = verify_resp.get("data", {}).get("overall_confidence", 0.5)
+        overall_confidence = verify_resp.get("data", {}).get("overall_confidence", 0.5)  # noqa: F841
 
         # 4c: Persist verifications and evidence links
         if _db_pool is not None and obs_id:
@@ -1436,7 +1439,7 @@ async def generate_verified(
                                VALUES ($1, $2, $3, $4, $5)""",
                             ev_id, ver_id, evidence_type, evidence_source, confidence,
                         )
-                except Exception:
+                except Exception:  # noqa: BLE001, S110
                     pass
 
             # 4d: Update observation verification status
@@ -1447,7 +1450,7 @@ async def generate_verified(
                     "verified" if overall_verdict != "inconclusive" else "unverified",
                     obs_id,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001, S110
                 pass
 
         claims_verified += 1

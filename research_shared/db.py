@@ -194,6 +194,5 @@ class DatabasePool:
                 await conn.execute("UPDATE ...")
         """
         pool = await self._get_pool()
-        async with pool.acquire() as conn:
-            async with conn.transaction():
-                yield conn
+        async with pool.acquire() as conn, conn.transaction():
+            yield conn

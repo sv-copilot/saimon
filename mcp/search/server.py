@@ -289,14 +289,37 @@ async def search_knowledge_graph(
     # ── try DB backend ──
     if _db_pool is not None:
         try:
-            rows = await _db_pool.fetch(
-                "SELECT id, title, content_type, "
-                "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
-                "FROM knowledge_graph_nodes "
-                "WHERE title ILIKE $1 OR body ILIKE $1 "
-                "ORDER BY created_at DESC LIMIT $2",
-                f"%{query}%", limit,
-            )
+            # Split multi-word queries into per-word ILIKE conditions
+            # so "Sprocket bartender" matches "Sprocket is a bartender"
+            words = [w.strip() for w in query.split() if w.strip()]
+            if not words:
+                words = [query] if query else [""]
+
+            if len(words) == 1:
+                rows = await _db_pool.fetch(
+                    "SELECT id, title, content_type, "
+                    "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
+                    "FROM knowledge_graph_nodes "
+                    "WHERE title ILIKE $1 OR body ILIKE $1 "
+                    "ORDER BY created_at DESC LIMIT $2",
+                    f"%{words[0]}%", limit,
+                )
+            else:
+                # Build per-word conditions: (title ILIKE $1 OR body ILIKE $1) AND ...
+                conditions = []
+                params: list[Any] = []
+                for w in words:
+                    params.append(f"%{w}%")
+                    conditions.append(f"(title ILIKE ${len(params)} OR body ILIKE ${len(params)})")
+                params.append(limit)
+                sql = (
+                    "SELECT id, title, content_type, "
+                    "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
+                    "FROM knowledge_graph_nodes "
+                    "WHERE " + " AND ".join(conditions) + " "
+                    "ORDER BY created_at DESC LIMIT $" + str(len(params))
+                )
+                rows = await _db_pool.fetch(sql, *params)
             results: list[dict[str, Any]] = [dict(r) for r in rows]
             resp = _ok(
                 trace_id=payload.trace_id,

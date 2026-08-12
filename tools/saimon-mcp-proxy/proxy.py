@@ -92,7 +92,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "path": "/tools/search_knowledge_graph",
         "body_template": {
             "content_type": "search",
-            "parameters": {"query": "{query}", "limit": "{limit}"},
+            "parameters": {"query": "{query}", "limit": "{limit}", "user_id": "{user_id}"},
         },
     },
     "saimon_list_sources": {
@@ -334,7 +334,8 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
             "world-building data, character profiles, location descriptions, "
             "or any content that doesn't need fact-checking. Accepts title, "
             "content_type (any string — not limited to registered types), "
-            "body, and optional metadata dict. Returns node_id."
+            "body, optional metadata dict, and optional user_id for per-user "
+            "scoping. Returns node_id."
         ),
         "service": "generate",
         "method": "POST",
@@ -346,6 +347,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
                 "content_type": "{content_type}",
                 "body": "{body}",
                 "metadata": "{metadata}",
+                "user_id": "{user_id}",
             },
         },
     },

@@ -1114,6 +1114,7 @@ async def _persist_content_node(
     content_type: str,
     body: str,
     metadata: dict[str, Any] | None = None,
+    user_id: str | None = None,
 ) -> str | None:
     """Persist a generated content node to knowledge_graph_nodes.
 
@@ -1133,9 +1134,9 @@ async def _persist_content_node(
 
     try:
         await _db_pool.execute(
-            "INSERT INTO knowledge_graph_nodes (id, title, content_type, body, metadata, embedding) "
-            "VALUES ($1, $2, $3, $4, $5::jsonb, $6)",
-            node_id, title, content_type, body, meta_json, embedding,
+            "INSERT INTO knowledge_graph_nodes (id, title, content_type, body, metadata, embedding, user_id) "
+            "VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)",
+            node_id, title, content_type, body, meta_json, embedding, user_id,
         )
         return node_id
     except Exception:  # noqa: BLE001
@@ -1509,6 +1510,7 @@ async def store_content(
     content_type = payload.parameters.get("content_type", "note")
     body = payload.parameters.get("body")
     metadata = payload.parameters.get("metadata")
+    user_id = payload.parameters.get("user_id")  # optional — NULL = shared
 
     logger = build_audit_logger(payload, request, _auth, "generate-mcp")
     logger.log_request(
@@ -1538,7 +1540,7 @@ async def store_content(
             except Exception:
                 meta_dict = {"raw": metadata}
 
-    node_id = await _persist_content_node(title, content_type, body, meta_dict)
+    node_id = await _persist_content_node(title, content_type, body, meta_dict, user_id)
 
     if node_id is None:
         logger.log_response(status="error")

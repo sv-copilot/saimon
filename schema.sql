@@ -22,6 +22,37 @@ CREATE TABLE IF NOT EXISTS content_type_registry (
 );
 
 -- ---------------------------------------------------------------------------
+-- sources — registered data source indexes (shadow libraries, web, KG)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sources (
+    id              SERIAL PRIMARY KEY,
+    type            TEXT NOT NULL,                    -- 'shadow_library', 'knowledge_graph', 'web_page'
+    identifier      TEXT NOT NULL UNIQUE,             -- e.g. 'annas_archive', 'libgen', 'scihub'
+    label           TEXT NOT NULL,                    -- human-readable label
+    tier            TEXT NOT NULL DEFAULT 'B',        -- S, A, B, C (reliability tier)
+    status          TEXT NOT NULL DEFAULT 'active',   -- active, degraded, disabled
+    description     TEXT NOT NULL DEFAULT '',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sources_type
+    ON sources(type);
+
+-- Seed default sources
+INSERT INTO sources (type, identifier, label, tier, description)
+VALUES
+    ('knowledge_graph', 'kg-root',     'Knowledge Graph Root',        'S', 'Root node of the knowledge graph'),
+    ('knowledge_graph', 'kg-concepts', 'Knowledge Graph Concepts',    'S', 'Concept nodes in the knowledge graph'),
+    ('web_page',        'web-index',   'Web Index',                   'A', 'General web search index'),
+    ('shadow_library',  'annas_archive','Anna''s Archive',            'S', 'The largest open-source shadow library'),
+    ('shadow_library',  'libgen',      'Library Genesis (LibGen)',    'S', 'Scientific articles and books'),
+    ('shadow_library',  'scihub',      'Sci-Hub / SciDB',             'S', 'Paywalled academic paper access'),
+    ('shadow_library',  'academic_torrents', 'Academic Torrents',     'A', 'Bulk academic dataset torrents'),
+    ('shadow_library',  'internet_archive',  'Internet Archive',      'A', 'Digital library with books, papers, and web archives')
+ON CONFLICT (identifier) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
 -- knowledge_graph_nodes — the core graph entity
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS knowledge_graph_nodes (
@@ -127,90 +158,6 @@ CREATE INDEX IF NOT EXISTS idx_shadow_cache_doi
     ON shadow_sources_cache(doi);
 CREATE INDEX IF NOT EXISTS idx_shadow_cache_last_accessed
     ON shadow_sources_cache(last_accessed DESC);
-
--- ---------------------------------------------------------------------------
--- observations — extracted falsifiable claims from source text
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS observations (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    claim_text          TEXT NOT NULL,
-    topic               TEXT,
-    summary             TEXT,
-    confidence_0_1      REAL NOT NULL DEFAULT 0.5,
-    rationale           TEXT,
-    source_text_hash    TEXT,                               -- hash of the source text this was extracted from
-    verification_status TEXT NOT NULL DEFAULT 'unverified', -- unverified, verified, disputed, refuted
-    primacy_tier        TEXT NOT NULL DEFAULT 'primary',    -- primary, secondary, tertiary
-    primacy_distance_score REAL NOT NULL DEFAULT 1.0,      -- 1.0 = direct source, 0.7 = one-hop, etc.
-    source_quality_tier TEXT NOT NULL DEFAULT 'unknown',    -- A, B, C, unknown
-    source_quality_score REAL NOT NULL DEFAULT 0.5,
-    metadata            JSONB NOT NULL DEFAULT '{}',
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_observations_topic
-    ON observations(topic);
-CREATE INDEX IF NOT EXISTS idx_observations_verification_status
-    ON observations(verification_status);
-CREATE INDEX IF NOT EXISTS idx_observations_primacy
-    ON observations(primacy_tier, primacy_distance_score DESC);
-
--- ---------------------------------------------------------------------------
--- observation_relations — graph edges between observations
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS observation_relations (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    source_id       UUID NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
-    target_id       UUID NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
-    relation_type   TEXT NOT NULL,                          -- supporting, dissenting, related
-    label           TEXT,                                   -- corroborate, contradict, references
-    weight          REAL NOT NULL DEFAULT 1.0,
-    metadata        JSONB NOT NULL DEFAULT '{}',
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE(source_id, target_id, relation_type)
-);
-
-CREATE INDEX IF NOT EXISTS idx_obs_rel_source
-    ON observation_relations(source_id);
-CREATE INDEX IF NOT EXISTS idx_obs_rel_target
-    ON observation_relations(target_id);
-
--- ---------------------------------------------------------------------------
--- observation_verifications — links observations to verification results
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS observation_verifications (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    observation_id  UUID NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
-    verification_id UUID,                                   -- optional link to knowledge_graph_nodes
-    method          TEXT NOT NULL,
-    verdict         TEXT NOT NULL,                          -- supported, refuted, inconclusive
-    confidence      REAL NOT NULL DEFAULT 0.5,
-    explanation     TEXT,
-    metadata        JSONB NOT NULL DEFAULT '{}',
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_obs_ver_observation
-    ON observation_verifications(observation_id);
-CREATE INDEX IF NOT EXISTS idx_obs_ver_method
-    ON observation_verifications(method);
-
--- ---------------------------------------------------------------------------
--- observation_verification_evidence — evidence links for each verification
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS observation_verification_evidence (
-    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    verification_id         UUID NOT NULL REFERENCES observation_verifications(id) ON DELETE CASCADE,
-    evidence_type           TEXT NOT NULL,                   -- citation, source_excerpt, shadow_source
-    evidence_identifier     TEXT NOT NULL,                   -- DOI, URL, source index key
-    relevance_score         REAL NOT NULL DEFAULT 0.5,
-    metadata                JSONB NOT NULL DEFAULT '{}',
-    created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_obs_evid_verification
-    ON observation_verification_evidence(verification_id);
 
 -- ---------------------------------------------------------------------------
 -- seed data — bootstraps the platform with content types, voice profiles,

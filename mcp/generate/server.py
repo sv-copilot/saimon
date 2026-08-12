@@ -136,6 +136,70 @@ _JOB_HUNT_TYPE_NAMES = {ct["name"] for ct in JOB_HUNT_CONTENT_TYPES}
 
 
 # ---------------------------------------------------------------------------
+# quality metrics tracking (#47)
+# ---------------------------------------------------------------------------
+
+_quality_metrics: dict[str, Any] = {
+    "total_generations": 0,
+    "ai_detect_passes": 0,
+    "total_retries": 0,
+    "content_type_counts": {},
+    "llm_consecutive_failures": 0,
+    "last_llm_failure_at": None,
+}
+
+
+def _record_generation_metrics(
+    content_type: str, iteration_log: list[dict[str, Any]] | None = None
+) -> None:
+    """Update quality metrics after a generation."""
+    _quality_metrics["total_generations"] += 1
+
+    if iteration_log:
+        retries = len(iteration_log) - 1 if len(iteration_log) > 1 else 0
+        _quality_metrics["total_retries"] += retries
+        if iteration_log[-1].get("score", 0) >= 0.5:
+            _quality_metrics["ai_detect_passes"] += 1
+
+    # Track content type distribution
+    cts: dict[str, int] = _quality_metrics.setdefault("content_type_counts", {})
+    cts[content_type] = cts.get(content_type, 0) + 1
+
+    # Reset LLM failure counter on success
+    _quality_metrics["llm_consecutive_failures"] = 0
+    _quality_metrics["last_llm_failure_at"] = None
+
+
+def _record_llm_failure() -> None:
+    """Record an LLM failure for health tracking."""
+    import datetime as _dt
+
+    _quality_metrics["llm_consecutive_failures"] += 1
+    _quality_metrics["last_llm_failure_at"] = _dt.datetime.now(tz=_dt.timezone.utc).isoformat() + "Z"
+    _log = _logging.getLogger("saimon.generate.health")
+    _log.warning(
+        "LLM unreachable — consecutive failures: %d",
+        _quality_metrics["llm_consecutive_failures"],
+    )
+
+
+def _get_quality_summary() -> dict[str, Any]:
+    """Return a snapshot of quality metrics for /health."""
+    total = max(1, _quality_metrics.get("total_generations", 0))
+    return {
+        "total_generations": _quality_metrics["total_generations"],
+        "ai_detect_pass_rate": round(
+            _quality_metrics.get("ai_detect_passes", 0) / total, 2
+        ),
+        "avg_retries": round(
+            _quality_metrics.get("total_retries", 0) / total, 2
+        ),
+        "content_type_counts": _quality_metrics.get("content_type_counts", {}),
+        "llm_consecutive_failures": _quality_metrics.get("llm_consecutive_failures", 0),
+    }
+
+
+# ---------------------------------------------------------------------------
 # health
 # ---------------------------------------------------------------------------
 
@@ -171,8 +235,21 @@ async def health() -> dict[str, Any]:
             "database": "connected" if db_ok else "unavailable",
             "llm": "connected" if llm_ok else "unavailable",
             "kg_nodes": kg_nodes,
+            "quality": _get_quality_summary(),
         },
     }
+
+
+@app.get("/health/aggregate")
+async def health_aggregate() -> dict[str, Any]:
+    """Aggregate health of all 6 MCP services."""
+    from research_shared.health import check_all_services
+
+    api_key = _os.environ.get("SAIMON_API_KEY")
+    result = await check_all_services(api_key=api_key)
+    # Merge in generate-specific quality metrics
+    result["quality"] = _get_quality_summary()
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +357,52 @@ def _error(trace_id: str, message: str) -> ResearchResponse:
 # ---------------------------------------------------------------------------
 # LLM generation helper
 # ---------------------------------------------------------------------------
+
+def _get_type_prompt(
+    content_type: str, prompt: str, tone: str, sources_block: str,
+    extra_params: str = "",
+) -> str:
+    """Build a content-type-specific system prompt.
+
+    Resolves the content type from the registry, extracts its system_prompt
+    and banlist, and builds a targeted prompt for the LLM. Falls back to a
+    generic template for unknown or unconfigured content types.
+    """
+    ct = _CONTENT_TYPES.get(content_type, {})
+    system_prompt = ct.get("system_prompt")
+    banlist: list[str] = ct.get("banlist", [])
+
+    if system_prompt:
+        banlist_text = (
+            "\n".join(
+                f"- Do NOT use the phrase: '{phrase}'"
+                for phrase in banlist
+            )
+            if banlist
+            else ""
+        )
+        return (
+            f"{system_prompt}\n\n"
+            f"Generate a {content_type.replace('_', ' ')} with:\n"
+            f"- Prompt: {prompt}\n"
+            f"- Tone: {tone}\n"
+            f"{extra_params}\n"
+            f"{banlist_text}\n\n"
+            "Produce the final content directly. Do not include meta-commentary,\n"
+            "review headers, or self-critique. Write as if you are the author.\n\n"
+            "Do not invent statistics, dates, or names. "
+            "Stick to claims you can support.\n\n"
+            f"{sources_block}"
+        )
+
+    # ── Fallback: generic template for types without profile ──
+    return _DIRECT_PROMPT_TEMPLATE.format(
+        content_type=content_type.replace("_", " "),
+        prompt=prompt, tone=tone,
+        extra_params=extra_params,
+        sources_block=sources_block,
+    )
+
 
 _DIRECT_PROMPT_TEMPLATE = """You are a content generation assistant.
 
@@ -390,15 +513,26 @@ def _quality_gate_check(
 
     Returns {passed: bool, reason: str|None}.
     Rejects content that contains meta-commentary, voice-risk patterns,
-    broken attribution, or forbidden phrases.
+    broken attribution, or forbidden phrases. Uses per-type banlists
+    from the content type registry when available.
     """
     import re
 
     text_lower = text.lower()
-    forbidden = forbidden_phrases or _DEFAULT_FORBIDDEN_PHRASES
+
+    # ── Build forbidden list: defaults + per-type banlist ──
+    ct = _CONTENT_TYPES.get(content_type, {})
+    type_banlist: list[str] = ct.get("banlist", [])
+    all_forbidden: list[str] = list(_DEFAULT_FORBIDDEN_PHRASES)
+    for phrase in (forbidden_phrases or []):
+        if phrase not in all_forbidden:
+            all_forbidden.append(phrase)
+    for phrase in type_banlist:
+        if phrase not in all_forbidden:
+            all_forbidden.append(phrase)
 
     # ── forbidden phrases ──
-    for phrase in forbidden:
+    for phrase in all_forbidden:
         if phrase.lower() in text_lower:
             return {"passed": False, "reason": f"Forbidden phrase detected: {phrase!r}"}
 
@@ -505,14 +639,16 @@ async def _generate_via_llm(
 
     sources_block = _format_sources_text(sources) if sources else ""
 
-    template = _DIRECT_PROMPT_TEMPLATE if skip_critique else _VERIFIED_PROMPT_TEMPLATE
-    llm_prompt = template.format(
-        content_type=content_type.replace("_", " "),
-        prompt=prompt,
-        tone=tone,
-        extra_params=extra,
-        sources_block=sources_block,
-    )
+    if skip_critique:
+        llm_prompt = _get_type_prompt(content_type, prompt, tone, sources_block, extra)
+    else:
+        llm_prompt = _VERIFIED_PROMPT_TEMPLATE.format(
+            content_type=content_type.replace("_", " "),
+            prompt=prompt,
+            tone=tone,
+            extra_params=extra,
+            sources_block=sources_block,
+        )
 
     # Turn 1: generate draft
     draft = await _llm_client.generate(llm_prompt)  # type: ignore[union-attr]
@@ -533,6 +669,7 @@ async def _generate_via_llm(
 # ---------------------------------------------------------------------------
 
 _evaluate_mcp_url = _os.environ.get("EVALUATE_MCP_URL", "http://evaluate-mcp:8004")
+_SEARCH_MCP_URL = _os.environ.get("SEARCH_MCP_URL", "http://saimon-search:8001")
 _ai_detect_max_retries = int(_os.environ.get("SAIMON_AI_DETECT_MAX_RETRIES", "3"))
 _ai_detect_threshold = float(_os.environ.get("SAIMON_AI_DETECT_THRESHOLD", "0.5"))
 
@@ -544,6 +681,7 @@ async def _call_evaluate(content: str) -> dict[str, Any]:
     returns a neutral fallback with score 0.5.
     """
     import os as _os
+
     import httpx
 
     api_key = _os.environ.get("SAIMON_API_KEY", "")
@@ -573,7 +711,7 @@ async def _call_evaluate(content: str) -> dict[str, Any]:
                     resp.status_code,
                     resp.text[:200],
                 )
-    except Exception:
+    except Exception:  # noqa: BLE001
         _log = _logging.getLogger("saimon.generate.ai_detect")
         _log.warning("Evaluate service call failed", exc_info=True)
 
@@ -687,8 +825,10 @@ def _build_anti_pattern_prompt(flags: list[str]) -> str:
         return ""
 
     lines: list[str] = [
-        "CRITICAL WRITING GUIDANCE: The previous draft was flagged for "
-        "these AI-detected patterns. Fix them in your rewrite:",
+        (
+            "CRITICAL WRITING GUIDANCE: The previous draft was flagged for "
+            "these AI-detected patterns. Fix them in your rewrite:"
+        ),
         "",
     ]
     for flag in flags:
@@ -735,7 +875,7 @@ async def _iterate_until_human_like(
         # Evaluate current content
         try:
             eval_response = await _call_evaluate(content)
-        except Exception:
+        except Exception:  # noqa: BLE001
             _log.warning("Evaluate call raised, using neutral fallback", exc_info=True)
             eval_response = {
                 "data": {
@@ -811,7 +951,7 @@ async def _iterate_until_human_like(
                 revised_prompt, content_type, tone, ct_schema,
                 sources=sources, skip_critique=True,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             _log.warning("Regeneration failed on attempt %d", attempt, exc_info=True)
             # Keep previous content and try again
             continue
@@ -861,7 +1001,7 @@ async def _generate_embedding(text: str) -> list[float] | None:
                 _log = logging.getLogger("saimon.embedding")
                 _log.warning("Embedding API returned %d: %s", resp.status_code, resp.text[:200])
                 return None
-    except Exception:
+    except Exception:  # noqa: BLE001
         import logging
         _log = logging.getLogger("saimon.embedding")
         _log.warning("Embedding generation failed", exc_info=True)
@@ -911,7 +1051,7 @@ async def _call_verify_extract(content: str) -> dict[str, Any]:
                     resp.status_code,
                     resp.text[:200],
                 )
-    except Exception:
+    except Exception:  # noqa: BLE001
         _log = _logging.getLogger("saimon.generate.evidence")
         _log.warning("Verify extract call failed", exc_info=True)
 
@@ -952,7 +1092,7 @@ async def _call_verify_claim(claim_text: str) -> dict[str, Any]:
                     resp.status_code,
                     resp.text[:200],
                 )
-    except Exception:
+    except Exception:  # noqa: BLE001
         _log = _logging.getLogger("saimon.generate.evidence")
         _log.warning("Verify claim call failed", exc_info=True)
 
@@ -982,8 +1122,8 @@ async def _persist_content_node(
     if _db_pool is None:
         return None
 
-    import uuid
     import json
+    import uuid
 
     node_id = str(uuid.uuid4())
     embedding = await _generate_embedding(body)
@@ -998,11 +1138,45 @@ async def _persist_content_node(
             node_id, title, content_type, body, meta_json, embedding,
         )
         return node_id
-    except Exception:
+    except Exception:  # noqa: BLE001
         import logging
         _log = logging.getLogger("saimon.kg")
         _log.warning("Failed to persist KG node %r", title, exc_info=True)
         return None
+
+
+# ---------------------------------------------------------------------------
+# auto source discovery (#43) — inter-service search → generate
+# ---------------------------------------------------------------------------
+
+async def _auto_discover_sources(prompt: str) -> list[Any]:
+    """Call search MCP source_discovery and return resolved sources.
+
+    Best-effort: if search MCP is unreachable or returns no results,
+    returns empty list — generation continues without sources.
+    """
+    import uuid as _uuid
+
+    import httpx
+
+    api_key = _os.environ.get("SAIMON_API_KEY", "")
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{_SEARCH_MCP_URL}/tools/source_discovery",
+                json={
+                    "trace_id": str(_uuid.uuid4()),
+                    "content_type": "discovery",
+                    "parameters": {"text": prompt, "max_results": 5},
+                },
+                headers={"X-Saimon-API-Key": api_key},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("data", {}).get("resolved", [])
+    except Exception:  # noqa: BLE001, S110 — best-effort
+        pass
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -1046,12 +1220,32 @@ async def generate_content(
     citations = [s.identifier for s in payload.sources] if payload.sources else []
     tone = payload.parameters.get("tone", "neutral")
 
+    # ── auto-discover sources from prompt text ──
+    auto_discover = payload.parameters.get("auto_discover", True)
+    sources = list(payload.sources) if payload.sources else []
+
+    if auto_discover and _llm_client is not None:
+        try:
+            discovered = await _auto_discover_sources(prompt)
+            for d in discovered:
+                src_obj = type('Source', (), {
+                    'identifier': d.get('doi', d.get('identifier', '')),
+                    'type': d.get('source_index', 'discovered'),
+                    'title': d.get('title', ''),
+                    'authors': d.get('authors', []),
+                    'year': d.get('year'),
+                })()
+                sources.append(src_obj)
+                citations.append(d.get('doi', d.get('identifier', '')))
+        except Exception:  # noqa: BLE001, S110 — best-effort
+            pass
+
     # ── try LLM backend ──
     if _llm_client is not None:
         try:
             content = await _generate_via_llm(
                 prompt, content_type, tone, ct_schema,
-                sources=payload.sources,
+                sources=sources if sources else None,
                 skip_critique=True,
             )
 
@@ -1062,7 +1256,7 @@ async def generate_content(
                 content_type=content_type,
                 tone=tone,
                 ct_schema=ct_schema,
-                sources=payload.sources,
+                sources=sources if sources else None,
             )
 
             # ── post-generation quality gates ──
@@ -1073,6 +1267,8 @@ async def generate_content(
                     payload.trace_id,
                     f"Quality gate failed: {gate['reason']}",
                 )
+
+            _record_generation_metrics(content_type, iteration_log)
 
             generated: dict[str, Any] = {
                 "content": content,
@@ -1092,6 +1288,7 @@ async def generate_content(
             )
             return resp
         except LLMError as exc:
+            _record_llm_failure()
             logger.log_response(status="error")
             return _error(payload.trace_id, f"LLM generation failed: {exc}")
         except NotImplementedError:
@@ -1164,6 +1361,7 @@ async def generate_verified(
             skip_critique=False,  # enables self-critique + verification markers
         )
     except LLMError as exc:
+        _record_llm_failure()
         logger.log_response(status="error")
         return _error(payload.trace_id, f"Verified generation failed: {exc}")
 
@@ -1193,9 +1391,8 @@ async def generate_verified(
         # 4a: Persist observation as "unverified" initially
         if _db_pool is not None:
             try:
-                import uuid as _uuid
                 import hashlib as _hashlib
-                import json as _json_lib
+                import uuid as _uuid
 
                 obs_id = str(_uuid.uuid4())
                 source_hash = _hashlib.sha256(content.encode()).hexdigest()[:16]
@@ -1216,7 +1413,7 @@ async def generate_verified(
                     source_hash,
                 )
                 observation_ids.append(obs_id)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 obs_id = ""
         else:
             obs_id = ""
@@ -1225,7 +1422,7 @@ async def generate_verified(
         verify_resp = await _call_verify_claim(claim_text)
         verifications = verify_resp.get("data", {}).get("verifications", [])
         overall_verdict = verify_resp.get("data", {}).get("overall_verdict", "inconclusive")
-        overall_confidence = verify_resp.get("data", {}).get("overall_confidence", 0.5)
+        overall_confidence = verify_resp.get("data", {}).get("overall_confidence", 0.5)  # noqa: F841
 
         # 4c: Persist verifications and evidence links
         if _db_pool is not None and obs_id:
@@ -1255,7 +1452,7 @@ async def generate_verified(
                                VALUES ($1, $2, $3, $4, $5)""",
                             ev_id, ver_id, evidence_type, evidence_source, confidence,
                         )
-                except Exception:
+                except Exception:  # noqa: BLE001, S110
                     pass
 
             # 4d: Update observation verification status
@@ -1266,12 +1463,14 @@ async def generate_verified(
                     "verified" if overall_verdict != "inconclusive" else "unverified",
                     obs_id,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001, S110
                 pass
 
         claims_verified += 1
 
     # ── Step 5: Return consolidated response ──
+    _record_generation_metrics(content_type)
+
     generated: dict[str, Any] = {
         "content": content,
         "content_type": content_type,

@@ -10,10 +10,21 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import quote
+
+import httpx
 
 from research_shared.adapters.base import SourceSearchResult
 
 logger = logging.getLogger("saimon.adapters.internet_archive")
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+IA_SEARCH_URL = "https://archive.org/advancedsearch.php"
+DEFAULT_ROWS = 10
+DEFAULT_TIMEOUT = 15.0  # seconds
 
 
 class InternetArchiveAdapter:
@@ -38,80 +49,174 @@ class InternetArchiveAdapter:
     ) -> list[SourceSearchResult]:
         """Search Internet Archive for *query*.
 
-        Uses archive.org/advancedsearch.php which returns JSON.
+        Calls archive.org/advancedsearch.php?q=QUERY&rows=LIMIT&page=PAGE&output=json.
+        Returns SourceSearchResult list, or [] on any error.
         """
         if not query.strip():
             return []
 
+        rows = min(limit, DEFAULT_ROWS)
+        page = (offset // rows) + 1 if offset else 1
+        url = (
+            f"{IA_SEARCH_URL}"
+            f"?q={quote(query)}"
+            f"&rows={rows}"
+            f"&page={page}"
+            f"&output=json"
+        )
+
         logger.debug("Internet Archive search: %r (limit=%d)", query, limit)
 
-        if self._http is None:
-            import httpx
-            client = httpx.AsyncClient()
-        else:
-            client = self._http
+        try:
+            client = self._http or httpx
+            # httpx.AsyncClient.get returns a Response; httpx.get is sync
+            if self._http is not None:
+                resp = await client.get(url, timeout=DEFAULT_TIMEOUT)
+            else:
+                # Fallback to synchronous httpx.get when no client injected
+                resp = await _async_get(url)
+        except Exception:
+            logger.exception("Internet Archive search failed for %r", query)
+            return []
+
+        if resp.status_code != 200:
+            logger.warning(
+                "Internet Archive returned HTTP %d for %r", resp.status_code, query
+            )
+            return []
 
         try:
-            page = max(offset // limit + 1, 1)
-            url = (
-                "https://archive.org/advancedsearch.php"
-                f"?q={query}&rows={limit}&page={page}&output=json"
-            )
-            resp = await client.get(url, timeout=15.0)
-            if resp.status_code != 200:
-                logger.warning(
-                    "Internet Archive returned %d: %s",
-                    resp.status_code, resp.text[:200],
-                )
-                return []
-
             data = resp.json()
-            docs = data.get("response", {}).get("docs", [])
-            results: list[SourceSearchResult] = []
-            for doc in docs[:limit]:
-                try:
-                    results.append(
-                        SourceSearchResult(
-                            type="book" if doc.get("mediatype") == "texts" else "academic_paper",
-                            identifier=f"ia:{doc.get('identifier', 'unknown')}",
-                            doi=doc.get("doi"),
-                            title=doc.get("title", "Untitled"),
-                            authors=doc.get("creator", []) if isinstance(doc.get("creator"), list) else [doc["creator"]] if doc.get("creator") else [],
-                            year=int(doc["year"]) if doc.get("year") and str(doc["year"]).isdigit() else None,
-                            abstract_snippet=doc.get("description")[:500] if doc.get("description") else None,
-                            source_index=self.name,
-                            source_index_label="Internet Archive",
-                            relevance_score=0.75,
-                            full_text_available=True,
-                            file_type="pdf",
-                        )
-                    )
-                except Exception:  # noqa: BLE001 — skip malformed results
-                    continue
-            return results
         except Exception:
-            logger.warning("Internet Archive search failed", exc_info=True)
+            logger.exception("Internet Archive JSON parse failed for %r", query)
             return []
-        finally:
-            if self._http is None and client is not None:
-                await client.aclose()
+
+        docs = data.get("response", {}).get("docs", [])
+        if not docs:
+            return []
+
+        results: list[SourceSearchResult] = []
+        for doc in docs[:limit]:
+            results.append(_parse_doc(doc))
+
+        return results
 
     # ── DOI resolution ────────────────────────────────────────────
 
     async def resolve_doi(self, doi: str) -> SourceSearchResult | None:
-        """Resolve a DOI via Internet Archive."""
+        """Resolve a DOI via Internet Archive.
+
+        Searches archive.org for the DOI and returns the first match.
+        """
         if not doi.strip():
             return None
+
+        url = (
+            f"{IA_SEARCH_URL}"
+            f"?q={quote(doi)}"
+            f"&rows=1"
+            f"&output=json"
+        )
 
         logger.debug("Internet Archive DOI resolve: %r", doi)
 
         try:
-            results = await self.search(f"doi:{doi}", limit=1)
-            if results:
-                result = results[0]
-                result.doi = doi
-                result.identifier = f"doi:{doi}"
-                return result
+            client = self._http or httpx
+            if self._http is not None:
+                resp = await client.get(url, timeout=DEFAULT_TIMEOUT)
+            else:
+                resp = await _async_get(url)
         except Exception:
-            logger.warning("Internet Archive DOI resolve failed", exc_info=True)
-        return None
+            logger.exception("Internet Archive DOI resolve failed for %r", doi)
+            return None
+
+        if resp.status_code != 200:
+            return None
+
+        try:
+            data = resp.json()
+        except Exception:
+            return None
+
+        docs = data.get("response", {}).get("docs", [])
+        if not docs:
+            return None
+
+        result = _parse_doc(docs[0])
+        result.doi = doi  # Override with the requested DOI
+        result.identifier = f"doi:{doi}"
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+async def _async_get(url: str, timeout: float = DEFAULT_TIMEOUT) -> httpx.Response:
+    """Make an async GET request using httpx.AsyncClient."""
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        return await client.get(url)
+
+
+def _parse_doc(doc: dict) -> SourceSearchResult:
+    """Parse a single IA doc dict into a SourceSearchResult."""
+    identifier = doc.get("identifier", "")
+    title = doc.get("title", "Untitled").strip()
+    creators = doc.get("creator", [])
+    if isinstance(creators, str):
+        authors = [creators] if creators.strip() else []
+    elif isinstance(creators, list):
+        authors = [c.strip() for c in creators if c and str(c).strip()]
+    else:
+        authors = []
+
+    raw_year = doc.get("year")
+    year: int | None = None
+    if raw_year is not None:
+        try:
+            year = int(str(raw_year).strip())
+        except (ValueError, TypeError):
+            year = None
+
+    abstract_snippet: str | None = None
+    raw_desc = doc.get("description")
+    if raw_desc and str(raw_desc).strip():
+        abstract_snippet = str(raw_desc).strip()
+
+    raw_doi = doc.get("doi")
+    doi: str | None = None
+    if raw_doi and str(raw_doi).strip():
+        doi = str(raw_doi).strip()
+
+    mediatype = doc.get("mediatype", "")
+    file_type = _map_mediatype(mediatype)
+
+    return SourceSearchResult(
+        type="book",
+        identifier=f"ia:{identifier}" if identifier else f"ia:unknown",
+        doi=doi,
+        title=title or "Untitled",
+        authors=authors,
+        year=year,
+        abstract_snippet=abstract_snippet,
+        source_index="internet_archive",
+        source_index_label="Internet Archive",
+        relevance_score=None,  # IA doesn't provide relevance scores
+        full_text_available=mediatype == "texts",
+        file_type=file_type,
+    )
+
+
+def _map_mediatype(mediatype: str) -> str | None:
+    """Map IA mediatype to a file extension."""
+    mapping = {
+        "texts": "pdf",
+        "audio": "mp3",
+        "movies": "mp4",
+        "image": "jpg",
+        "software": "zip",
+        "data": "json",
+        "web": "html",
+    }
+    return mapping.get(mediatype)

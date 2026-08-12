@@ -335,6 +335,264 @@ class TestGetFormatSchema:
 
 
 # ---------------------------------------------------------------------------
+# Verification marker preservation
+# ---------------------------------------------------------------------------
+
+class TestVerificationMarkers:
+    """[VERIFIED ✓] and [UNVERIFIABLE ⚠] markers survive export."""
+
+    VERIFIED_CONTENT = (
+        "# Research Summary\n\n"
+        "AI governance frameworks ensure accountability. [VERIFIED ✓]\n\n"
+        "Some claims remain uncertain. [UNVERIFIABLE ⚠ needs more evidence]\n\n"
+        "More research is needed in this area."
+    )
+
+    def test_markdown_preserves_verified_marker(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """Markdown export preserves [VERIFIED ✓] markers."""
+        response = client.post(
+            "/tools/export_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "export",
+                "parameters": {
+                    "content": self.VERIFIED_CONTENT,
+                    "format": "markdown",
+                },
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        output = data["data"]["content"]
+        assert "[VERIFIED ✓]" in output
+        assert "[UNVERIFIABLE ⚠" in output
+
+    def test_plain_text_preserves_verified_marker(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """Plain text export preserves [VERIFIED ✓] markers after stripping."""
+        response = client.post(
+            "/tools/export_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "export",
+                "parameters": {
+                    "content": self.VERIFIED_CONTENT,
+                    "format": "plain_text",
+                },
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        output = data["data"]["content"]
+        assert "[VERIFIED ✓]" in output
+        assert "[UNVERIFIABLE ⚠" in output
+
+    def test_json_preserves_verified_marker(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """JSON export preserves [VERIFIED ✓] markers in content field."""
+        response = client.post(
+            "/tools/export_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "export",
+                "parameters": {
+                    "content": self.VERIFIED_CONTENT,
+                    "format": "json",
+                },
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        output = data["data"]["content"]
+        assert "[VERIFIED ✓]" in output
+        assert "[UNVERIFIABLE ⚠" in output
+
+    def test_html_preserves_verified_marker(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """HTML export preserves [VERIFIED ✓] markers in body."""
+        response = client.post(
+            "/tools/export_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "export",
+                "parameters": {
+                    "content": self.VERIFIED_CONTENT,
+                    "format": "html",
+                },
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        output = data["data"]["content"]
+        assert "[VERIFIED ✓]" in output
+        assert "[UNVERIFIABLE ⚠" in output
+
+
+# ---------------------------------------------------------------------------
+# Edge cases
+# ---------------------------------------------------------------------------
+
+class TestEdgeCases:
+    def test_empty_content(self, client, sample_trace_id, auth_headers):
+        """Empty content returns error, not crash."""
+        response = client.post(
+            "/tools/export_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "export",
+                "parameters": {"content": "", "format": "markdown"},
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "error"
+
+    def test_unicode_content(self, client, sample_trace_id, auth_headers):
+        """Content with unicode characters is preserved."""
+        content = "Café résumé naïve –— ellipsis… ©2024 €100"
+        response = client.post(
+            "/tools/export_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "export",
+                "parameters": {"content": content, "format": "markdown"},
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        assert "Café" in data["data"]["content"]
+        assert "résumé" in data["data"]["content"]
+        assert "€100" in data["data"]["content"]
+
+    def test_special_characters_in_html(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """HTML export does not break on angle brackets in content."""
+        content = "if x < 5 && y > 3 then print('hello')"
+        response = client.post(
+            "/tools/export_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "export",
+                "parameters": {"content": content, "format": "html"},
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+
+    def test_long_content(self, client, sample_trace_id, auth_headers):
+        """Long content (10K chars) does not crash."""
+        content = "Lorem ipsum dolor sit amet. " * 250  # ~10K chars
+        response = client.post(
+            "/tools/export_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "export",
+                "parameters": {"content": content, "format": "plain_text"},
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        assert data["data"]["output_length"] > 0
+
+    def test_markdown_in_plain_text_is_stripped(
+        self, client, sample_trace_id, auth_headers
+    ):
+        """Plain text export strips markdown syntax."""
+        content = "**bold** and *italic* and `code` and [link](http://example.com)"
+        response = client.post(
+            "/tools/export_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "export",
+                "parameters": {"content": content, "format": "plain_text"},
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        output = data["data"]["content"]
+        # Markdown syntax should be stripped
+        assert "**" not in output
+        assert "bold" in output
+        assert "italic" in output
+        assert "example.com" not in output  # link URL stripped
+        assert "link" in output  # link text preserved
+
+    def test_json_pretty_print(self, client, sample_trace_id, auth_headers):
+        """JSON with pretty_print option returns indented output."""
+        response = client.post(
+            "/tools/export_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "export",
+                "parameters": {
+                    "content": "Hello world",
+                    "format": "json",
+                    "pretty_print": True,
+                },
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        # Pretty-printed JSON should contain newlines+indent
+        output = data["data"]["content"]
+        assert "\n" in output
+        assert "  " in output
+
+    def test_html_inline_css(self, client, sample_trace_id, auth_headers):
+        """HTML export includes inline CSS by default."""
+        response = client.post(
+            "/tools/export_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "export",
+                "parameters": {"content": "Hello world", "format": "html"},
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        output = data["data"]["content"]
+        assert "font-family" in output
+        assert "<style>" in output
+        assert "<!DOCTYPE html>" in output
+
+    def test_html_no_inline_css(self, client, sample_trace_id, auth_headers):
+        """HTML export with inline_css=False omits style tag."""
+        response = client.post(
+            "/tools/export_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "export",
+                "parameters": {
+                    "content": "Hello world",
+                    "format": "html",
+                    "inline_css": False,
+                },
+            },
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["status"] == "success"
+        output = data["data"]["content"]
+        assert "font-family" not in output
+
+
+# ---------------------------------------------------------------------------
 # Tool count
 # ---------------------------------------------------------------------------
 

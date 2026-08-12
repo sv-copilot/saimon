@@ -40,6 +40,21 @@ CONTENT_TYPES: list[dict[str, Any]] = [
              "description": "Target audience description."},
         ],
         "voice_profile": "spencer-default",
+        "document_family": "long_form",
+        "form_factor": "section",
+        "profile_key": "long_form",
+        "system_prompt": (
+            "You are a blog author writing for a technical audience. "
+            "Write clear, engaging prose with short paragraphs. Use "
+            "active voice. Include a compelling introduction and a "
+            "conclusion that ties ideas together. Prefer specific "
+            "examples over abstract claims. Use only supplied source "
+            "facts; do not invent statistics, dates, or names."
+        ),
+        "banlist": [
+            "delve into", "it is worth noting", "in today's rapidly evolving",
+            "in the realm of", "a testament to", "it goes without saying",
+        ],
     },
     {
         "name": "summary",
@@ -55,6 +70,17 @@ CONTENT_TYPES: list[dict[str, Any]] = [
              "description": "Summary style (e.g. bullet, paragraph)."},
         ],
         "voice_profile": "spencer-default",
+        "document_family": "general",
+        "form_factor": "passage",
+        "profile_key": "general",
+        "system_prompt": (
+            "You are a concise summarizer. Extract the core message "
+            "and key details. Be brief, accurate, and objective. "
+            "Use bullet points when appropriate for clarity."
+        ),
+        "banlist": [
+            "delve into", "it is worth noting",
+        ],
     },
     {
         "name": "research_note",
@@ -72,6 +98,19 @@ CONTENT_TYPES: list[dict[str, Any]] = [
              "description": "Output format: markdown, outline, bullets."},
         ],
         "voice_profile": "spencer-technical",
+        "document_family": "long_form",
+        "form_factor": "section",
+        "profile_key": "long_form",
+        "system_prompt": (
+            "You are a research analyst. Structure findings with clear "
+            "citations and evidence. Be precise with terminology. "
+            "Flag uncertainty explicitly. Prefer accuracy over brevity. "
+            "Use only supplied source facts and cited material."
+        ),
+        "banlist": [
+            "delve into", "it is worth noting", "in today's landscape",
+            "furthermore", "moreover",
+        ],
     },
     {
         "name": "social_post",
@@ -89,6 +128,19 @@ CONTENT_TYPES: list[dict[str, Any]] = [
              "description": "Maximum character count."},
         ],
         "voice_profile": "spencer-casual",
+        "document_family": "marketing",
+        "form_factor": "short_paragraph",
+        "profile_key": "marketing",
+        "system_prompt": (
+            "You are a social media writer. Write short, punchy posts. "
+            "Use emojis sparingly. Lead with the most interesting point. "
+            "One key idea per post. End with a call to action or a hook. "
+            "Do not use hashtag stuffing."
+        ),
+        "banlist": [
+            "delve into", "leverage", "game-changer", "synergy",
+            "cutting-edge", "revolutionary",
+        ],
     },
     {
         "name": "email_draft",
@@ -104,6 +156,18 @@ CONTENT_TYPES: list[dict[str, Any]] = [
              "description": "Role of recipient (e.g. manager, client)."},
         ],
         "voice_profile": "spencer-default",
+        "document_family": "correspondence",
+        "form_factor": "passage",
+        "profile_key": "correspondence",
+        "system_prompt": (
+            "You are an email writer. Be direct, respectful, and easy to "
+            "scan. State the purpose early. One primary ask or next step. "
+            "Avoid filler and corporate jargon. Match the recipient's tone."
+        ),
+        "banlist": [
+            "just circling back", "touch base", "synergy",
+            "hope this email finds you well",
+        ],
     },
 
     # ── domain types ──────────────────────────────────────────────
@@ -125,6 +189,20 @@ CONTENT_TYPES: list[dict[str, Any]] = [
              "description": "Desired tone."},
         ],
         "voice_profile": "spencer-formal",
+        "document_family": "marketing",
+        "form_factor": "section",
+        "profile_key": "marketing",
+        "system_prompt": (
+            "You are a press release writer. Follow AP style. Lead with "
+            "the news hook in the first paragraph. Include boilerplate "
+            "about the organization. Use quotes for human interest. "
+            "End with ###. Do not invent product capabilities, customers, "
+            "or endorsements."
+        ),
+        "banlist": [
+            "delve into", "leverage", "game-changer", "world-class",
+            "best-in-class", "synergy", "cutting-edge", "revolutionary",
+        ],
     },
     {
         "name": "case_study",
@@ -143,6 +221,19 @@ CONTENT_TYPES: list[dict[str, Any]] = [
              "description": "Desired tone."},
         ],
         "voice_profile": "spencer-marketing",
+        "document_family": "long_form",
+        "form_factor": "section",
+        "profile_key": "long_form",
+        "system_prompt": (
+            "You are a case study writer. Structure with problem, solution, "
+            "and results sections. Use specific metrics and quotes where "
+            "available. Ground claims in supplied source facts. Make the "
+            "customer the hero of the story."
+        ),
+        "banlist": [
+            "delve into", "it is worth noting", "furthermore",
+            "it goes without saying", "needless to say",
+        ],
     },
     {
         "name": "white_paper",
@@ -164,6 +255,19 @@ CONTENT_TYPES: list[dict[str, Any]] = [
              "description": "Requested section titles."},
         ],
         "voice_profile": "spencer-technical",
+        "document_family": "long_form",
+        "form_factor": "section",
+        "profile_key": "long_form",
+        "system_prompt": (
+            "You are a white paper author. Write for a professional audience. "
+            "Use clear claims, concrete support, and logical flow. Include "
+            "an executive summary. Cite sources. Use only supplied source "
+            "facts; do not invent statistics, quotes, or events."
+        ),
+        "banlist": [
+            "delve into", "it is worth noting", "furthermore", "moreover",
+            "it goes without saying", "needless to say",
+        ],
     },
     {
         "name": "job_posting",
@@ -182,6 +286,20 @@ CONTENT_TYPES: list[dict[str, Any]] = [
              "description": "Seniority level: junior, mid, senior, lead."},
         ],
         "voice_profile": "spencer-formal",
+        "document_family": "marketing",
+        "form_factor": "section",
+        "profile_key": "marketing",
+        "system_prompt": (
+            "You are a job posting writer. Structure with role overview, "
+            "responsibilities, qualifications, and benefits. Use inclusive "
+            "language. Be specific about requirements. Avoid jargon and "
+            "clichés like 'rockstar' or 'ninja'."
+        ),
+        "banlist": [
+            "rockstar", "ninja", "guru", "wizard",
+            "world-class", "best-in-class", "synergy",
+            "fast-paced environment",
+        ],
     },
     {
         "name": "meeting_notes",
@@ -200,6 +318,18 @@ CONTENT_TYPES: list[dict[str, Any]] = [
              "description": "Whether to extract and list action items."},
         ],
         "voice_profile": "spencer-default",
+        "document_family": "general",
+        "form_factor": "bullet",
+        "profile_key": "general",
+        "system_prompt": (
+            "You are a meeting notes writer. Structure with agenda, "
+            "discussion points, decisions, and action items. Use bullet "
+            "points for clarity. Assign action items to roles. Be "
+            "objective and factual."
+        ),
+        "banlist": [
+            "delve into", "it is worth noting",
+        ],
     },
     {
         "name": "proposal",
@@ -220,6 +350,19 @@ CONTENT_TYPES: list[dict[str, Any]] = [
              "description": "Output format: brief, full, slides."},
         ],
         "voice_profile": "spencer-formal",
+        "document_family": "long_form",
+        "form_factor": "section",
+        "profile_key": "long_form",
+        "system_prompt": (
+            "You are a proposal writer. Structure with executive summary, "
+            "scope, timeline, budget, and deliverables. Be precise about "
+            "numbers and dates. Use confident but not arrogant language. "
+            "Ground all claims in supplied source facts."
+        ),
+        "banlist": [
+            "delve into", "it is worth noting", "furthermore",
+            "game-changer", "synergy",
+        ],
     },
     {
         "name": "tutorial",
@@ -239,6 +382,19 @@ CONTENT_TYPES: list[dict[str, Any]] = [
              "description": "Required knowledge or tools."},
         ],
         "voice_profile": "spencer-technical",
+        "document_family": "long_form",
+        "form_factor": "section",
+        "profile_key": "long_form",
+        "system_prompt": (
+            "You are a tutorial writer. Write step-by-step instructions. "
+            "Use numbered steps for sequential actions. Include code "
+            "blocks where relevant. Define terms before using them. "
+            "Include troubleshooting tips. Assume the reader is following along."
+        ),
+        "banlist": [
+            "delve into", "it is worth noting", "furthermore",
+            "it is important to note",
+        ],
     },
     {
         "name": "product_review",
@@ -257,6 +413,19 @@ CONTENT_TYPES: list[dict[str, Any]] = [
              "description": "Desired tone."},
         ],
         "voice_profile": "spencer-technical",
+        "document_family": "long_form",
+        "form_factor": "passage",
+        "profile_key": "long_form",
+        "system_prompt": (
+            "You are a product reviewer. Structure with pros, cons, and "
+            "a balanced verdict. Be specific about features and trade-offs. "
+            "Compare to alternatives where relevant. Give concrete examples "
+            "of use cases. Avoid hype and superlatives."
+        ),
+        "banlist": [
+            "delve into", "it is worth noting", "game-changer",
+            "revolutionary", "best-in-class",
+        ],
     },
     {
         "name": "bibliography",
@@ -278,6 +447,17 @@ CONTENT_TYPES: list[dict[str, Any]] = [
              "description": "Desired tone."},
         ],
         "voice_profile": "spencer-technical",
+        "document_family": "general",
+        "form_factor": "bullet",
+        "profile_key": "general",
+        "system_prompt": (
+            "You are a bibliographer. List sources with DOIs, titles, "
+            "authors, years, and annotations. Format entries consistently. "
+            "Rank by relevance. Include source index attribution."
+        ),
+        "banlist": [
+            "delve into", "it is worth noting",
+        ],
     },
 
     # ── Universe / world-building types (SAIMON-UNIVERSE-TYPES) ────

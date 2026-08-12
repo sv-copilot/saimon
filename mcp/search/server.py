@@ -10,7 +10,7 @@ Without a DB, falls back to synthetic placeholder results.
 
 from __future__ import annotations
 
-import json as _json
+import os as _os
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -23,15 +23,62 @@ from research_shared.adapters.dedup import deduplicate
 from research_shared.adapters.internet_archive import InternetArchiveAdapter
 from research_shared.adapters.libgen import LibGenAdapter
 from research_shared.adapters.scihub import SciHubAdapter
+from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.db import DatabaseError, DatabasePool
 from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
 from research_shared.shadow_registry import ShadowRegistry
+from research_shared.source_discovery import SOURCE_DISCOVERY_MIN_CANDIDATES
+
+# ── Serper.dev Tier B config ──────────────────────────────────────
+
+_SERPER_API_KEY = _os.environ.get("SERPER_API_KEY", "")
+_SERPER_URL = "https://google.serper.dev/search"
 
 # ---------------------------------------------------------------------------
-# backend injection (must be before lifespan — it references set_db_pool)
+# application factory
+# ---------------------------------------------------------------------------
+
+_lifespan = build_lifespan("search-mcp", db_pool_ref=lambda: _db_pool)
+app = FastAPI(title="search-mcp", version="0.1.0", lifespan=_lifespan)
+
+# ---------------------------------------------------------------------------
+# shadow library registry
+# ---------------------------------------------------------------------------
+
+_shadow_registry = ShadowRegistry()
+
+# Register all Tier S + A adapters
+_shadow_registry.register(AnnasArchiveAdapter())
+_shadow_registry.register(LibGenAdapter())
+_shadow_registry.register(SciHubAdapter())
+_shadow_registry.register(InternetArchiveAdapter())
+_shadow_registry.register(AcademicTorrentsAdapter())
+
+_SHADOW_LABELS: dict[str, str] = {
+    "annas_archive": "Anna's Archive",
+    "libgen": "Library Genesis (LibGen)",
+    "scihub": "Sci-Hub / SciDB",
+    "internet_archive": "Internet Archive",
+    "academic_torrents": "Academic Torrents",
+}
+
+
+def _get_shadow_adapters(source_indexes: list[str] | None = None) -> list:
+    """Return adapters filtered by optional source_indexes list."""
+    if source_indexes:
+        return [
+            a for a in _shadow_registry.list_all()
+            if a.name in source_indexes
+        ]
+    # Default: all Tier S + A adapters
+    return _shadow_registry.filter(tier="S") + _shadow_registry.filter(tier="A")
+
+
+# ---------------------------------------------------------------------------
+# backend injection
 # ---------------------------------------------------------------------------
 
 _db_pool: DatabasePool | None = None
@@ -116,7 +163,7 @@ async def health() -> dict[str, Any]:
         try:
             await _db_pool.fetch("SELECT 1")
             db_ok = True
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001  # noqa: BLE001
             _log.debug("search-mcp health: DB not reachable", exc_info=True)
     return {
         "status": "ok",
@@ -137,7 +184,7 @@ _TOOLS = [
     },
     {
         "name": "search_web",
-        "description": "Search external web sources (placeholder).",
+        "description": "Search the web via Serper.dev Google Search API for real-time results.",
         "parameters": {"query": "str"},
     },
     {
@@ -158,6 +205,17 @@ _TOOLS = [
         },
     },
     {
+        "name": "source_discovery",
+        "description": (
+            "Extract references (DOIs, URLs, arXiv IDs) from text and resolve "
+            "to real source metadata via shadow libraries."
+        ),
+        "parameters": {
+            "text": "str (required)",
+            "max_results": "int (optional, default 10, max 20)",
+        },
+    },
+    {
         "name": "list_source_indexes",
         "description": "List available source indexes (knowledge graph, shadow libraries, web).",
         "parameters": {},
@@ -166,16 +224,6 @@ _TOOLS = [
         "name": "get_source_index_detail",
         "description": "Get metadata for a specific source index.",
         "parameters": {"source_index_id": "str"},
-    },
-    {
-        "name": "saimon_list_audit_log",
-        "description": "List audit log entries for observability and compliance. "
-                       "Operator-only tool.",
-        "parameters": {
-            "limit": "int (optional, default 50, max 200)",
-            "service_name": "str (optional, filter by service)",
-            "event_type": "str (optional, filter by event type)",
-        },
     },
 ]
 
@@ -241,14 +289,37 @@ async def search_knowledge_graph(
     # ── try DB backend ──
     if _db_pool is not None:
         try:
-            rows = await _db_pool.fetch(
-                "SELECT id, title, content_type, "
-                "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
-                "FROM knowledge_graph_nodes "
-                "WHERE title ILIKE $1 OR body ILIKE $1 "
-                "ORDER BY created_at DESC LIMIT $2",
-                f"%{query}%", limit,
-            )
+            # Split multi-word queries into per-word ILIKE conditions
+            # so "Sprocket bartender" matches "Sprocket is a bartender"
+            words = [w.strip() for w in query.split() if w.strip()]
+            if not words:
+                words = [query] if query else [""]
+
+            if len(words) == 1:
+                rows = await _db_pool.fetch(
+                    "SELECT id, title, content_type, "
+                    "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
+                    "FROM knowledge_graph_nodes "
+                    "WHERE title ILIKE $1 OR body ILIKE $1 "
+                    "ORDER BY created_at DESC LIMIT $2",
+                    f"%{words[0]}%", limit,
+                )
+            else:
+                # Build per-word conditions: (title ILIKE $1 OR body ILIKE $1) AND ...
+                conditions = []
+                params: list[Any] = []
+                for w in words:
+                    params.append(f"%{w}%")
+                    conditions.append(f"(title ILIKE ${len(params)} OR body ILIKE ${len(params)})")
+                params.append(limit)
+                sql = (
+                    "SELECT id, title, content_type, "
+                    "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
+                    "FROM knowledge_graph_nodes "
+                    "WHERE " + " AND ".join(conditions) + " "
+                    "ORDER BY created_at DESC LIMIT $" + str(len(params))
+                )
+                rows = await _db_pool.fetch(sql, *params)
             results: list[dict[str, Any]] = [dict(r) for r in rows]
             resp = _ok(
                 trace_id=payload.trace_id,
@@ -282,8 +353,49 @@ async def search_knowledge_graph(
 
 
 # ---------------------------------------------------------------------------
-# tool: search_web
+# tool: search_web (Tier B — Serper.dev Google Search)
 # ---------------------------------------------------------------------------
+
+
+async def _search_web_serper(query: str, limit: int = 5) -> list[dict[str, Any]]:
+    """Search the web via Serper.dev Google Search API.
+
+    Returns a list of result dicts with title, snippet, url, source.
+    Returns empty list if SERPER_API_KEY is not configured (graceful degradation).
+    """
+    if not _SERPER_API_KEY:
+        return []
+
+    # Resolve after the duplicate at module level
+    serper_key = _os.environ.get("SERPER_API_KEY", "")
+    if not serper_key:
+        return []
+
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                _SERPER_URL,
+                json={"q": query, "num": min(limit, 50)},
+                headers={"X-API-KEY": serper_key},
+            )
+            data = resp.json()
+            return [
+                {
+                    "title": r.get("title", ""),
+                    "snippet": r.get("snippet", ""),
+                    "url": r.get("link", ""),
+                    "source": "serper",
+                }
+                for r in data.get("organic", [])[:limit]
+            ]
+    except Exception:  # noqa: BLE001
+        import logging
+        _log = logging.getLogger("saimon.search.serper")
+        _log.warning("Serper API call failed", exc_info=True)
+        return []
+
 
 @app.post("/tools/search_web")
 async def search_web(
@@ -302,21 +414,21 @@ async def search_web(
         query=query,
     )
 
-    # Placeholder — in production this calls an external search API
-    results: list[dict[str, Any]] = [
-        {
-            "url": f"https://example.com/result-{i}",
-            "title": f"Web result {i} for: {query}",
-            "snippet": f"A relevant snippet about {query}.",
-        }
-        for i in range(3)
-    ]
+    results = await _search_web_serper(query)
 
-    resp = _ok(
-        trace_id=payload.trace_id,
-        data={"results": results},
-        citations=[r["url"] for r in results],
-    )
+    if not results:
+        # Degrade gracefully — return empty results
+        resp = _degraded(
+            trace_id=payload.trace_id,
+            data={"results": [], "total": 0, "note": "Serper API key not configured"},
+        )
+    else:
+        resp = _ok(
+            trace_id=payload.trace_id,
+            data={"results": results, "total": len(results)},
+            citations=[r["url"] for r in results if r.get("url")],
+        )
+
     logger.log_response(status=resp.status, citations_count=len(resp.citations or []))
     return resp
 
@@ -344,7 +456,7 @@ async def search_shadow_libraries(
     limit = min(int(payload.parameters.get("limit", 10)), 50)
     offset = int(payload.parameters.get("offset", 0))
 
-    logger = build_audit_logger(payload, request, _auth, "search-mcp")
+    logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
     logger.log_request(
         content_type=payload.content_type,
         tool="search_shadow_libraries",
@@ -378,28 +490,6 @@ async def search_shadow_libraries(
     # Deduplicate across source indexes
     deduped = deduplicate(all_results)
 
-    # ── cache results in shadow_sources_cache ────────────────
-    if _db_pool is not None:
-        for r in deduped:
-            if r.doi:
-                try:
-                    await _db_pool.execute(
-                        "INSERT INTO shadow_sources_cache (doi, title, authors, year, "
-                        "abstract_snippet, source_index, file_type) "
-                        "VALUES ($1, $2, $3, $4, $5, $6, $7) "
-                        "ON CONFLICT (doi) DO UPDATE SET "
-                        "title = EXCLUDED.title, last_accessed = now()",
-                        r.doi.strip().lower(),
-                        r.title,
-                        _json.dumps(r.authors),
-                        r.year,
-                        r.abstract_snippet,
-                        r.source_index,
-                        r.file_type,
-                    )
-                except Exception:  # noqa: BLE001, S110
-                    pass  # cache write is best-effort
-
     # Apply limit
     deduped = deduped[:limit]
 
@@ -421,17 +511,38 @@ async def search_shadow_libraries(
             "query": query,
             "total_results": len(results_data),
             "results": results_data,
-            "note": (
-                "Shadow library adapters are in mock/placeholder mode. "
-                "Results show representative metadata structure but not real "
-                "paper data. Live scraping requires adapter HTTP wiring "
-                "(planned for a future slice)."
-            ),
         },
         citations=citations,
     )
     logger.log_response(status=resp.status, citations_count=len(citations))
     return resp
+
+
+# ---------------------------------------------------------------------------
+# helpers: shadow library resolution
+# ---------------------------------------------------------------------------
+
+async def _search_all_adapters(
+    query: str, limit: int = 1, source_indexes: list[str] | None = None
+) -> list[SourceSearchResult]:
+    """Search all shadow library adapters for a query.
+
+    Queries each adapter in parallel, gracefully handling individual failures.
+    Deduplicates and truncates to limit.
+    """
+    adapters = _get_shadow_adapters(source_indexes)
+    if not adapters:
+        return []
+
+    all_results: list[SourceSearchResult] = []
+    for adapter in adapters:
+        try:
+            results = await adapter.search(query, limit=limit, offset=0)
+            all_results.extend(results)
+        except Exception:  # noqa: BLE001, S112 — each adapter may fail independently
+            continue
+
+    return deduplicate(all_results)[:limit]
 
 
 # ---------------------------------------------------------------------------
@@ -664,4 +775,89 @@ async def saimon_list_audit_log(
         data={"entries": [], "total": 0, "note": "DB not available — audit log is stored in PostgreSQL."},
     )
     logger.log_response(status=resp.status)
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# tool: source_discovery
+# ---------------------------------------------------------------------------
+
+@app.post("/tools/source_discovery")
+async def source_discovery(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    """Extract references from text and resolve to real source metadata.
+
+    Tier A: deterministic DOI/URL/arXiv extraction via regex.
+    Resolution: queries shadow library adapters for each extracted identifier.
+    """
+    _require_auth(request)
+
+    text = payload.parameters.get("text", "")
+    max_results = min(int(payload.parameters.get("max_results", 10)), 20)
+
+    logger = build_audit_logger(payload, request, _auth, "search-mcp")
+    logger.log_request(
+        content_type=payload.content_type,
+        tool="source_discovery",
+        text_length=len(text),
+        max_results=max_results,
+    )
+
+    # Step 1: Extract reference candidates from text
+    from research_shared.source_discovery import extract_reference_candidates
+
+    candidates = extract_reference_candidates(text, max_results=max_results)
+
+    # ── Tier B: Serper web search fallback ──
+    web_results: list[dict[str, Any]] = []
+    tier_used = "A"
+
+    if len(candidates) < SOURCE_DISCOVERY_MIN_CANDIDATES:
+        serper_key = _os.environ.get("SERPER_API_KEY", "")
+        if serper_key:
+            web_results = await _search_web_serper(text, limit=5)
+            if web_results:
+                tier_used = "B"
+
+    # Step 2: Resolve each candidate via shadow library adapters
+    resolved: list[dict[str, Any]] = []
+    for c in candidates:
+        query = c.doi or c.url or c.arxiv_id or ""
+        if query:
+            try:
+                results = await _search_all_adapters(query, limit=1)
+                if results:
+                    resolved.append(results[0].model_dump())
+            except Exception:  # noqa: BLE001, S110 — individual failure doesn't block others
+                pass
+
+    resp = _ok(
+        trace_id=payload.trace_id,
+        data={
+            "candidates": [
+                {
+                    "kind": c.kind,
+                    "label": c.label,
+                    "doi": c.doi,
+                    "url": c.url,
+                    "arxiv_id": c.arxiv_id,
+                }
+                for c in candidates
+            ],
+            "resolved": resolved,
+            "web_results": web_results,
+            "total_candidates": len(candidates),
+            "total_resolved": len(resolved),
+            "total_web_results": len(web_results),
+            "tier_used": tier_used,
+        },
+    )
+    logger.log_response(
+        status=resp.status,
+        total_candidates=len(candidates),
+        total_resolved=len(resolved),
+        tier_used=tier_used,
+        web_results=len(web_results),
+    )
     return resp

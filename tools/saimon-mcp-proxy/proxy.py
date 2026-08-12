@@ -234,6 +234,47 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
             },
         },
     },
+    "saimon_create_edge": {
+        "description": (
+            "Create a typed relation between two knowledge graph nodes. "
+            "Use for linking characters to factions, locations to regions, "
+            "lore rules to events, etc. Idempotent — safe to call multiple "
+            "times with the same source/target/relation_type."
+        ),
+        "service": "explore",
+        "method": "POST",
+        "path": "/tools/create_edge",
+        "body_template": {
+            "content_type": "explore",
+            "parameters": {
+                "source_id": "{source_id}",
+                "target_id": "{target_id}",
+                "relation_type": "{relation_type}",
+                "weight": "{weight}",
+                "metadata": "{metadata}",
+            },
+        },
+    },
+    "saimon_get_related": {
+        "description": (
+            "Find nodes related to a given node via knowledge graph edges. "
+            "Returns all connected nodes with relation types and directions. "
+            "Filter by relation_type (e.g. 'member_of') or direction "
+            "('outgoing', 'incoming', 'both')."
+        ),
+        "service": "explore",
+        "method": "POST",
+        "path": "/tools/get_related",
+        "body_template": {
+            "content_type": "explore",
+            "parameters": {
+                "node_id": "{node_id}",
+                "relation_type": "{relation_type}",
+                "direction": "{direction}",
+                "limit": "{limit}",
+            },
+        },
+    },
 
     # ── Export Tools ────────────────────────────────────────────
     "saimon_export_content": {
@@ -675,27 +716,38 @@ def _format_result(data: dict[str, Any]) -> str:
         payload = {}
 
     if "results" in payload:
-        # Search result
+        # Search result — handles both KG nodes and scholarly search
         results = payload.get("results", [])
-        total = payload.get("total_results", len(results))
+        total = payload.get("total", payload.get("total_results", len(results)))
+        query = payload.get("query", "")
         lines = [f"Found {len(results)} results "
-                 f"(total available: {total}) "
-                 f"for '{payload.get('query', '')}':"]
+                 f"(total available: {total})"
+                 + (f" for '{query}'" if query else "")]
         if not results:
             lines.append("  (no results in this response)")
             return "\n".join(lines)
         lines.append("")
         for i, r in enumerate(results[:10], 1):
             title = r.get("title", "Unknown")
-            source = r.get("source_index_label", r.get("source_index", "?"))
-            doi = r.get("doi", "")
-            authors = ", ".join(r.get("authors", [])[:3])
-            year = r.get("year", "")
-            lines.append(
-                f"{i}. {title}\n"
-                f"   Authors: {authors} | Year: {year} | Source: {source}\n"
-                f"   DOI: {doi or 'N/A'}"
-            )
+            content_type = r.get("content_type", "")
+            rid = r.get("id", "")
+            # KG node format
+            if content_type:
+                lines.append(
+                    f"{i}. [{content_type}] {title}\n"
+                    f"   id: {rid}"
+                )
+            else:
+                # Scholarly search format
+                source = r.get("source_index_label", r.get("source_index", "?"))
+                doi = r.get("doi", "")
+                authors = ", ".join(r.get("authors", [])[:3])
+                year = r.get("year", "")
+                lines.append(
+                    f"{i}. {title}\n"
+                    f"   Authors: {authors} | Year: {year} | Source: {source}\n"
+                    f"   DOI: {doi or 'N/A'}"
+                )
         return "\n".join(lines)
 
     elif "verifications" in payload:

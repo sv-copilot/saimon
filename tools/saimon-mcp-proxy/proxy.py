@@ -248,34 +248,65 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         },
     },
 
-    # ── Composite Pipeline Tools ────────────────────────────────
+    # ── Generate Tools (continued) ──────────────────────────────
     "saimon_generate_verified": {
         "description": (
-            "Generate research content AND verify all factual claims in "
-            "a single call. Chains: generate → [ai_detection] → extract "
-            "claims → verify each claim → annotate. Each claim is "
-            "verified with adversarial checking, risk_profile=high, and "
-            "citation verification. Returns annotated content with "
-            "[VERIFIED ✓] / [UNVERIFIED ⚠ reason] markers, a "
-            "verification summary, ai_detection score (optional), "
-            "evidence links, and a list of degraded steps."
+            "Generate research content AND verify all factual claims, "
+            "persisting results to the knowledge graph. Chains: generate → "
+            "persist content node → extract claims → verify each claim → "
+            "persist observations + verifications + evidence links → "
+            "annotate. Returns annotated content with "
+            "[VERIFIED ✓] / [UNVERIFIED ⚠ reason] markers, "
+            "verification summary, node_id, observation_ids, and "
+            "claims_extracted/verified counts."
         ),
-        "service": "generate",  # primary service for URL routing
+        "service": "generate",
         "method": "POST",
-        "path": "/tools/generate_content",  # placeholder — handled by pipeline
+        "path": "/tools/generate_verified",
         "body_template": {
             "content_type": "{content_type}",
             "parameters": {
                 "prompt": "{prompt}",
                 "tone": "{tone}",
-                "sources": "{sources}",
-                "auto_search": "{auto_search}",
-                "ai_detection": "{ai_detection}",
-                "cross_check": "{cross_check}",
+                "content_type": "{content_type}",
             },
         },
-        "composite": True,  # marker: routed to _run_generate_verified_pipeline
     },
+    "saimon_self_seed": {
+        "description": (
+            "Process pending seed_requests from the database: generate "
+            "content via LLM for each pending request and persist results "
+            "to the knowledge graph. Idempotent — only processes rows "
+            "with status='pending'. Returns count of seeded/failed."
+        ),
+        "service": "generate",
+        "method": "POST",
+        "path": "/tools/self_seed",
+        "body_template": {"content_type": "seed"},
+    },
+    "saimon_store_content": {
+        "description": (
+            "Persist arbitrary text content to the knowledge graph without "
+            "running the verification pipeline. Use for saving structured "
+            "world-building data, character profiles, location descriptions, "
+            "or any content that doesn't need fact-checking. Accepts title, "
+            "content_type (any string — not limited to registered types), "
+            "body, and optional metadata dict. Returns node_id."
+        ),
+        "service": "generate",
+        "method": "POST",
+        "path": "/tools/store_content",
+        "body_template": {
+            "content_type": "{content_type}",
+            "parameters": {
+                "title": "{title}",
+                "content_type": "{content_type}",
+                "body": "{body}",
+                "metadata": "{metadata}",
+            },
+        },
+    },
+    # ── Composite Pipeline Tools ────────────────────────────────
     "saimon_audit_content": {
         "description": (
             "Audit existing text for AI fingerprints and factual reliability. "

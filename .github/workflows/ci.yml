@@ -46,7 +46,6 @@ jobs:
   docker-push:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: validate
     if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main'
     permissions:
       contents: read
@@ -165,7 +164,6 @@ jobs:
   docker-build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: validate
     if: github.ref == 'refs/heads/rc'
 
     steps:

@@ -88,7 +88,7 @@ async def check_all_services(
             elapsed = (_time.monotonic() - start) * 1000
             _log.warning("Health check timeout for %s (%s)", name, base_url)
             return {"name": name, "status": "unreachable", "error": "timeout", "latency_ms": round(elapsed, 1)}
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             elapsed = (_time.monotonic() - start) * 1000
             _log.warning("Health check failed for %s (%s): %s", name, base_url, exc)
             return {"name": name, "status": "unreachable", "error": str(exc), "latency_ms": round(elapsed, 1)}

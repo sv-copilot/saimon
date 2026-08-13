@@ -91,7 +91,7 @@ jobs:
 
   # ── Deploy to staging (rc branch only) ──────────────────────────
   deploy-staging:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, deploy]
     timeout-minutes: 10
     needs: docker-push
     if: github.ref == 'refs/heads/rc'
@@ -128,7 +128,7 @@ jobs:
 
   # ── Deploy to production (main branch only) ──────────────────────────
   deploy-production:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, deploy]
     timeout-minutes: 10
     needs: docker-push
     if: github.ref == 'refs/heads/main'

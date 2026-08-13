@@ -35,7 +35,7 @@ services:
   # -----------------------------------------------------------------------
   search-mcp:
     build: .
-    image: saimon:latest
+    image: ghcr.io/sv-copilot/saimon:dev
     container_name: saimon-search
     command: search-mcp
     environment:
@@ -60,7 +60,7 @@ services:
   # -----------------------------------------------------------------------
   generate-mcp:
     build: .
-    image: saimon:latest
+    image: ghcr.io/sv-copilot/saimon:dev
     container_name: saimon-generate
     command: generate-mcp
     environment:
@@ -89,7 +89,7 @@ services:
   # -----------------------------------------------------------------------
   export-mcp:
     build: .
-    image: saimon:latest
+    image: ghcr.io/sv-copilot/saimon:dev
     container_name: saimon-export
     command: export-mcp
     environment:
@@ -113,7 +113,7 @@ services:
   # -----------------------------------------------------------------------
   evaluate-mcp:
     build: .
-    image: saimon:latest
+    image: ghcr.io/sv-copilot/saimon:dev
     container_name: saimon-evaluate
     command: evaluate-mcp
     environment:
@@ -137,7 +137,7 @@ services:
   # -----------------------------------------------------------------------
   verify-mcp:
     build: .
-    image: saimon:latest
+    image: ghcr.io/sv-copilot/saimon:dev
     container_name: saimon-verify
     command: verify-mcp
     environment:
@@ -161,7 +161,7 @@ services:
   # -----------------------------------------------------------------------
   explore-mcp:
     build: .
-    image: saimon:latest
+    image: ghcr.io/sv-copilot/saimon:dev
     container_name: saimon-explore
     command: explore-mcp
     environment:
@@ -185,7 +185,7 @@ services:
   # -----------------------------------------------------------------------
   api-mcp:
     build: .
-    image: saimon:latest
+    image: ghcr.io/sv-copilot/saimon:dev
     container_name: saimon-api
     command: api-mcp
     environment:

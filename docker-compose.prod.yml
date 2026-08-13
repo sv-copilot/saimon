@@ -37,6 +37,7 @@ services:
   # search-mcp (port 8001)
   # -----------------------------------------------------------------------
   search-mcp:
+    image: ghcr.io/sv-copilot/saimon:main
     restart: always
     environment:
       PORT: "8001"
@@ -62,6 +63,7 @@ services:
   # generate-mcp (port 8002)
   # -----------------------------------------------------------------------
   generate-mcp:
+    image: ghcr.io/sv-copilot/saimon:main
     restart: always
     environment:
       PORT: "8002"
@@ -94,6 +96,7 @@ services:
   # export-mcp (port 8003)
   # -----------------------------------------------------------------------
   export-mcp:
+    image: ghcr.io/sv-copilot/saimon:main
     restart: always
     environment:
       PORT: "8003"
@@ -118,6 +121,7 @@ services:
   # evaluate-mcp (port 8004)
   # -----------------------------------------------------------------------
   evaluate-mcp:
+    image: ghcr.io/sv-copilot/saimon:main
     restart: always
     environment:
       PORT: "8004"
@@ -144,6 +148,7 @@ services:
   # verify-mcp (port 8005)
   # -----------------------------------------------------------------------
   verify-mcp:
+    image: ghcr.io/sv-copilot/saimon:main
     restart: always
     environment:
       PORT: "8005"
@@ -171,6 +176,7 @@ services:
   # explore-mcp (port 8006)
   # -----------------------------------------------------------------------
   explore-mcp:
+    image: ghcr.io/sv-copilot/saimon:main
     restart: always
     environment:
       PORT: "8006"
@@ -195,6 +201,7 @@ services:
   # api-mcp (port 8007) — auth, sessions, documents
   # -----------------------------------------------------------------------
   api-mcp:
+    image: ghcr.io/sv-copilot/saimon:main
     restart: always
     environment:
       PORT: "8007"

@@ -16,7 +16,7 @@ services:
     restart: always
 
   search-mcp:
-    image: ghcr.io/sv-copilot/saimon:dev
+    image: ghcr.io/sv-copilot/saimon:rc
     environment:
       SERPER_API_KEY: ${SERPER_API_KEY:-}
     logging:
@@ -29,7 +29,7 @@ services:
     restart: always
 
   generate-mcp:
-    image: ghcr.io/sv-copilot/saimon:dev
+    image: ghcr.io/sv-copilot/saimon:rc
     environment:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
     logging:
@@ -42,7 +42,7 @@ services:
     restart: always
 
   export-mcp:
-    image: ghcr.io/sv-copilot/saimon:dev
+    image: ghcr.io/sv-copilot/saimon:rc
     logging:
       driver: json-file
       options:
@@ -53,7 +53,7 @@ services:
     restart: always
 
   evaluate-mcp:
-    image: ghcr.io/sv-copilot/saimon:dev
+    image: ghcr.io/sv-copilot/saimon:rc
     environment:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
     logging:
@@ -66,7 +66,7 @@ services:
     restart: always
 
   verify-mcp:
-    image: ghcr.io/sv-copilot/saimon:dev
+    image: ghcr.io/sv-copilot/saimon:rc
     environment:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
     logging:
@@ -79,7 +79,7 @@ services:
     restart: always
 
   explore-mcp:
-    image: ghcr.io/sv-copilot/saimon:dev
+    image: ghcr.io/sv-copilot/saimon:rc
     logging:
       driver: json-file
       options:

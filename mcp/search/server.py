@@ -285,6 +285,7 @@ async def search_knowledge_graph(
 
     query = payload.parameters.get("query", "")
     limit = min(int(payload.parameters.get("limit", 10)), 100)
+    user_id = payload.parameters.get("user_id")  # optional — scopes results
 
     # ── try DB backend ──
     if _db_pool is not None:
@@ -295,19 +296,34 @@ async def search_knowledge_graph(
             if not words:
                 words = [query] if query else [""]
 
+            # Build user-scoping clause
+            # Default (no user_id): shared-only (user_id IS NULL)
+            # With user_id: user's content + shared (user_id = $n OR user_id IS NULL)
+            user_clause: str
+            user_params: list[Any] = []
+            if user_id:
+                user_clause = " AND (user_id = $1 OR user_id IS NULL)"
+                user_params = [user_id]
+            else:
+                user_clause = " AND user_id IS NULL"
+                user_params = []
+
             if len(words) == 1:
+                params = user_params + [f"%{words[0]}%", limit]
+                offset = len(user_params)
                 rows = await _db_pool.fetch(
                     "SELECT id, title, content_type, "
                     "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
                     "FROM knowledge_graph_nodes "
-                    "WHERE title ILIKE $1 OR body ILIKE $1 "
-                    "ORDER BY created_at DESC LIMIT $2",
-                    f"%{words[0]}%", limit,
+                    "WHERE (title ILIKE $" + str(offset + 1) + " OR body ILIKE $" + str(offset + 1) + ")"
+                    + user_clause + " "
+                    "ORDER BY created_at DESC LIMIT $" + str(offset + 2),
+                    *params,
                 )
             else:
-                # Build per-word conditions: (title ILIKE $1 OR body ILIKE $1) AND ...
+                # Build per-word conditions: (title ILIKE $n OR body ILIKE $n) AND ...
                 conditions = []
-                params: list[Any] = []
+                params = list(user_params)
                 for w in words:
                     params.append(f"%{w}%")
                     conditions.append(f"(title ILIKE ${len(params)} OR body ILIKE ${len(params)})")
@@ -316,7 +332,7 @@ async def search_knowledge_graph(
                     "SELECT id, title, content_type, "
                     "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
                     "FROM knowledge_graph_nodes "
-                    "WHERE " + " AND ".join(conditions) + " "
+                    "WHERE " + " AND ".join(conditions) + user_clause + " "
                     "ORDER BY created_at DESC LIMIT $" + str(len(params))
                 )
                 rows = await _db_pool.fetch(sql, *params)
@@ -390,7 +406,7 @@ async def _search_web_serper(query: str, limit: int = 5) -> list[dict[str, Any]]
                 }
                 for r in data.get("organic", [])[:limit]
             ]
-    except Exception:  # noqa: BLE001 — best-effort Serper call
+    except Exception:  # noqa: BLE001
         import logging
         _log = logging.getLogger("saimon.search.serper")
         _log.warning("Serper API call failed", exc_info=True)
@@ -446,11 +462,7 @@ async def search_shadow_libraries(
 
     query = payload.parameters.get("query")
     if not query:
-        resp = _ok(
-            trace_id=payload.trace_id,
-            data={"query": "", "total_results": 0, "results": []},
-        )
-        return resp
+        return _error(payload.trace_id, "Parameter 'query' is required.")
 
     requested_indexes: list[str] | None = payload.parameters.get("source_indexes")
     limit = min(int(payload.parameters.get("limit", 10)), 50)

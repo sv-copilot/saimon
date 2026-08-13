@@ -211,10 +211,89 @@ def _format_json(content: str, options: dict[str, Any]) -> str:
 
 
 def _format_html(content: str, options: dict[str, Any]) -> str:
-    """Convert markdown-ish content to HTML."""
+    """Convert markdown-ish content to HTML.
+
+    Conversion order matters: fenced code blocks are stashed first (their
+    contents contain blank lines and markdown-ish tokens that must not be
+    touched), then blockquotes and lists are converted to block elements,
+    then the inline header/bold/italic/link conversions run, and finally
+    the remaining text is paragraph-wrapped.
+    """
     import re
 
     html_content = content
+
+    # 1. Stash fenced code blocks so their contents are protected from the
+    #    paragraph splitter and the inline markdown conversions below.
+    code_blocks: list[str] = []
+
+    def _stash_code(match: re.Match[str]) -> str:
+        token = f"\x00CODE{len(code_blocks)}\x00"
+        code_blocks.append(match.group("code").rstrip("\n"))
+        return token
+
+    html_content = re.sub(
+        r"```[^\n]*\n(?P<code>.*?)```",
+        _stash_code,
+        html_content,
+        flags=re.DOTALL,
+    )
+
+    # 2. Blockquotes: consecutive lines starting with '>' group into one
+    #    <blockquote>.
+    def _convert_blockquotes(text: str) -> str:
+        lines = text.split("\n")
+        out: list[str] = []
+        quote_lines: list[str] = []
+        for line in lines:
+            if line.startswith(">"):
+                quote_lines.append(line[1:].lstrip())
+            else:
+                if quote_lines:
+                    out.append(
+                        "<blockquote>"
+                        + " ".join(quote_lines)
+                        + "</blockquote>"
+                    )
+                    quote_lines = []
+                out.append(line)
+        if quote_lines:
+            out.append(
+                "<blockquote>" + " ".join(quote_lines) + "</blockquote>"
+            )
+        return "\n".join(out)
+
+    html_content = _convert_blockquotes(html_content)
+
+    # 3. Lists: consecutive '- ' / '* ' lines become a <ul> list.
+    def _convert_lists(text: str) -> str:
+        lines = text.split("\n")
+        out: list[str] = []
+        list_items: list[str] = []
+        for line in lines:
+            stripped = line.lstrip()
+            if stripped.startswith(("- ", "* ")):
+                list_items.append(stripped[2:].strip())
+            else:
+                if list_items:
+                    out.append(
+                        "<ul>"
+                        + "".join(f"<li>{item}</li>" for item in list_items)
+                        + "</ul>"
+                    )
+                    list_items = []
+                out.append(line)
+        if list_items:
+            out.append(
+                "<ul>"
+                + "".join(f"<li>{item}</li>" for item in list_items)
+                + "</ul>"
+            )
+        return "\n".join(out)
+
+    html_content = _convert_lists(html_content)
+
+    # 4. Inline conversions: headers, bold, italic, links.
     # Headers: # Text → <h1>Text</h1>, ## Text → <h2>Text</h2>, etc.
     html_content = re.sub(
         r"^# (.+)$", r"<h1>\1</h1>", html_content, flags=re.MULTILINE
@@ -236,10 +315,30 @@ def _format_html(content: str, options: dict[str, Any]) -> str:
     html_content = re.sub(
         r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', html_content
     )
-    # Wrap paragraphs: blank lines → </p><p>
+
+    # 5. Wrap paragraphs: blank lines → </p><p>. Block-level elements
+    #    (lists, blockquotes) and stashed code sentinels stay unwrapped.
+    def _is_stashed_code(chunk: str) -> bool:
+        return bool(re.fullmatch(r"\x00CODE\d+\x00", chunk))
+
     paragraphs = html_content.split("\n\n")
-    wrapped = [f"<p>{p.strip()}</p>" for p in paragraphs if p.strip()]
+    wrapped: list[str] = []
+    for paragraph in paragraphs:
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+        if paragraph.startswith(("<ul>", "<blockquote>")) or _is_stashed_code(
+            paragraph
+        ):
+            wrapped.append(paragraph)
+        else:
+            wrapped.append(f"<p>{paragraph}</p>")
     body = "\n".join(wrapped)
+
+    # 6. Restore the stashed code blocks as <pre><code>…</code></pre>.
+    for index, code in enumerate(code_blocks):
+        token = f"\x00CODE{index}\x00"
+        body = body.replace(token, f"<pre><code>{code}</code></pre>")
 
     inline_css = options.get("inline_css", True)
     style = (

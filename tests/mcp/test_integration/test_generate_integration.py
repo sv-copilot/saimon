@@ -224,3 +224,90 @@ class TestLLMBackendInjection:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] in ("error", "degraded")
+
+
+# ---------------------------------------------------------------------------
+# store_content user_id scoping (#61)
+# ---------------------------------------------------------------------------
+
+class TestStoreContentUserScoping:
+    """store_content should accept and persist optional user_id."""
+
+    def test_store_content_with_user_id_passes_to_db(
+        self, monkeypatch, api_key, sample_trace_id, mock_db
+    ):
+        """store_content with user_id includes it in the INSERT."""
+        from fastapi.testclient import TestClient
+
+        sys.modules.pop("mcp.generate.server", None)
+        monkeypatch.setenv("SAIMON_API_KEY", api_key)
+
+        import mcp.generate.server as server_mod
+        server_mod._db_pool = mock_db
+        # Mock embedding generation to avoid network calls
+        server_mod._generate_embedding = AsyncMock(return_value=[0.1] * 1536)
+        client = TestClient(server_mod.app)
+
+        response = client.post(
+            "/tools/store_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "research_note",
+                "parameters": {
+                    "title": "Spencer Personal Note",
+                    "content_type": "research_note",
+                    "body": "Private content for Spencer only.",
+                    "user_id": "bc410a6a-ca2f-4e6d-9024-2c6b0944c42f",
+                },
+            },
+            headers={"X-Saimon-API-Key": api_key},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert data["data"]["node_id"] is not None
+
+        # Verify user_id was passed to DB execute
+        mock_db.execute.assert_called_once()
+        call_args = mock_db.execute.call_args[0]
+        # The SQL should include user_id column
+        sql = call_args[0]
+        assert "user_id" in sql, f"SQL should include user_id column: {sql}"
+        # The last positional arg should be the user_id UUID
+        params = call_args[1:]
+        assert "bc410a6a-ca2f-4e6d-9024-2c6b0944c42f" in str(params), (
+            f"user_id should be in params: {params}"
+        )
+
+    def test_store_content_without_user_id_still_works(
+        self, monkeypatch, api_key, sample_trace_id, mock_db
+    ):
+        """store_content without user_id is backward-compatible (NULL)."""
+        from fastapi.testclient import TestClient
+
+        sys.modules.pop("mcp.generate.server", None)
+        monkeypatch.setenv("SAIMON_API_KEY", api_key)
+
+        import mcp.generate.server as server_mod
+        server_mod._db_pool = mock_db
+        server_mod._generate_embedding = AsyncMock(return_value=[0.1] * 1536)
+        client = TestClient(server_mod.app)
+
+        response = client.post(
+            "/tools/store_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "research_note",
+                "parameters": {
+                    "title": "Shared Note",
+                    "content_type": "research_note",
+                    "body": "Public shared content.",
+                },
+            },
+            headers={"X-Saimon-API-Key": api_key},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        # Should still work — user_id defaults to None/NULL
+        mock_db.execute.assert_called_once()

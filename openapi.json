@@ -1,0 +1,831 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Saimon-Researcher API",
+    "version": "2.0.0",
+    "description": "Aggregated API for Saimon-Researcher — MCP tools, auth, sessions, documents. Versioned contract for Research UI and Cockpit UI consumers. v2.0.0 adds multi-user auth, chat session persistence, and document storage on top of the v1.x MCP tool layer.",
+    "contact": {
+      "name": "Saimon-Researcher",
+      "url": "https://github.com/sv-copilot/saimon"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://github.com/sv-copilot/saimon/blob/main/LICENSE"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://mcp.spencervaradi.com",
+      "description": "Production"
+    }
+  ],
+  "security": [
+    {},
+    {
+      "BearerAuth": []
+    },
+    {
+      "ApiKeyAuth": []
+    }
+  ],
+  "paths": {
+    "/api/saimon/auth/register": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Register a new user account",
+        "operationId": "auth_register",
+        "security": [{}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RegisterRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "User created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RegisterResponse" }
+              }
+            }
+          },
+          "409": {
+            "description": "Email already exists"
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/saimon/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Authenticate user and return JWT tokens",
+        "operationId": "auth_login",
+        "security": [{}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LoginResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid email or password"
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/saimon/auth/token": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Refresh an access token using a refresh token",
+        "operationId": "auth_token_refresh",
+        "security": [{}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TokenRefreshRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "New access token",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TokenRefreshResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or expired refresh token"
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/saimon/auth/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Return the authenticated user's profile",
+        "operationId": "auth_me",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "User profile",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MeResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token"
+          }
+        }
+      }
+    },
+    "/api/saimon/sessions": {
+      "get": {
+        "tags": ["Sessions"],
+        "summary": "List current user's chat sessions",
+        "operationId": "sessions_list",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "List of sessions",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SessionListResponse" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Sessions"],
+        "summary": "Create a new chat session",
+        "operationId": "sessions_create",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateSessionRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Session created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SessionResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/saimon/sessions/{session_id}": {
+      "get": {
+        "tags": ["Sessions"],
+        "summary": "Get a session with all its messages",
+        "operationId": "sessions_get",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session with messages",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SessionDetailResponse" }
+              }
+            }
+          },
+          "403": { "description": "Session belongs to another user" },
+          "404": { "description": "Session not found" }
+        }
+      },
+      "patch": {
+        "tags": ["Sessions"],
+        "summary": "Update a session's title",
+        "operationId": "sessions_update",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateSessionRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated session",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SessionResponse" }
+              }
+            }
+          },
+          "403": { "description": "Session belongs to another user" },
+          "404": { "description": "Session not found" }
+        }
+      },
+      "delete": {
+        "tags": ["Sessions"],
+        "summary": "Delete a session and all its messages",
+        "operationId": "sessions_delete",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "204": { "description": "Session deleted" },
+          "403": { "description": "Session belongs to another user" },
+          "404": { "description": "Session not found" }
+        }
+      }
+    },
+    "/api/saimon/sessions/{session_id}/messages": {
+      "post": {
+        "tags": ["Sessions"],
+        "summary": "Add a message to a chat session",
+        "operationId": "sessions_add_message",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AddMessageRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Message added",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MessageResponse" }
+              }
+            }
+          },
+          "403": { "description": "Session belongs to another user" },
+          "404": { "description": "Session not found" },
+          "422": { "description": "Invalid role" }
+        }
+      }
+    },
+    "/api/saimon/documents": {
+      "get": {
+        "tags": ["Documents"],
+        "summary": "List current user's documents",
+        "operationId": "documents_list",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "content_type",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Filter by content type (e.g. research_note, blog_post)"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "default": 20 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": { "type": "integer", "default": 0 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of documents",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DocumentListResponse" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Documents"],
+        "summary": "Create a new document",
+        "operationId": "documents_create",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateDocumentRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Document created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DocumentResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/saimon/documents/{document_id}": {
+      "get": {
+        "tags": ["Documents"],
+        "summary": "Get a single document",
+        "operationId": "documents_get",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DocumentResponse" }
+              }
+            }
+          },
+          "403": { "description": "Document belongs to another user" },
+          "404": { "description": "Document not found" }
+        }
+      },
+      "patch": {
+        "tags": ["Documents"],
+        "summary": "Partially update a document",
+        "operationId": "documents_update",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateDocumentRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated document",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DocumentResponse" }
+              }
+            }
+          },
+          "403": { "description": "Document belongs to another user" },
+          "404": { "description": "Document not found" }
+        }
+      },
+      "delete": {
+        "tags": ["Documents"],
+        "summary": "Delete a document",
+        "operationId": "documents_delete",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "204": { "description": "Document deleted" },
+          "403": { "description": "Document belongs to another user" },
+          "404": { "description": "Document not found" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "JWT access token from /api/saimon/auth/login"
+      },
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Saimon-API-Key",
+        "description": "MCP-to-MCP API key for internal service calls"
+      }
+    },
+    "schemas": {
+      "RegisterRequest": {
+        "type": "object",
+        "required": ["email", "password", "display_name"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "minLength": 8 },
+          "display_name": { "type": "string", "minLength": 1 }
+        }
+      },
+      "RegisterResponse": {
+        "type": "object",
+        "properties": {
+          "user": { "$ref": "#/components/schemas/User" }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string" }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "access_token": { "type": "string" },
+          "refresh_token": { "type": "string" },
+          "token_type": { "type": "string", "example": "bearer" },
+          "user": { "$ref": "#/components/schemas/User" }
+        }
+      },
+      "TokenRefreshRequest": {
+        "type": "object",
+        "required": ["refresh_token"],
+        "properties": {
+          "refresh_token": { "type": "string" }
+        }
+      },
+      "TokenRefreshResponse": {
+        "type": "object",
+        "properties": {
+          "access_token": { "type": "string" },
+          "token_type": { "type": "string", "example": "bearer" }
+        }
+      },
+      "MeResponse": {
+        "type": "object",
+        "properties": {
+          "user": { "$ref": "#/components/schemas/User" }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "email": { "type": "string", "format": "email" },
+          "display_name": { "type": "string" },
+          "is_admin": { "type": "boolean" }
+        }
+      },
+      "CreateSessionRequest": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string", "default": "New Chat" }
+        }
+      },
+      "UpdateSessionRequest": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "title": { "type": "string" }
+        }
+      },
+      "SessionResponse": {
+        "type": "object",
+        "properties": {
+          "session": { "$ref": "#/components/schemas/Session" }
+        }
+      },
+      "SessionListResponse": {
+        "type": "object",
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SessionSummary" }
+          }
+        }
+      },
+      "SessionDetailResponse": {
+        "type": "object",
+        "properties": {
+          "session": { "$ref": "#/components/schemas/Session" },
+          "messages": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Message" }
+          }
+        }
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "user_id": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "SessionSummary": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "message_count": { "type": "integer" }
+        }
+      },
+      "AddMessageRequest": {
+        "type": "object",
+        "required": ["role", "content"],
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": ["user", "assistant", "system"]
+          },
+          "content": { "type": "string" }
+        }
+      },
+      "MessageResponse": {
+        "type": "object",
+        "properties": {
+          "message": { "$ref": "#/components/schemas/Message" }
+        }
+      },
+      "Message": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "session_id": { "type": "string", "format": "uuid" },
+          "role": { "type": "string", "enum": ["user", "assistant", "system"] },
+          "content": { "type": "string" },
+          "tool_calls": { "type": "object" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CreateDocumentRequest": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string", "default": "Untitled" },
+          "content": { "type": "string", "default": "" },
+          "content_type": { "type": "string" },
+          "session_id": { "type": "string", "format": "uuid" }
+        }
+      },
+      "UpdateDocumentRequest": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "content": { "type": "string" },
+          "metadata": { "type": "object" }
+        }
+      },
+      "DocumentResponse": {
+        "type": "object",
+        "properties": {
+          "document": { "$ref": "#/components/schemas/Document" }
+        }
+      },
+      "DocumentListResponse": {
+        "type": "object",
+        "properties": {
+          "documents": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Document" }
+          },
+          "total": { "type": "integer" }
+        }
+      },
+      "Document": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "user_id": { "type": "string", "format": "uuid" },
+          "session_id": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "content": { "type": "string" },
+          "content_type": { "type": "string" },
+          "metadata": { "type": "object" },
+          "is_published": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "example": "ok" },
+          "service": { "type": "string", "example": "api-mcp" },
+          "checks": {
+            "type": "object",
+            "properties": {
+              "database": { "type": "string" },
+              "users_count": { "type": "integer" },
+              "sessions_count": { "type": "integer" },
+              "documents_count": { "type": "integer" }
+            }
+          }
+        }
+      },
+      "HTTPValidationError": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ValidationError" }
+          }
+        }
+      },
+      "ValidationError": {
+        "type": "object",
+        "required": ["loc", "msg", "type"],
+        "properties": {
+          "loc": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "msg": { "type": "string" },
+          "type": { "type": "string" }
+        }
+      },
+      "ResearchRequest": {
+        "type": "object",
+        "required": ["trace_id", "content_type"],
+        "properties": {
+          "trace_id": { "type": "string", "format": "uuid", "description": "UUID v4 trace identifier for end-to-end observability" },
+          "content_type": { "type": "string", "minLength": 1, "description": "Requested content type (e.g. research_note, blog_post)" },
+          "parameters": {
+            "type": "object",
+            "description": "Tool-specific parameters"
+          },
+          "sources": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SourceReference" },
+            "description": "Optional source references to ground the response"
+          }
+        }
+      },
+      "ResearchResponse": {
+        "type": "object",
+        "properties": {
+          "trace_id": { "type": "string", "format": "uuid" },
+          "status": { "type": "string", "enum": ["success", "error"] },
+          "data": { "type": "object", "description": "Tool-specific response data" },
+          "errors": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ErrorDetail" }
+          },
+          "citations": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SourceReference" }
+          }
+        }
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      },
+      "SourceReference": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "description": "Source kind: knowledge_graph, web_page, document, etc." },
+          "identifier": { "type": "string", "description": "Unique identifier within the source type" },
+          "relevance_score": { "type": "number", "minimum": 0, "maximum": 1, "description": "Optional relevance score 0.0-1.0" }
+        }
+      }
+    }
+  },
+  "x-mcp-tools": {
+    "search": {
+      "port": 8101,
+      "service": "search-mcp",
+      "tools": {
+        "search_knowledge_graph": { "description": "Search the PostgreSQL knowledge graph for stored research notes, verifications, and observations" },
+        "search_shadow_libraries": { "description": "Search shadow library sources (Anna's Archive, LibGen, Sci-Hub, etc.) for academic papers" },
+        "search_web": { "description": "Web search via Serper.dev (Google-backed) for current information" },
+        "source_discovery": { "description": "Tier A deterministic source discovery via DOI/URL/arXiv regex extraction" },
+        "list_sources": { "description": "List all available source indexes including knowledge graph and shadow library sources" },
+        "list_source_indexes": { "description": "List available source indexes with tier and status information" },
+        "get_source_detail": { "description": "Get detailed information about a specific source" },
+        "get_source_index_detail": { "description": "Get detailed information about a specific source index" },
+        "saimon_list_audit_log": { "description": "List audit log entries for source operations" }
+      }
+    },
+    "generate": {
+      "port": 8102,
+      "service": "generate-mcp",
+      "tools": {
+        "generate_content": { "description": "Generate research content using DeepSeek LLM with configurable tone and parameters" },
+        "generate_verified": { "description": "Generate research content AND verify all factual claims with evidence citations" },
+        "generate_job_hunt_content": { "description": "Generate job hunt content with tailored parameters" },
+        "list_content_types": { "description": "List all registered content types with their parameter schemas and voice profiles" },
+        "get_content_type_schema": { "description": "Get the schema and parameters for a specific content type" },
+        "seed_content_types": { "description": "Seed content type definitions into the knowledge graph" },
+        "self_seed": { "description": "Process pending seed_requests from the database" },
+        "store_content": { "description": "Persist arbitrary text content to the knowledge graph without verification" }
+      }
+    },
+    "export": {
+      "port": 8103,
+      "service": "export-mcp",
+      "tools": {
+        "export_content": { "description": "Format content into a specified output format (markdown, plain_text, json, html)" },
+        "list_formats": { "description": "List all available export formats" },
+        "get_format_schema": { "description": "Get the schema for a specific export format" }
+      }
+    },
+    "evaluate": {
+      "port": 8104,
+      "service": "evaluate-mcp",
+      "tools": {
+        "evaluate_content": { "description": "Score generated content against quality criteria (clarity, completeness, coherence, conciseness, tone_match, ai_detection)" },
+        "list_criteria": { "description": "List all available evaluation criteria" },
+        "get_criterion_detail": { "description": "Get detailed information about a specific evaluation criterion" }
+      }
+    },
+    "verify": {
+      "port": 8105,
+      "service": "verify-mcp",
+      "tools": {
+        "verify_claim": { "description": "Verify a factual claim using 5 corroboration methods with evidence citations" },
+        "extract_claims": { "description": "Extract falsifiable claims from source text with confidence scores" },
+        "list_verification_methods": { "description": "List all verification methods with descriptions and reliability scores" },
+        "get_method_detail": { "description": "Get detailed information about a specific verification method" }
+      }
+    },
+    "explore": {
+      "port": 8106,
+      "service": "explore-mcp",
+      "tools": {
+        "explore_content": { "description": "Discover content in the knowledge graph by topic or keyword" },
+        "browse_by_type": { "description": "Browse knowledge graph content filtered by type" },
+        "create_edge": { "description": "Create a typed relation between two knowledge graph nodes" },
+        "get_related": { "description": "Find nodes related to a given node via knowledge graph edges" },
+        "discover_connections": { "description": "Discover connections between knowledge graph nodes" },
+        "list_content_types": { "description": "List all registered content types in the knowledge graph" }
+      }
+    }
+  }
+}

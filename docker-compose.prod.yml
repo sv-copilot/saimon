@@ -190,3 +190,27 @@ services:
         reservations:
           cpus: "0.1"
           memory: "128M"
+
+  # -----------------------------------------------------------------------
+  # api-mcp (port 8007) — auth, sessions, documents
+  # -----------------------------------------------------------------------
+  api-mcp:
+    restart: always
+    environment:
+      PORT: "8007"
+      DATABASE_URL: ${DATABASE_URL}
+      SAIMON_JWT_SECRET: ${SAIMON_JWT_SECRET}
+      SAIMON_ENV: production
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "256M"
+        reservations:
+          cpus: "0.1"
+          memory: "128M"

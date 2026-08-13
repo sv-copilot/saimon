@@ -1,12 +1,15 @@
-"""Tests for SAIMON-SHADOW-REAL (#41) — shadow library adapters.
+"""Tests for SAIMON-SHADOW-REAL (#41) and SAIMON-SHADOW-ARCHIVE-1 (#54).
 
 Verifies all 5 adapters return real metadata (not placeholders),
 handle errors gracefully (return []), and follow the error contract.
+
+#54 adds real API integration tests for Internet Archive.
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -175,6 +178,40 @@ class TestAcademicTorrents:
         results = asyncio.run(adapter.search("test"))
 
         assert results == []
+
+    def test_empty_query_returns_empty(self):
+        """Empty query string returns []."""
+        from research_shared.adapters.academic_torrents import AcademicTorrentsAdapter
+
+        adapter = AcademicTorrentsAdapter()
+        results = asyncio.run(adapter.search(""))
+        assert results == []
+
+    @pytest.mark.skipif(
+        "os.getenv('GITHUB_ACTIONS')",
+        reason="Real HTTP call — skipped in CI",
+    )
+    def test_real_api_search(self):
+        """Real HTTP call to Academic Torrents API — verifies live structure."""
+        import os
+        if os.getenv("GITHUB_ACTIONS"):
+            pytest.skip("Real HTTP call — skipped in CI")
+
+        from research_shared.adapters.academic_torrents import AcademicTorrentsAdapter
+
+        adapter = AcademicTorrentsAdapter()
+        results = asyncio.run(adapter.search("neural networks", limit=3))
+
+        # Real API should return results
+        assert isinstance(results, list)
+        if results:
+            r = results[0]
+            assert r.title != "Unknown"
+            assert "result 1 for:" not in r.title.lower()
+            assert r.source_index == "academic_torrents"
+            assert r.full_text_available is True
+            # Magnet link or file_type should be present
+            assert r.download_url is not None or r.file_type is not None
 
 
 # ---------------------------------------------------------------------------
@@ -464,3 +501,51 @@ class TestNoPlaceholderText:
         for r in results:
             for pattern in self.PLACEHOLDER_PATTERNS:
                 assert pattern not in r.title.lower(), f"Placeholder found: {r.title}"
+
+
+# ---------------------------------------------------------------------------
+# Test 7: Internet Archive — real API integration (#54)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    os.environ.get("GITHUB_ACTIONS") == "true",
+    reason="Network-dependent integration test — skipped in CI",
+)
+class TestInternetArchiveIntegration:
+    """Real HTTP calls to archive.org Advanced Search API."""
+
+    def test_internet_archive_real_api(self):
+        """Call archive.org API with a known query, verify result structure."""
+        from research_shared.adapters.internet_archive import InternetArchiveAdapter
+
+        adapter = InternetArchiveAdapter()
+        results = asyncio.run(adapter.search("machine learning", limit=5))
+
+        assert isinstance(results, list)
+        if results:
+            r = results[0]
+            assert isinstance(r.title, str) and len(r.title) > 0
+            assert "result 1 for:" not in r.title.lower()
+            assert "result 2 for:" not in r.title.lower()
+            assert r.source_index == "internet_archive"
+            assert r.source_index_label == "Internet Archive"
+
+    def test_internet_archive_no_results(self):
+        """Empty query returns empty list."""
+        from research_shared.adapters.internet_archive import InternetArchiveAdapter
+
+        adapter = InternetArchiveAdapter()
+        results = asyncio.run(adapter.search(""))
+        assert results == []
+
+    def test_internet_archive_nonsense_query(self):
+        """Gibberish query returns empty or gracefully handled."""
+        from research_shared.adapters.internet_archive import InternetArchiveAdapter
+
+        adapter = InternetArchiveAdapter()
+        results = asyncio.run(adapter.search("xyzkwlmnoqrstuv"))
+        assert isinstance(results, list)
+        # May return results or empty — archive.org handles weird queries
+        for r in results:
+            assert "result 1 for:" not in r.title.lower()

@@ -8,6 +8,7 @@
 #   evaluate-mcp  → uvicorn mcp.evaluate.server:app --host 0.0.0.0 --port ${PORT:-8004}
 #   verify-mcp    → uvicorn mcp.verify.server:app --host 0.0.0.0 --port ${PORT:-8005}
 #   explore-mcp   → uvicorn mcp.explore.server:app --host 0.0.0.0 --port ${PORT:-8006}
+#   api-mcp       → uvicorn mcp.api.server:app --host 0.0.0.0 --port ${PORT:-8007}
 
 set -euo pipefail
 
@@ -15,7 +16,7 @@ MCP="${1:-}"
 
 if [ -z "$MCP" ]; then
     echo "Usage: docker run --rm saimon <mcp-name>" >&2
-    echo "Available MCPs: search-mcp generate-mcp export-mcp evaluate-mcp verify-mcp explore-mcp" >&2
+    echo "Available MCPs: search-mcp generate-mcp export-mcp evaluate-mcp verify-mcp explore-mcp api-mcp" >&2
     exit 1
 fi
 
@@ -44,6 +45,10 @@ case "$MCP" in
     explore-mcp)
         MODULE="mcp.explore.server:app"
         DEFAULT_PORT=8006
+        ;;
+    api-mcp)
+        MODULE="mcp.api.server:app"
+        DEFAULT_PORT=8007
         ;;
     *)
         echo "Unknown MCP: $MCP" >&2

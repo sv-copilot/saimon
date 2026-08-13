@@ -40,7 +40,7 @@ services:
     command: search-mcp
     environment:
       PORT: "8001"
-      SAIMON_API_KEY: ${SAIMON_API_KEY:-sk-test-search-key}
+      SAIMON_API_KEY: ${SAIMON_SEARCH_API_KEY:-sk-test-search-key}
       DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
       SERPER_API_KEY: ${SERPER_API_KEY:-}
     ports:
@@ -65,7 +65,7 @@ services:
     command: generate-mcp
     environment:
       PORT: "8002"
-      SAIMON_API_KEY: ${SAIMON_API_KEY:-sk-test-generate-key}
+      SAIMON_API_KEY: ${SAIMON_GENERATE_API_KEY:-sk-test-generate-key}
       DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
@@ -94,7 +94,7 @@ services:
     command: export-mcp
     environment:
       PORT: "8003"
-      SAIMON_API_KEY: ${SAIMON_API_KEY:-sk-test-export-key}
+      SAIMON_API_KEY: ${SAIMON_EXPORT_API_KEY:-sk-test-export-key}
       DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
     ports:
       - "8003:8003"
@@ -118,7 +118,7 @@ services:
     command: evaluate-mcp
     environment:
       PORT: "8004"
-      SAIMON_API_KEY: ${SAIMON_API_KEY:-sk-test-evaluate-key}
+      SAIMON_API_KEY: ${SAIMON_EVALUATE_API_KEY:-sk-test-evaluate-key}
       DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
     ports:
       - "8004:8004"
@@ -142,7 +142,7 @@ services:
     command: verify-mcp
     environment:
       PORT: "8005"
-      SAIMON_API_KEY: ${SAIMON_API_KEY:-sk-test-verify-key}
+      SAIMON_API_KEY: ${SAIMON_VERIFY_API_KEY:-sk-test-verify-key}
       DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
     ports:
       - "8005:8005"
@@ -166,7 +166,7 @@ services:
     command: explore-mcp
     environment:
       PORT: "8006"
-      SAIMON_API_KEY: ${SAIMON_API_KEY:-sk-test-explore-key}
+      SAIMON_API_KEY: ${SAIMON_EXPLORE_API_KEY:-sk-test-explore-key}
       DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
     ports:
       - "8006:8006"

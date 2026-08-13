@@ -45,11 +45,11 @@ jobs:
       - name: Validate OpenAPI spec
         run: python scripts/validate_openapi_spec.py
 
-  # ── Build & push Docker image (dev and main branches, pushes to GHCR) ─
+  # ── Build & push Docker image (dev, rc, and main branches, pushes to GHCR) ─
   docker-push:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/rc' || github.ref == 'refs/heads/main'
     permissions:
       contents: read
       packages: write
@@ -89,12 +89,12 @@ jobs:
       - name: Image digest
         run: echo "Pushed ${{ steps.meta.outputs.tags }}"
 
-  # ── Deploy to staging (dev branch only) ──────────────────────────
+  # ── Deploy to staging (rc branch only) ──────────────────────────
   deploy-staging:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: docker-push
-    if: github.ref == 'refs/heads/dev'
+    if: github.ref == 'refs/heads/rc'
     environment: staging
 
     steps:
@@ -143,7 +143,7 @@ jobs:
           key: ${{ secrets.PROD_SSH_KEY }}
           script: |
             set -e
-            cd /data/planning/saimon
+            cd /data/saimon
             echo "Pulling latest main image..."
             docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
             echo "Restarting services..."

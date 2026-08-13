@@ -12,16 +12,14 @@ Auth approach:
 from __future__ import annotations
 
 import os as _os
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
 import bcrypt
 import jwt
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, field_validator
 
 from research_shared.db import DatabaseConfig, DatabasePool
@@ -97,7 +95,7 @@ async def _lifespan(app: FastAPI):
             await _ensure_sessions_table()
             await _ensure_messages_table()
             await _ensure_documents_table()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — fail-soft on DB init; log and continue
             import logging
             logging.getLogger("saimon.api").warning("DB init failed: %s", e)
             _db_pool = None
@@ -108,7 +106,7 @@ async def _lifespan(app: FastAPI):
     if _db_pool is not None:
         try:
             await _db_pool.close()
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 — best-effort close on shutdown
             pass
         _db_pool = None
 
@@ -313,19 +311,19 @@ async def health():
             documents_count = 0
             try:
                 sessions_count = await _db_pool.fetchval("SELECT COUNT(*) FROM chat_sessions") or 0
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 — optional table may not exist yet
+                sessions_count = 0
             try:
                 documents_count = await _db_pool.fetchval("SELECT COUNT(*) FROM documents") or 0
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 — optional table may not exist yet
+                documents_count = 0
             checks = {
                 "database": "connected",
                 "users_count": users_count,
                 "sessions_count": sessions_count,
                 "documents_count": documents_count,
             }
-        except Exception:
+        except Exception:  # noqa: BLE001 — degrade to error state on any DB failure
             checks = {"database": "error"}
     return {"status": "ok", "service": "api-mcp", "checks": checks}
 

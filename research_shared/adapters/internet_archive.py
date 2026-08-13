@@ -135,7 +135,7 @@ class InternetArchiveAdapter:
 
         try:
             data = resp.json()
-        except Exception:
+        except ValueError:  # JSON decode failure
             return None
 
         docs = data.get("response", {}).get("docs", [])
@@ -194,7 +194,7 @@ def _parse_doc(doc: dict) -> SourceSearchResult:
 
     return SourceSearchResult(
         type="book",
-        identifier=f"ia:{identifier}" if identifier else f"ia:unknown",
+        identifier=f"ia:{identifier}" if identifier else "ia:unknown",
         doi=doi,
         title=title or "Untitled",
         authors=authors,

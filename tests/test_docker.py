@@ -425,7 +425,7 @@ class TestProductionCompose:
         services = prod_compose_yaml.get("services", {})
         expected = {
             "postgres", "search-mcp", "generate-mcp", "export-mcp",
-            "evaluate-mcp", "verify-mcp", "explore-mcp",
+            "evaluate-mcp", "verify-mcp", "explore-mcp", "api-mcp",
         }
         assert set(services.keys()) == expected
 
@@ -436,7 +436,7 @@ class TestProductionCompose:
 
     def test_prod_services_have_resource_limits(self, prod_compose_yaml):
         for name in ["search-mcp", "generate-mcp", "export-mcp",
-                     "evaluate-mcp", "verify-mcp", "explore-mcp"]:
+                     "evaluate-mcp", "verify-mcp", "explore-mcp", "api-mcp"]:
             svc = prod_compose_yaml["services"][name]
             deploy = svc.get("deploy", {})
             resources = deploy.get("resources", {})
@@ -471,6 +471,95 @@ class TestProductionCompose:
 
 
 # ---------------------------------------------------------------------------
+# SAIMON-PROD-VPS-MIGRATION-1 tests — per-service API key env vars
+# ---------------------------------------------------------------------------
+
+class TestPerServiceApiKeys:
+    """#65 — each MCP maps a per-service env var into SAIMON_API_KEY."""
+
+    SERVICE_KEY_VAR = {
+        "search-mcp": "SAIMON_SEARCH_API_KEY",
+        "generate-mcp": "SAIMON_GENERATE_API_KEY",
+        "export-mcp": "SAIMON_EXPORT_API_KEY",
+        "evaluate-mcp": "SAIMON_EVALUATE_API_KEY",
+        "verify-mcp": "SAIMON_VERIFY_API_KEY",
+        "explore-mcp": "SAIMON_EXPLORE_API_KEY",
+    }
+
+    def test_base_compose_maps_per_service_keys(self, compose_yaml):
+        for name, var in self.SERVICE_KEY_VAR.items():
+            env = compose_yaml["services"][name].get("environment", {})
+            ref = str(env.get("SAIMON_API_KEY", ""))
+            assert "${" + var in ref, f"{name} must reference ${var}, got: {ref}"
+
+    def test_base_compose_has_no_shared_key_var(self, compose_yaml):
+        for name in self.SERVICE_KEY_VAR:
+            env = compose_yaml["services"][name].get("environment", {})
+            ref = str(env.get("SAIMON_API_KEY", ""))
+            assert "${SAIMON_API_KEY" not in ref, (
+                f"{name} must not use the shared SAIMON_API_KEY var"
+            )
+
+    def test_prod_compose_maps_per_service_keys(self, prod_compose_yaml):
+        for name, var in self.SERVICE_KEY_VAR.items():
+            env = prod_compose_yaml["services"][name].get("environment", {})
+            ref = str(env.get("SAIMON_API_KEY", ""))
+            assert "${" + var in ref, (
+                f"prod {name} must reference ${var}, got: {ref}"
+            )
+
+    def test_prod_compose_has_no_shared_key_var(self, prod_compose_yaml):
+        for name in self.SERVICE_KEY_VAR:
+            env = prod_compose_yaml["services"][name].get("environment", {})
+            ref = str(env.get("SAIMON_API_KEY", ""))
+            assert "${SAIMON_API_KEY}" not in ref, (
+                f"prod {name} must not use the shared SAIMON_API_KEY var"
+            )
+
+
+class TestProdComposeTopology:
+    """#65 — prod override must preserve the live VPS topology (Caddy ports + pg volume)."""
+
+    PROD_PORTS = {
+        "search-mcp": "127.0.0.1:8101:8001",
+        "generate-mcp": "127.0.0.1:8102:8002",
+        "export-mcp": "127.0.0.1:8103:8003",
+        "evaluate-mcp": "127.0.0.1:8104:8004",
+        "verify-mcp": "127.0.0.1:8105:8005",
+        "explore-mcp": "127.0.0.1:8106:8006",
+        "api-mcp": "127.0.0.1:8107:8007",
+    }
+
+    def test_prod_mcp_ports_match_caddy(self, prod_compose_yaml):
+        for name, mapping in self.PROD_PORTS.items():
+            svc = prod_compose_yaml["services"][name]
+            ports = [str(p) for p in svc.get("ports", [])]
+            assert mapping in ports, f"prod {name} must bind {mapping}"
+
+    def test_prod_postgres_binds_loopback(self, prod_compose_yaml):
+        svc = prod_compose_yaml["services"]["postgres"]
+        ports = [str(p) for p in svc.get("ports", [])]
+        assert "127.0.0.1:5433:5432" in ports, "prod postgres must bind 127.0.0.1:5433"
+
+    def test_prod_postgres_uses_existing_volume(self, prod_compose_yaml):
+        svc = prod_compose_yaml["services"]["postgres"]
+        volumes = [str(v) for v in svc.get("volumes", [])]
+        data_mount = [v for v in volumes if "/var/lib/postgresql/data" in v]
+        assert data_mount, "prod postgres must mount a data volume"
+        assert "saimon_pgdata" in data_mount[0], (
+            f"prod postgres must reuse saimon_pgdata volume, got: {data_mount[0]}"
+        )
+
+    def test_prod_generate_verify_url_points_to_verify_mcp(self, prod_compose_yaml):
+        svc = prod_compose_yaml["services"]["generate-mcp"]
+        env = svc.get("environment", {})
+        url = str(env.get("VERIFY_MCP_URL", ""))
+        assert "verify-mcp" in url and "8005" in url, (
+            f"generate VERIFY_MCP_URL must point to verify-mcp:8005, got: {url}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # DEPLOY-HARDEN-1 tests — .env.example
 # ---------------------------------------------------------------------------
 
@@ -480,9 +569,12 @@ class TestEnvExample:
     def test_env_example_exists(self):
         assert file_exists(".env.example"), ".env.example is missing"
 
-    def test_env_example_has_saimon_api_key(self):
+    def test_env_example_has_per_service_api_keys(self):
         content = read_file(".env.example")
-        assert "SAIMON_API_KEY" in content
+        for var in ["SAIMON_SEARCH_API_KEY", "SAIMON_GENERATE_API_KEY",
+                    "SAIMON_EXPORT_API_KEY", "SAIMON_EVALUATE_API_KEY",
+                    "SAIMON_VERIFY_API_KEY", "SAIMON_EXPLORE_API_KEY"]:
+            assert var in content, f".env.example missing {var}"
 
     def test_env_example_has_database_url(self):
         content = read_file(".env.example")

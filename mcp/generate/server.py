@@ -1022,8 +1022,9 @@ async def _call_verify_extract(content: str) -> dict[str, Any]:
     Returns the extract_claims response dict. On any error, returns
     a neutral fallback with empty claims list.
     """
-    import httpx
     import uuid as _uuid
+
+    import httpx
 
     url = f"{_verify_mcp_url}/tools/extract_claims"
     body = {
@@ -1064,8 +1065,9 @@ async def _call_verify_claim(claim_text: str) -> dict[str, Any]:
     Returns the verify_claim response dict. On any error, returns
     a neutral fallback.
     """
-    import httpx
     import uuid as _uuid
+
+    import httpx
 
     url = f"{_verify_mcp_url}/tools/verify_claim"
     body = {
@@ -1534,10 +1536,10 @@ async def store_content(
         if isinstance(metadata, dict):
             meta_dict = metadata
         elif isinstance(metadata, str):
+            import json as _json
             try:
-                import json as _json
                 meta_dict = _json.loads(metadata)
-            except Exception:
+            except _json.JSONDecodeError:
                 meta_dict = {"raw": metadata}
 
     node_id = await _persist_content_node(title, content_type, body, meta_dict, user_id)

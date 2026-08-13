@@ -538,7 +538,7 @@ async def create_edge(
             try:
                 _json.loads(metadata)  # validate
                 meta_json = metadata
-            except Exception:
+            except _json.JSONDecodeError:
                 meta_json = _json.dumps({"raw": metadata})
 
     try:
@@ -552,7 +552,7 @@ async def create_edge(
             source_id, target_id, relation_type, weight, meta_json,
         )
         edge_id = str(row["id"]) if row else None
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — API boundary: return error envelope on any failure
         logger.log_response(status="error")
         return _error(payload.trace_id, f"Failed to create edge: {exc}")
 
@@ -665,6 +665,6 @@ async def get_related(
             status=resp.status, citations_count=len(resp.citations or [])
         )
         return resp
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — API boundary: return error envelope on any failure
         logger.log_response(status="error")
         return _error(payload.trace_id, f"Failed to get related nodes: {exc}")

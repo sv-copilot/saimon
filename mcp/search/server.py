@@ -462,11 +462,7 @@ async def search_shadow_libraries(
 
     query = payload.parameters.get("query")
     if not query:
-        resp = _ok(
-            trace_id=payload.trace_id,
-            data={"query": "", "total_results": 0, "results": []},
-        )
-        return resp
+        return _error(payload.trace_id, "Parameter 'query' is required.")
 
     requested_indexes: list[str] | None = payload.parameters.get("source_indexes")
     limit = min(int(payload.parameters.get("limit", 10)), 50)

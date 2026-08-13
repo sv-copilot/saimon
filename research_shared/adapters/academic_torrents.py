@@ -51,6 +51,7 @@ class AcademicTorrentsAdapter:
         logger.debug("Academic Torrents search: %r (limit=%d)", query, limit)
 
         import asyncio
+
         import httpx
 
         client: Any = self._http

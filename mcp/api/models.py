@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 from uuid import UUID, uuid4
 
 
@@ -52,7 +51,7 @@ class ChatMessage:
     session_id: UUID = field(default_factory=uuid4)
     role: str = "user"  # user, assistant, system
     content: str = ""
-    tool_calls: Optional[dict] = None
+    tool_calls: dict | None = None
     created_at: datetime = field(default_factory=_utcnow)
 
 
@@ -62,11 +61,11 @@ class Document:
 
     id: UUID = field(default_factory=uuid4)
     user_id: UUID = field(default_factory=uuid4)
-    session_id: Optional[UUID] = None
+    session_id: UUID | None = None
     title: str = "Untitled"
     content: str = ""
-    content_type: Optional[str] = None
-    metadata: Optional[dict] = None
+    content_type: str | None = None
+    metadata: dict | None = None
     is_published: bool = False
     created_at: datetime = field(default_factory=_utcnow)
     updated_at: datetime = field(default_factory=_utcnow)

@@ -92,7 +92,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "path": "/tools/search_knowledge_graph",
         "body_template": {
             "content_type": "search",
-            "parameters": {"query": "{query}", "limit": "{limit}"},
+            "parameters": {"query": "{query}", "limit": "{limit}", "user_id": "{user_id}"},
         },
     },
     "saimon_list_sources": {
@@ -228,8 +228,51 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "method": "POST",
         "path": "/tools/browse_by_type",
         "body_template": {
-            "content_type": "{content_type}",
-            "parameters": {},
+            "content_type": "explore",
+            "parameters": {
+                "content_type": "{content_type}",
+            },
+        },
+    },
+    "saimon_create_edge": {
+        "description": (
+            "Create a typed relation between two knowledge graph nodes. "
+            "Use for linking characters to factions, locations to regions, "
+            "lore rules to events, etc. Idempotent — safe to call multiple "
+            "times with the same source/target/relation_type."
+        ),
+        "service": "explore",
+        "method": "POST",
+        "path": "/tools/create_edge",
+        "body_template": {
+            "content_type": "explore",
+            "parameters": {
+                "source_id": "{source_id}",
+                "target_id": "{target_id}",
+                "relation_type": "{relation_type}",
+                "weight": "{weight}",
+                "metadata": "{metadata}",
+            },
+        },
+    },
+    "saimon_get_related": {
+        "description": (
+            "Find nodes related to a given node via knowledge graph edges. "
+            "Returns all connected nodes with relation types and directions. "
+            "Filter by relation_type (e.g. 'member_of') or direction "
+            "('outgoing', 'incoming', 'both')."
+        ),
+        "service": "explore",
+        "method": "POST",
+        "path": "/tools/get_related",
+        "body_template": {
+            "content_type": "explore",
+            "parameters": {
+                "node_id": "{node_id}",
+                "relation_type": "{relation_type}",
+                "direction": "{direction}",
+                "limit": "{limit}",
+            },
         },
     },
 
@@ -248,34 +291,67 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         },
     },
 
-    # ── Composite Pipeline Tools ────────────────────────────────
+    # ── Generate Tools (continued) ──────────────────────────────
     "saimon_generate_verified": {
         "description": (
-            "Generate research content AND verify all factual claims in "
-            "a single call. Chains: generate → [ai_detection] → extract "
-            "claims → verify each claim → annotate. Each claim is "
-            "verified with adversarial checking, risk_profile=high, and "
-            "citation verification. Returns annotated content with "
-            "[VERIFIED ✓] / [UNVERIFIED ⚠ reason] markers, a "
-            "verification summary, ai_detection score (optional), "
-            "evidence links, and a list of degraded steps."
+            "Generate research content AND verify all factual claims, "
+            "persisting results to the knowledge graph. Chains: generate → "
+            "persist content node → extract claims → verify each claim → "
+            "persist observations + verifications + evidence links → "
+            "annotate. Returns annotated content with "
+            "[VERIFIED ✓] / [UNVERIFIED ⚠ reason] markers, "
+            "verification summary, node_id, observation_ids, and "
+            "claims_extracted/verified counts."
         ),
-        "service": "generate",  # primary service for URL routing
+        "service": "generate",
         "method": "POST",
-        "path": "/tools/generate_content",  # placeholder — handled by pipeline
+        "path": "/tools/generate_verified",
         "body_template": {
             "content_type": "{content_type}",
             "parameters": {
                 "prompt": "{prompt}",
                 "tone": "{tone}",
-                "sources": "{sources}",
-                "auto_search": "{auto_search}",
-                "ai_detection": "{ai_detection}",
-                "cross_check": "{cross_check}",
+                "content_type": "{content_type}",
             },
         },
-        "composite": True,  # marker: routed to _run_generate_verified_pipeline
     },
+    "saimon_self_seed": {
+        "description": (
+            "Process pending seed_requests from the database: generate "
+            "content via LLM for each pending request and persist results "
+            "to the knowledge graph. Idempotent — only processes rows "
+            "with status='pending'. Returns count of seeded/failed."
+        ),
+        "service": "generate",
+        "method": "POST",
+        "path": "/tools/self_seed",
+        "body_template": {"content_type": "seed"},
+    },
+    "saimon_store_content": {
+        "description": (
+            "Persist arbitrary text content to the knowledge graph without "
+            "running the verification pipeline. Use for saving structured "
+            "world-building data, character profiles, location descriptions, "
+            "or any content that doesn't need fact-checking. Accepts title, "
+            "content_type (any string — not limited to registered types), "
+            "body, optional metadata dict, and optional user_id for per-user "
+            "scoping. Returns node_id."
+        ),
+        "service": "generate",
+        "method": "POST",
+        "path": "/tools/store_content",
+        "body_template": {
+            "content_type": "{content_type}",
+            "parameters": {
+                "title": "{title}",
+                "content_type": "{content_type}",
+                "body": "{body}",
+                "metadata": "{metadata}",
+                "user_id": "{user_id}",
+            },
+        },
+    },
+    # ── Composite Pipeline Tools ────────────────────────────────
     "saimon_audit_content": {
         "description": (
             "Audit existing text for AI fingerprints and factual reliability. "
@@ -642,27 +718,38 @@ def _format_result(data: dict[str, Any]) -> str:
         payload = {}
 
     if "results" in payload:
-        # Search result
+        # Search result — handles both KG nodes and scholarly search
         results = payload.get("results", [])
-        total = payload.get("total_results", len(results))
+        total = payload.get("total", payload.get("total_results", len(results)))
+        query = payload.get("query", "")
         lines = [f"Found {len(results)} results "
-                 f"(total available: {total}) "
-                 f"for '{payload.get('query', '')}':"]
+                 f"(total available: {total})"
+                 + (f" for '{query}'" if query else "")]
         if not results:
             lines.append("  (no results in this response)")
             return "\n".join(lines)
         lines.append("")
         for i, r in enumerate(results[:10], 1):
             title = r.get("title", "Unknown")
-            source = r.get("source_index_label", r.get("source_index", "?"))
-            doi = r.get("doi", "")
-            authors = ", ".join(r.get("authors", [])[:3])
-            year = r.get("year", "")
-            lines.append(
-                f"{i}. {title}\n"
-                f"   Authors: {authors} | Year: {year} | Source: {source}\n"
-                f"   DOI: {doi or 'N/A'}"
-            )
+            content_type = r.get("content_type", "")
+            rid = r.get("id", "")
+            # KG node format
+            if content_type:
+                lines.append(
+                    f"{i}. [{content_type}] {title}\n"
+                    f"   id: {rid}"
+                )
+            else:
+                # Scholarly search format
+                source = r.get("source_index_label", r.get("source_index", "?"))
+                doi = r.get("doi", "")
+                authors = ", ".join(r.get("authors", [])[:3])
+                year = r.get("year", "")
+                lines.append(
+                    f"{i}. {title}\n"
+                    f"   Authors: {authors} | Year: {year} | Source: {source}\n"
+                    f"   DOI: {doi or 'N/A'}"
+                )
         return "\n".join(lines)
 
     elif "verifications" in payload:

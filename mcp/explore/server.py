@@ -126,8 +126,25 @@ _TOOLS = [
     },
     {
         "name": "get_related",
-        "description": "Find content items related to a specific item.",
-        "parameters": {"item_id": "str (required)"},
+        "description": "Find content items related to a specific node via knowledge graph edges.",
+        "parameters": {
+            "node_id": "str (required)",
+            "relation_type": "str (optional, filter by relation type)",
+            "direction": "str (optional, 'outgoing'|'incoming'|'both', default 'both')",
+            "limit": "int (optional, default 20)",
+        },
+    },
+    {
+        "name": "create_edge",
+        "description": "Create a typed relation between two knowledge graph nodes. "
+                       "Idempotent — safe to call multiple times.",
+        "parameters": {
+            "source_id": "str (required)",
+            "target_id": "str (required)",
+            "relation_type": "str (required)",
+            "weight": "float (optional, default 1.0)",
+            "metadata": "dict (optional)",
+        },
     },
     {
         "name": "discover_connections",
@@ -353,89 +370,6 @@ async def browse_by_type(
 
 
 # ---------------------------------------------------------------------------
-# tool: get_related
-# ---------------------------------------------------------------------------
-
-_RELATIONSHIPS: list[str] = [
-    "cites",
-    "extends",
-    "contradicts",
-    "supports",
-    "references",
-]
-
-
-@app.post("/tools/get_related")
-async def get_related(
-    payload: ResearchRequest, request: Request
-) -> ResearchResponse:
-    _require_auth(request)
-
-    item_id = payload.parameters.get("item_id")
-    if not item_id:
-        return _error(payload.trace_id, "Parameter 'item_id' is required.")
-
-    logger = build_audit_logger(payload, request, _auth, "explore-mcp")
-    logger.log_request(
-        content_type=payload.content_type,
-        tool="get_related",
-        item_id=item_id,
-    )
-
-    # ── try DB backend ──
-    if _db_pool is not None:
-        try:
-            rows = await _db_pool.fetch(
-                "SELECT n.id, n.title, e.relation_type AS relationship, n.body "
-                "FROM knowledge_graph_edges e "
-                "JOIN knowledge_graph_nodes n ON e.target_id = n.id "
-                "WHERE e.source_id = $1 "
-                "LIMIT 10",
-                item_id,
-            )
-            related = [dict(r) for r in rows]
-            resp = _ok(
-                trace_id=payload.trace_id,
-                data={"item_id": item_id, "related": related},
-                citations=[str(r["id"]) for r in related],
-            )
-            logger.log_response(
-                status=resp.status, citations_count=len(resp.citations or [])
-            )
-            return resp
-        except (DatabaseError, NotImplementedError):
-            pass
-
-    # ── fallback ──
-    known_ids = {"kg-001", "kg-002", "kg-003", "kg-004", "kg-005"}
-    if item_id not in known_ids:
-        related: list[dict[str, Any]] = []
-    else:
-        related = [
-            {
-                "id": f"kg-{j:03d}",
-                "title": f"Related item {j} to {item_id}",
-                "relationship": _RELATIONSHIPS[j % len(_RELATIONSHIPS)],
-                "summary": (
-                    f"This item {_RELATIONSHIPS[j % len(_RELATIONSHIPS)]} "
-                    f"{item_id} through shared concepts and references."
-                ),
-            }
-            for j in range(3)
-        ]
-
-    resp = _degraded(
-        trace_id=payload.trace_id,
-        data={"item_id": item_id, "related": related},
-        citations=[str(r["id"]) for r in related],
-    )
-    logger.log_response(
-        status=resp.status, citations_count=len(resp.citations or [])
-    )
-    return resp
-
-
-# ---------------------------------------------------------------------------
 # tool: discover_connections
 # ---------------------------------------------------------------------------
 
@@ -552,3 +486,185 @@ async def list_content_types(
     )
     logger.log_response(status=resp.status)
     return resp
+
+
+# ---------------------------------------------------------------------------
+# tool: create_edge
+# ---------------------------------------------------------------------------
+
+@app.post("/tools/create_edge")
+async def create_edge(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    """Create a typed relation between two knowledge graph nodes.
+
+    Idempotent — ON CONFLICT upserts prevent duplicate edges.
+    """
+    _require_auth(request)
+
+    source_id = payload.parameters.get("source_id")
+    target_id = payload.parameters.get("target_id")
+    relation_type = payload.parameters.get("relation_type")
+    weight = float(payload.parameters.get("weight", 1.0))
+    metadata = payload.parameters.get("metadata")
+
+    logger = build_audit_logger(payload, request, _auth, "explore-mcp")
+    logger.log_request(
+        content_type=payload.content_type,
+        tool="create_edge",
+        source_id=source_id,
+        target_id=target_id,
+        relation_type=relation_type,
+    )
+
+    if not source_id:
+        return _error(payload.trace_id, "Parameter 'source_id' is required.")
+    if not target_id:
+        return _error(payload.trace_id, "Parameter 'target_id' is required.")
+    if not relation_type:
+        return _error(payload.trace_id, "Parameter 'relation_type' is required.")
+
+    if _db_pool is None:
+        return _error(payload.trace_id, "Database not available.")
+
+    # Resolve metadata: accept dict or JSON string
+    import json as _json
+
+    meta_json = "{}"
+    if metadata:
+        if isinstance(metadata, dict):
+            meta_json = _json.dumps(metadata)
+        elif isinstance(metadata, str):
+            try:
+                _json.loads(metadata)  # validate
+                meta_json = metadata
+            except Exception:
+                meta_json = _json.dumps({"raw": metadata})
+
+    try:
+        row = await _db_pool.fetchrow(
+            "INSERT INTO knowledge_graph_edges "
+            "(source_id, target_id, relation_type, weight, metadata) "
+            "VALUES ($1, $2, $3, $4, $5::jsonb) "
+            "ON CONFLICT (source_id, target_id, relation_type) "
+            "DO UPDATE SET weight = $4, metadata = $5::jsonb "
+            "RETURNING id",
+            source_id, target_id, relation_type, weight, meta_json,
+        )
+        edge_id = str(row["id"]) if row else None
+    except Exception as exc:
+        logger.log_response(status="error")
+        return _error(payload.trace_id, f"Failed to create edge: {exc}")
+
+    if edge_id is None:
+        logger.log_response(status="error")
+        return _error(payload.trace_id, "Failed to create edge — no ID returned.")
+
+    resp = _ok(
+        trace_id=payload.trace_id,
+        data={
+            "edge_id": edge_id,
+            "source_id": source_id,
+            "target_id": target_id,
+            "relation_type": relation_type,
+            "weight": weight,
+        },
+        citations=[edge_id],
+    )
+    logger.log_response(status=resp.status, citations_count=1)
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# tool: get_related
+# ---------------------------------------------------------------------------
+
+@app.post("/tools/get_related")
+async def get_related(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    """Find nodes related to a given node via knowledge_graph_edges.
+
+    Supports filtering by relation_type and direction
+    (outgoing, incoming, or both).
+    """
+    _require_auth(request)
+
+    node_id = payload.parameters.get("node_id")
+    relation_type = payload.parameters.get("relation_type")
+    direction = payload.parameters.get("direction", "both")
+    limit = min(int(payload.parameters.get("limit", 20)), 100)
+
+    logger = build_audit_logger(payload, request, _auth, "explore-mcp")
+    logger.log_request(
+        content_type=payload.content_type,
+        tool="get_related",
+        node_id=node_id,
+        relation_type=relation_type,
+        direction=direction,
+    )
+
+    if not node_id:
+        return _error(payload.trace_id, "Parameter 'node_id' is required.")
+
+    if _db_pool is None:
+        return _error(payload.trace_id, "Database not available.")
+
+    # Build query based on direction
+    if direction == "outgoing":
+        where = "e.source_id = $1"
+    elif direction == "incoming":
+        where = "e.target_id = $1"
+    else:
+        where = "(e.source_id = $1 OR e.target_id = $1)"
+
+    params: list[Any] = [node_id]
+    type_filter = ""
+    if relation_type:
+        params.append(relation_type)
+        type_filter = f" AND e.relation_type = ${len(params)}"
+
+    try:
+        rows = await _db_pool.fetch(
+            f"SELECT e.id as edge_id, e.relation_type, e.weight, "
+            f"e.source_id, e.target_id, "
+            f"n.id as node_id, n.title, n.content_type "
+            f"FROM knowledge_graph_edges e "
+            f"JOIN knowledge_graph_nodes n ON "
+            f"(CASE WHEN e.source_id = $1 THEN e.target_id ELSE e.source_id END) = n.id "
+            f"WHERE {where}{type_filter} "
+            f"ORDER BY e.weight DESC, e.created_at DESC "
+            f"LIMIT ${len(params) + 1}",
+            *(params + [limit]),
+        )
+
+        items: list[dict[str, Any]] = []
+        for r in rows:
+            items.append({
+                "edge_id": str(r["edge_id"]),
+                "relation_type": r["relation_type"],
+                "weight": r["weight"],
+                "direction": "outgoing" if str(r["source_id"]) == node_id else "incoming",
+                "node": {
+                    "id": str(r["node_id"]),
+                    "title": r["title"],
+                    "content_type": r["content_type"],
+                },
+            })
+
+        resp = _ok(
+            trace_id=payload.trace_id,
+            data={
+                "node_id": node_id,
+                "related": items,
+                "total": len(items),
+            },
+            citations=[str(item["node"]["id"]) for item in items],
+        )
+        logger.log_response(
+            status=resp.status, citations_count=len(resp.citations or [])
+        )
+        return resp
+    except Exception as exc:
+        logger.log_response(status="error")
+        return _error(payload.trace_id, f"Failed to get related nodes: {exc}")

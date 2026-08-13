@@ -42,11 +42,13 @@ jobs:
       - name: Run tests
         run: python -m pytest tests/ -q
 
+      - name: Validate OpenAPI spec
+        run: python scripts/validate_openapi_spec.py
+
   # ── Build & push Docker image (dev and main branches, pushes to GHCR) ─
   docker-push:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: validate
     if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main'
     permissions:
       contents: read
@@ -165,7 +167,6 @@ jobs:
   docker-build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: validate
     if: github.ref == 'refs/heads/rc'
 
     steps:

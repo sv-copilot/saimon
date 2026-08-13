@@ -5,7 +5,6 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -66,7 +65,7 @@ class TestSearchShadowLibraries:
     def test_requires_query_parameter(
         self, client, sample_trace_id, auth_headers
     ):
-        """Missing query returns empty results, not error."""
+        """Missing query returns an error envelope, not empty results."""
         response = client.post(
             "/tools/search_shadow_libraries",
             json={
@@ -77,8 +76,9 @@ class TestSearchShadowLibraries:
             headers=auth_headers,
         )
         data = response.json()
-        assert data["status"] in ("success", "degraded")
-        assert data["data"]["total_results"] == 0
+        assert data["status"] == "error"
+        assert data.get("errors")
+        assert any("query" in e.lower() for e in data["errors"])
 
     def test_returns_success_with_valid_query(
         self, client, sample_trace_id, auth_headers
@@ -158,10 +158,10 @@ class TestSearchShadowLibraries:
         data = response.json()
         assert len(data["data"]["results"]) <= 3
 
-    def test_empty_query_returns_empty(
+    def test_empty_query_returns_error(
         self, client, sample_trace_id, auth_headers
     ):
-        """Empty query returns empty results, not error."""
+        """Empty query returns an error envelope with a message."""
         response = client.post(
             "/tools/search_shadow_libraries",
             json={
@@ -172,8 +172,11 @@ class TestSearchShadowLibraries:
             headers=auth_headers,
         )
         data = response.json()
-        assert data["status"] in ("success", "degraded")
-        assert data["data"]["total_results"] == 0
+        assert data["status"] == "error"
+        assert data.get("errors")
+        assert any("query" in e.lower() for e in data["errors"])
+        assert "trace_id" in data
+        assert data["trace_id"] == sample_trace_id
 
     def test_requires_auth(self, client, sample_trace_id):
         """Unauthenticated requests get 401."""

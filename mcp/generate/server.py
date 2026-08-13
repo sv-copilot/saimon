@@ -175,7 +175,7 @@ def _record_llm_failure() -> None:
     import datetime as _dt
 
     _quality_metrics["llm_consecutive_failures"] += 1
-    _quality_metrics["last_llm_failure_at"] = _dt.datetime.utcnow().isoformat() + "Z"
+    _quality_metrics["last_llm_failure_at"] = _dt.datetime.now(tz=_dt.timezone.utc).isoformat() + "Z"
     _log = _logging.getLogger("saimon.generate.health")
     _log.warning(
         "LLM unreachable — consecutive failures: %d",
@@ -296,6 +296,18 @@ _TOOLS = [
                        "to the knowledge graph. Idempotent — only processes "
                        "rows with status='pending'.",
         "parameters": {},
+    },
+    {
+        "name": "store_content",
+        "description": "Persist arbitrary text content to the knowledge graph "
+                       "without verification. Accepts title, content_type, body, "
+                       "and optional metadata. Returns node_id.",
+        "parameters": {
+            "title": "str",
+            "content_type": "str",
+            "body": "str",
+            "metadata": "dict (optional)",
+        },
     },
     {
         "name": "generate_job_hunt_content",
@@ -669,6 +681,7 @@ async def _call_evaluate(content: str) -> dict[str, Any]:
     returns a neutral fallback with score 0.5.
     """
     import os as _os
+
     import httpx
 
     api_key = _os.environ.get("SAIMON_API_KEY", "")
@@ -698,7 +711,7 @@ async def _call_evaluate(content: str) -> dict[str, Any]:
                     resp.status_code,
                     resp.text[:200],
                 )
-    except Exception:
+    except Exception:  # noqa: BLE001
         _log = _logging.getLogger("saimon.generate.ai_detect")
         _log.warning("Evaluate service call failed", exc_info=True)
 
@@ -812,8 +825,10 @@ def _build_anti_pattern_prompt(flags: list[str]) -> str:
         return ""
 
     lines: list[str] = [
-        "CRITICAL WRITING GUIDANCE: The previous draft was flagged for "
-        "these AI-detected patterns. Fix them in your rewrite:",
+        (
+            "CRITICAL WRITING GUIDANCE: The previous draft was flagged for "
+            "these AI-detected patterns. Fix them in your rewrite:"
+        ),
         "",
     ]
     for flag in flags:
@@ -860,7 +875,7 @@ async def _iterate_until_human_like(
         # Evaluate current content
         try:
             eval_response = await _call_evaluate(content)
-        except Exception:
+        except Exception:  # noqa: BLE001
             _log.warning("Evaluate call raised, using neutral fallback", exc_info=True)
             eval_response = {
                 "data": {
@@ -936,7 +951,7 @@ async def _iterate_until_human_like(
                 revised_prompt, content_type, tone, ct_schema,
                 sources=sources, skip_critique=True,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             _log.warning("Regeneration failed on attempt %d", attempt, exc_info=True)
             # Keep previous content and try again
             continue
@@ -986,7 +1001,7 @@ async def _generate_embedding(text: str) -> list[float] | None:
                 _log = logging.getLogger("saimon.embedding")
                 _log.warning("Embedding API returned %d: %s", resp.status_code, resp.text[:200])
                 return None
-    except Exception:
+    except Exception:  # noqa: BLE001
         import logging
         _log = logging.getLogger("saimon.embedding")
         _log.warning("Embedding generation failed", exc_info=True)
@@ -998,6 +1013,7 @@ async def _generate_embedding(text: str) -> list[float] | None:
 # ---------------------------------------------------------------------------
 
 _verify_mcp_url = _os.environ.get("VERIFY_MCP_URL", "http://saimon-verify:8001")
+_verify_mcp_api_key = _os.environ.get("VERIFY_MCP_API_KEY", _os.environ.get("SAIMON_API_KEY", ""))
 
 
 async def _call_verify_extract(content: str) -> dict[str, Any]:
@@ -1007,11 +1023,11 @@ async def _call_verify_extract(content: str) -> dict[str, Any]:
     a neutral fallback with empty claims list.
     """
     import httpx
+    import uuid as _uuid
 
-    api_key = _os.environ.get("SAIMON_API_KEY", "")
     url = f"{_verify_mcp_url}/tools/extract_claims"
     body = {
-        "trace_id": "evidence-loop-extract",
+        "trace_id": str(_uuid.uuid4()),
         "content_type": "verify",
         "parameters": {
             "source_text": content,
@@ -1024,7 +1040,7 @@ async def _call_verify_extract(content: str) -> dict[str, Any]:
             resp = await client.post(
                 url,
                 json=body,
-                headers={"X-Saimon-API-Key": api_key},
+                headers={"X-Saimon-API-Key": _verify_mcp_api_key},
             )
             if resp.status_code == 200:
                 return resp.json()
@@ -1035,7 +1051,7 @@ async def _call_verify_extract(content: str) -> dict[str, Any]:
                     resp.status_code,
                     resp.text[:200],
                 )
-    except Exception:
+    except Exception:  # noqa: BLE001
         _log = _logging.getLogger("saimon.generate.evidence")
         _log.warning("Verify extract call failed", exc_info=True)
 
@@ -1049,11 +1065,11 @@ async def _call_verify_claim(claim_text: str) -> dict[str, Any]:
     a neutral fallback.
     """
     import httpx
+    import uuid as _uuid
 
-    api_key = _os.environ.get("SAIMON_API_KEY", "")
     url = f"{_verify_mcp_url}/tools/verify_claim"
     body = {
-        "trace_id": "evidence-loop-verify",
+        "trace_id": str(_uuid.uuid4()),
         "content_type": "verify",
         "parameters": {
             "claim": claim_text,
@@ -1065,7 +1081,7 @@ async def _call_verify_claim(claim_text: str) -> dict[str, Any]:
             resp = await client.post(
                 url,
                 json=body,
-                headers={"X-Saimon-API-Key": api_key},
+                headers={"X-Saimon-API-Key": _verify_mcp_api_key},
             )
             if resp.status_code == 200:
                 return resp.json()
@@ -1076,7 +1092,7 @@ async def _call_verify_claim(claim_text: str) -> dict[str, Any]:
                     resp.status_code,
                     resp.text[:200],
                 )
-    except Exception:
+    except Exception:  # noqa: BLE001
         _log = _logging.getLogger("saimon.generate.evidence")
         _log.warning("Verify claim call failed", exc_info=True)
 
@@ -1098,6 +1114,7 @@ async def _persist_content_node(
     content_type: str,
     body: str,
     metadata: dict[str, Any] | None = None,
+    user_id: str | None = None,
 ) -> str | None:
     """Persist a generated content node to knowledge_graph_nodes.
 
@@ -1106,8 +1123,8 @@ async def _persist_content_node(
     if _db_pool is None:
         return None
 
-    import uuid
     import json
+    import uuid
 
     node_id = str(uuid.uuid4())
     embedding = await _generate_embedding(body)
@@ -1117,12 +1134,12 @@ async def _persist_content_node(
 
     try:
         await _db_pool.execute(
-            "INSERT INTO knowledge_graph_nodes (id, title, content_type, body, metadata, embedding) "
-            "VALUES ($1, $2, $3, $4, $5::jsonb, $6)",
-            node_id, title, content_type, body, meta_json, embedding,
+            "INSERT INTO knowledge_graph_nodes (id, title, content_type, body, metadata, embedding, user_id) "
+            "VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)",
+            node_id, title, content_type, body, meta_json, embedding, user_id,
         )
         return node_id
-    except Exception:
+    except Exception:  # noqa: BLE001
         import logging
         _log = logging.getLogger("saimon.kg")
         _log.warning("Failed to persist KG node %r", title, exc_info=True)
@@ -1139,8 +1156,9 @@ async def _auto_discover_sources(prompt: str) -> list[Any]:
     Best-effort: if search MCP is unreachable or returns no results,
     returns empty list — generation continues without sources.
     """
-    import httpx
     import uuid as _uuid
+
+    import httpx
 
     api_key = _os.environ.get("SAIMON_API_KEY", "")
     try:
@@ -1157,7 +1175,7 @@ async def _auto_discover_sources(prompt: str) -> list[Any]:
             if resp.status_code == 200:
                 data = resp.json()
                 return data.get("data", {}).get("resolved", [])
-    except Exception:  # noqa: BLE001 — best-effort
+    except Exception:  # noqa: BLE001, S110 — best-effort
         pass
     return []
 
@@ -1220,7 +1238,7 @@ async def generate_content(
                 })()
                 sources.append(src_obj)
                 citations.append(d.get('doi', d.get('identifier', '')))
-        except Exception:  # noqa: BLE001 — best-effort
+        except Exception:  # noqa: BLE001, S110 — best-effort
             pass
 
     # ── try LLM backend ──
@@ -1374,9 +1392,8 @@ async def generate_verified(
         # 4a: Persist observation as "unverified" initially
         if _db_pool is not None:
             try:
-                import uuid as _uuid
                 import hashlib as _hashlib
-                import json as _json_lib
+                import uuid as _uuid
 
                 obs_id = str(_uuid.uuid4())
                 source_hash = _hashlib.sha256(content.encode()).hexdigest()[:16]
@@ -1397,7 +1414,7 @@ async def generate_verified(
                     source_hash,
                 )
                 observation_ids.append(obs_id)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 obs_id = ""
         else:
             obs_id = ""
@@ -1406,7 +1423,7 @@ async def generate_verified(
         verify_resp = await _call_verify_claim(claim_text)
         verifications = verify_resp.get("data", {}).get("verifications", [])
         overall_verdict = verify_resp.get("data", {}).get("overall_verdict", "inconclusive")
-        overall_confidence = verify_resp.get("data", {}).get("overall_confidence", 0.5)
+        overall_confidence = verify_resp.get("data", {}).get("overall_confidence", 0.5)  # noqa: F841
 
         # 4c: Persist verifications and evidence links
         if _db_pool is not None and obs_id:
@@ -1436,7 +1453,7 @@ async def generate_verified(
                                VALUES ($1, $2, $3, $4, $5)""",
                             ev_id, ver_id, evidence_type, evidence_source, confidence,
                         )
-                except Exception:
+                except Exception:  # noqa: BLE001, S110
                     pass
 
             # 4d: Update observation verification status
@@ -1447,7 +1464,7 @@ async def generate_verified(
                     "verified" if overall_verdict != "inconclusive" else "unverified",
                     obs_id,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001, S110
                 pass
 
         claims_verified += 1
@@ -1469,6 +1486,75 @@ async def generate_verified(
     }
 
     resp = _ok(trace_id=payload.trace_id, data=generated)
+    logger.log_response(status=resp.status)
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# tool: store_content
+# ---------------------------------------------------------------------------
+
+@app.post("/tools/store_content")
+async def store_content(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    """Persist arbitrary content to the knowledge graph without verification.
+
+    Lightweight alternative to generate_verified — takes pre-written text
+    and inserts it into knowledge_graph_nodes with a pgvector embedding.
+    No LLM call, no claim extraction, no verification.
+    """
+    _require_auth(request)
+
+    title = payload.parameters.get("title")
+    content_type = payload.parameters.get("content_type", "note")
+    body = payload.parameters.get("body")
+    metadata = payload.parameters.get("metadata")
+    user_id = payload.parameters.get("user_id")  # optional — NULL = shared
+
+    logger = build_audit_logger(payload, request, _auth, "generate-mcp")
+    logger.log_request(
+        content_type=content_type,
+        tool="store_content",
+        title=title,
+        body_length=len(body) if body else 0,
+    )
+
+    if not title:
+        return _error(payload.trace_id, "Parameter 'title' is required.")
+    if not body:
+        return _error(payload.trace_id, "Parameter 'body' is required.")
+
+    if _db_pool is None:
+        return _error(payload.trace_id, "Database not available — cannot store content.")
+
+    # Resolve metadata: accept dict or JSON string
+    meta_dict: dict[str, Any] | None = None
+    if metadata:
+        if isinstance(metadata, dict):
+            meta_dict = metadata
+        elif isinstance(metadata, str):
+            try:
+                import json as _json
+                meta_dict = _json.loads(metadata)
+            except Exception:
+                meta_dict = {"raw": metadata}
+
+    node_id = await _persist_content_node(title, content_type, body, meta_dict, user_id)
+
+    if node_id is None:
+        logger.log_response(status="error")
+        return _error(payload.trace_id, "Failed to persist content node.")
+
+    resp = _ok(
+        trace_id=payload.trace_id,
+        data={
+            "node_id": node_id,
+            "title": title,
+            "content_type": content_type,
+            "body_length": len(body),
+        },
+    )
     logger.log_response(status=resp.status)
     return resp
 

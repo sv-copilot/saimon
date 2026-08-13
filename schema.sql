@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS knowledge_graph_nodes (
     body            TEXT NOT NULL DEFAULT '',
     metadata        JSONB NOT NULL DEFAULT '{}',
     embedding       VECTOR(1536),                  -- pgvector extension required
+    user_id         UUID REFERENCES users(id),     -- NULL = shared/public content
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );

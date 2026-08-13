@@ -30,6 +30,7 @@ class TestContentTypeProfiles:
             )
             assert ct["form_factor"] in (
                 "bullet", "short_paragraph", "paragraph", "section", "passage",
+                "narrative",
             ), f"{ct['name']}: unknown form_factor '{ct['form_factor']}'"
 
     def test_all_types_have_profile_key(self):
@@ -75,9 +76,18 @@ class TestContentTypeProfiles:
             ct["name"] for ct in CONTENT_TYPES
             if len(ct.get("banlist", [])) == 0
         ]
-        # Allow a few types to have empty banlists (e.g., summary)
-        assert len(empty_banlists) <= 2, (
-            f"Too many types with empty banlists: {empty_banlists}"
+        # World-building types (character, location, faction, timeline_event,
+        # lore_rule) legitimately have empty banlists — banlists are for
+        # marketing/correspondence content, not narrative world-building.
+        NARRATIVE_TYPES = {
+            "character", "location", "faction", "timeline_event", "lore_rule",
+        }
+        non_narrative_empty = [
+            name for name in empty_banlists
+            if name not in NARRATIVE_TYPES
+        ]
+        assert len(non_narrative_empty) <= 2, (
+            f"Too many non-narrative types with empty banlists: {non_narrative_empty}"
         )
 
 

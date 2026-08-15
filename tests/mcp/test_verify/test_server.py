@@ -459,8 +459,13 @@ class TestAbstention:
         # With real heuristic verifiers, confidence is high, so we test
         # the helper directly for the abstention path.
 
-    def test_high_confidence_returns_verdict(self, client, sample_trace_id, auth_headers):
-        """When overall_confidence >= 0.5, response includes overall_verdict."""
+    def test_stub_no_llm_abstains(self, client, sample_trace_id, auth_headers):
+        """Without an LLM backend, heuristic stubs abstain honestly.
+
+        The no-LLM verifiers return inconclusive with low confidence, so
+        the endpoint must abstain (abstained=True) rather than fabricate a
+        high-confidence verdict (commit 6766bab made the stubs honest).
+        """
         response = client.post(
             "/tools/verify_claim",
             json={
@@ -472,15 +477,8 @@ class TestAbstention:
         )
         data = response.json()
         assert data["status"] == "success"
-        assert "overall_verdict" in data["data"]
-        assert data["data"]["overall_verdict"] in (
-            "supported", "refuted", "inconclusive"
-        )
-        # Heuristic verifiers have confidence > 0.5, so abstained should not be present
-        # (or if present, it should be False)
-        abstained = data["data"].get("abstained")
-        if abstained is not None:
-            assert abstained is False
+        assert data["data"]["overall_verdict"] == "inconclusive"
+        assert data["data"].get("abstained") is True
 
 
 # ---------------------------------------------------------------------------

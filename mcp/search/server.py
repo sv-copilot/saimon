@@ -379,10 +379,8 @@ async def _search_web_serper(query: str, limit: int = 5) -> list[dict[str, Any]]
     Returns a list of result dicts with title, snippet, url, source.
     Returns empty list if SERPER_API_KEY is not configured (graceful degradation).
     """
-    if not _SERPER_API_KEY:
-        return []
-
-    # Resolve after the duplicate at module level
+    # Read the key live from the environment on every call — do not rely on
+    # the module-level cache, which is computed once at import time.
     serper_key = _os.environ.get("SERPER_API_KEY", "")
     if not serper_key:
         return []

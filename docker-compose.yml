@@ -204,5 +204,30 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # -----------------------------------------------------------------------
+  # domain-mcp — domain plugin loader + tool router (port 8008)
+  # -----------------------------------------------------------------------
+  domain-mcp:
+    build: .
+    image: ghcr.io/sv-copilot/saimon:dev
+    container_name: saimon-domain
+    command: domain-mcp
+    environment:
+      PORT: "8008"
+      SAIMON_API_KEY: ${SAIMON_DOMAIN_API_KEY:-sk-test-domain-key}
+      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+      SAIMON_DOMAIN_PLUGIN_PATHS: ${SAIMON_DOMAIN_PLUGIN_PATHS:-}
+    ports:
+      - "8008:8008"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8008/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
 volumes:
   pgdata:

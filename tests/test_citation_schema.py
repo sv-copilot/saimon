@@ -150,14 +150,13 @@ class TestPluginSkeleton:
         assert isinstance(PLUGIN, DomainPlugin)
 
     def test_tools_registered_by_legal_tools_slices(self):
-        # Tools 1-3 arrive in SAIMON-LEGAL-TOOLS-CORE-1 (#73).
+        # Tools arrive incrementally: 1-3 in SAIMON-LEGAL-TOOLS-CORE-1 (#73),
+        # 4-6 in SAIMON-LEGAL-TOOLS-AUTH-1 (#74).
         plugin = LegalPlugin()
         names = [tool.name for tool in plugin.tools()]
-        assert names == [
-            "legal.parse_citation",
-            "legal.reconcile_citators",
-            "legal.detect_implicit_overruling",
-        ]
+        assert "legal.parse_citation" in names
+        assert "legal.reconcile_citators" in names
+        assert "legal.detect_implicit_overruling" in names
 
     def test_list_migrations_returns_001(self):
         assert any("001_legal_cases.sql" in p for p in list_migrations())

@@ -10,6 +10,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugins.legal.adapters import (
+    CaselawAccessAdapter,
+    CourtListenerAdapter,
+    RecapAdapter,
+    ScotusMeritsAdapter,
+)
+from plugins.legal.content_types import CONTENT_TYPES as LEGAL_CONTENT_TYPES
 from plugins.legal.migrations import list_migrations
 from research_shared.domain_plugin import DomainPlugin
 
@@ -30,12 +37,15 @@ class LegalPlugin(DomainPlugin):
     domain = "legal"
 
     def adapters(self) -> list[Any]:
-        # Adapters register in SAIMON-LEGAL-ADAPTERS-1 (#72).
-        return []
+        return [
+            CourtListenerAdapter(),
+            RecapAdapter(),
+            CaselawAccessAdapter(),
+            ScotusMeritsAdapter(),
+        ]
 
     def content_types(self) -> list[dict[str, Any]]:
-        # Content types register in SAIMON-LEGAL-ADAPTERS-1 (#72).
-        return []
+        return LEGAL_CONTENT_TYPES
 
     def tools(self) -> list[Any]:
         # Legal tools arrive in #73-#75.
@@ -43,6 +53,20 @@ class LegalPlugin(DomainPlugin):
 
     def schema_migrations(self) -> list[str]:
         return schema_migrations()
+
+    def readiness(self) -> dict[str, Any]:
+        """Aggregate adapter readiness for the domain-mcp onboard helper."""
+        statuses = [a.readiness() for a in self.adapters()]
+        missing = [s for s in statuses if s.get("status") == "missing_config"]
+        if missing:
+            return {
+                "status": "missing_config",
+                "details": "; ".join(s["details"] for s in missing),
+            }
+        return {
+            "status": "ready",
+            "details": f"{len(statuses)} legal adapters configured",
+        }
 
 
 PLUGIN = LegalPlugin()

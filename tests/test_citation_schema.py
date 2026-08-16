@@ -149,10 +149,10 @@ class TestPluginSkeleton:
     def test_module_exposes_plugin(self):
         assert isinstance(PLUGIN, DomainPlugin)
 
-    def test_skeleton_has_no_adapters_content_types_tools(self):
+    def test_tools_remain_empty_until_legal_tools_slices(self):
+        # Adapters + content types arrive in SAIMON-LEGAL-ADAPTERS-1 (#72);
+        # tools arrive in #73-#75.
         plugin = LegalPlugin()
-        assert plugin.adapters() == []
-        assert plugin.content_types() == []
         assert plugin.tools() == []
 
     def test_list_migrations_returns_001(self):

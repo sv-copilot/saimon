@@ -18,6 +18,7 @@ from plugins.legal.adapters import (
 )
 from plugins.legal.content_types import CONTENT_TYPES as LEGAL_CONTENT_TYPES
 from plugins.legal.migrations import list_migrations
+from plugins.legal.weighting import persuasive_authority
 from research_shared.domain_plugin import DomainPlugin
 
 
@@ -53,6 +54,9 @@ class LegalPlugin(DomainPlugin):
 
     def schema_migrations(self) -> list[str]:
         return schema_migrations()
+
+    def weighting_models(self) -> dict[str, Any]:
+        return {"persuasive_authority": persuasive_authority}
 
     def readiness(self) -> dict[str, Any]:
         """Aggregate adapter readiness for the domain-mcp onboard helper."""

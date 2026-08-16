@@ -22,10 +22,14 @@ from plugins.legal.tools.authority_ladder import BuildAuthorityLadderTool
 from plugins.legal.tools.detect_implicit_overruling import (
     DetectImplicitOverrulingTool,
 )
+from plugins.legal.tools.doctrine_diffusion import MapDoctrineDiffusionTool
+from plugins.legal.tools.erie_guess import PredictErieGuessTool
 from plugins.legal.tools.parse_citation import ParseCitationTool
+from plugins.legal.tools.procedural_history import ExtractProceduralHistoryTool
 from plugins.legal.tools.rank_authority import RankAuthorityTool
 from plugins.legal.tools.reconcile_citators import ReconcileCitatorsTool
 from plugins.legal.tools.split_of_authority import DetectSplitOfAuthorityTool
+from plugins.legal.tools.usage_layer import BuildUsageLayerTool
 from plugins.legal.weighting import persuasive_authority
 from research_shared.domain_plugin import DomainPlugin
 
@@ -58,7 +62,8 @@ class LegalPlugin(DomainPlugin):
 
     def tools(self) -> list[Any]:
         # Legal tools 1-3 arrive in SAIMON-LEGAL-TOOLS-CORE-1 (#73);
-        # tools 4-6 arrive in SAIMON-LEGAL-TOOLS-AUTH-1 (#74).
+        # tools 4-6 arrive in SAIMON-LEGAL-TOOLS-AUTH-1 (#74); tools 7-10
+        # arrive in SAIMON-LEGAL-TOOLS-USAGE-1 (#75).
         return [
             ParseCitationTool(),
             ReconcileCitatorsTool(),
@@ -66,6 +71,10 @@ class LegalPlugin(DomainPlugin):
             RankAuthorityTool(),
             BuildAuthorityLadderTool(),
             DetectSplitOfAuthorityTool(),
+            MapDoctrineDiffusionTool(),
+            PredictErieGuessTool(),
+            ExtractProceduralHistoryTool(),
+            BuildUsageLayerTool(),
         ]
 
     def schema_migrations(self) -> list[str]:

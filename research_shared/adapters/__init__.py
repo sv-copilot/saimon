@@ -13,11 +13,11 @@ from research_shared.adapters.libgen import LibGenAdapter
 from research_shared.adapters.scihub import SciHubAdapter
 
 __all__ = [
-    "SourceIndexAdapter",
-    "SourceSearchResult",
+    "AcademicTorrentsAdapter",
     "AnnasArchiveAdapter",
+    "InternetArchiveAdapter",
     "LibGenAdapter",
     "SciHubAdapter",
-    "InternetArchiveAdapter",
-    "AcademicTorrentsAdapter",
+    "SourceIndexAdapter",
+    "SourceSearchResult",
 ]

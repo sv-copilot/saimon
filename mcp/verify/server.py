@@ -19,6 +19,12 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 
+from mcp.verify.writing_continuity import (
+    set_db_pool as set_writing_continuity_db_pool,
+)
+from mcp.verify.writing_continuity import (
+    verify_against_kg,
+)
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.hardening import apply_hardening, build_audit_logger
@@ -43,6 +49,7 @@ def set_db_pool(pool: Any | None) -> None:
     """Inject a DatabasePool for persisting verification results."""
     global _db_pool
     _db_pool = pool
+    set_writing_continuity_db_pool(pool)
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +192,17 @@ _TOOLS = [
             "max_claims": "int (optional, default 10)",
         },
     },
+    {
+        "name": "verify_against_kg",
+        "description": (
+            "Flag continuity breaks and character inconsistencies in a "
+            "scene against a universe knowledge graph."
+        ),
+        "parameters": {
+            "scene_text": "str (required)",
+            "universe_id": "str (required)",
+        },
+    },
 ]
 
 
@@ -193,6 +211,30 @@ async def list_tools(request: Request) -> dict[str, Any]:
     """Return the tool manifest for this MCP."""
     _require_auth(request)
     return {"tools": _TOOLS}
+
+
+# ---------------------------------------------------------------------------
+# tool: verify_against_kg (writing continuity)
+# ---------------------------------------------------------------------------
+
+@app.post("/tools/verify_against_kg")
+async def verify_against_kg_tool(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    _require_auth(request)
+
+    scene_text = payload.parameters.get("scene_text", "")
+    universe_id = payload.parameters.get("universe_id")
+    if not scene_text.strip():
+        return _error(payload.trace_id, "Parameter 'scene_text' is required.")
+    if not universe_id:
+        return _error(payload.trace_id, "Parameter 'universe_id' is required.")
+
+    findings = await verify_against_kg(scene_text, universe_id)
+    return _ok(
+        payload.trace_id,
+        data={"findings": findings, "total": len(findings)},
+    )
 
 
 # ---------------------------------------------------------------------------

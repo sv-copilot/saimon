@@ -149,11 +149,15 @@ class TestPluginSkeleton:
     def test_module_exposes_plugin(self):
         assert isinstance(PLUGIN, DomainPlugin)
 
-    def test_tools_remain_empty_until_legal_tools_slices(self):
-        # Adapters + content types arrive in SAIMON-LEGAL-ADAPTERS-1 (#72);
-        # tools arrive in #73-#75.
+    def test_tools_registered_by_legal_tools_slices(self):
+        # Tools 1-3 arrive in SAIMON-LEGAL-TOOLS-CORE-1 (#73).
         plugin = LegalPlugin()
-        assert plugin.tools() == []
+        names = [tool.name for tool in plugin.tools()]
+        assert names == [
+            "legal.parse_citation",
+            "legal.reconcile_citators",
+            "legal.detect_implicit_overruling",
+        ]
 
     def test_list_migrations_returns_001(self):
         assert any("001_legal_cases.sql" in p for p in list_migrations())

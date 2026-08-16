@@ -18,6 +18,11 @@ from plugins.legal.adapters import (
 )
 from plugins.legal.content_types import CONTENT_TYPES as LEGAL_CONTENT_TYPES
 from plugins.legal.migrations import list_migrations
+from plugins.legal.tools.detect_implicit_overruling import (
+    DetectImplicitOverrulingTool,
+)
+from plugins.legal.tools.parse_citation import ParseCitationTool
+from plugins.legal.tools.reconcile_citators import ReconcileCitatorsTool
 from plugins.legal.weighting import persuasive_authority
 from research_shared.domain_plugin import DomainPlugin
 
@@ -49,8 +54,13 @@ class LegalPlugin(DomainPlugin):
         return LEGAL_CONTENT_TYPES
 
     def tools(self) -> list[Any]:
-        # Legal tools arrive in #73-#75.
-        return []
+        # Legal tools 1-3 arrive in SAIMON-LEGAL-TOOLS-CORE-1 (#73);
+        # tools 4-6 arrive in SAIMON-LEGAL-TOOLS-AUTH-1 (#74).
+        return [
+            ParseCitationTool(),
+            ReconcileCitatorsTool(),
+            DetectImplicitOverrulingTool(),
+        ]
 
     def schema_migrations(self) -> list[str]:
         return schema_migrations()

@@ -228,3 +228,53 @@ def _state_of(reconciliation_output: Any) -> str | None:
     if isinstance(reconciliation_output, dict):
         return reconciliation_output.get("state")
     return getattr(reconciliation_output, "state", None)
+
+
+def persuasive_authority_breakdown(
+    case: dict[str, Any], context: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Combined score plus the per-factor breakdown it was computed from.
+
+    Mirrors :func:`persuasive_authority` (same context resolution, same factor
+    functions) but returns each factor's value, weight, and contribution so
+    callers can explain the score.  Must stay numerically consistent with
+    :func:`persuasive_authority` — the test suite pins the two together.
+    """
+    ctx = context or {}
+    meta = case.get("metadata", {}) if isinstance(case, dict) else {}
+
+    court = ctx.get("court") or meta.get("court", "")
+    target_jurisdiction = ctx.get("target_jurisdiction", "federal")
+    decided_date = meta.get("decided_date")
+    issue = ctx.get("issue", "")
+    reconciliation = ctx.get("reconciliation")
+
+    factors = {
+        "hierarchy": hierarchy(court, target_jurisdiction),
+        "density": density(case),
+        "recency": recency(decided_date),
+        "fit": fit(case, issue),
+        "treatment": treatment(reconciliation),
+    }
+    score = min(
+        1.0,
+        max(
+            0.0,
+            sum(WEIGHTS[name] * value for name, value in factors.items()),
+        ),
+    )
+    breakdown = [
+        {
+            "factor": name,
+            "value": round(value, 4),
+            "weight": WEIGHTS[name],
+            "contribution": round(WEIGHTS[name] * value, 4),
+        }
+        for name, value in factors.items()
+    ]
+    return {
+        "score": score,
+        "factors": factors,
+        "weights": dict(WEIGHTS),
+        "breakdown": breakdown,
+    }

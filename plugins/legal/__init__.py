@@ -18,11 +18,14 @@ from plugins.legal.adapters import (
 )
 from plugins.legal.content_types import CONTENT_TYPES as LEGAL_CONTENT_TYPES
 from plugins.legal.migrations import list_migrations
+from plugins.legal.tools.authority_ladder import BuildAuthorityLadderTool
 from plugins.legal.tools.detect_implicit_overruling import (
     DetectImplicitOverrulingTool,
 )
 from plugins.legal.tools.parse_citation import ParseCitationTool
+from plugins.legal.tools.rank_authority import RankAuthorityTool
 from plugins.legal.tools.reconcile_citators import ReconcileCitatorsTool
+from plugins.legal.tools.split_of_authority import DetectSplitOfAuthorityTool
 from plugins.legal.weighting import persuasive_authority
 from research_shared.domain_plugin import DomainPlugin
 
@@ -60,6 +63,9 @@ class LegalPlugin(DomainPlugin):
             ParseCitationTool(),
             ReconcileCitatorsTool(),
             DetectImplicitOverrulingTool(),
+            RankAuthorityTool(),
+            BuildAuthorityLadderTool(),
+            DetectSplitOfAuthorityTool(),
         ]
 
     def schema_migrations(self) -> list[str]:

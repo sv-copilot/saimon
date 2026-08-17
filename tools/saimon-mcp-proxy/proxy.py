@@ -154,7 +154,15 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "path": "/tools/generate_content",
         "body_template": {
             "content_type": "{content_type}",
-            "parameters": {"prompt": "{prompt}", "tone": "{tone}"},
+            "parameters": {
+                "prompt": "{prompt}",
+                "tone": "{tone}",
+                "content_type": "{content_type}",
+                "audience": "{audience}",
+                "max_length": "{max_length}",
+                "depth": "{depth}",
+                "format": "{format}",
+            },
         },
     },
     "saimon_list_content_types": {

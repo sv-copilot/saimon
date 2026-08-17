@@ -1,14 +1,17 @@
 """Integration tests for shadow library search pipeline.
 
 These test the end-to-end flow: search_shadow_libraries →
-deduplication → verify_claim with shadow sources.  They use the
-placeholder adapters (no live scraping).
+deduplication → verify_claim with shadow sources.  They hit the live
+Internet Archive (archive.org) adapter, so they are marked ``integration``
+and skipped in CI, where outbound network access is unavailable.
 """
 
 import uuid
 
 import pytest
 from fastapi.testclient import TestClient
+
+pytestmark = pytest.mark.integration
 
 
 # ---------------------------------------------------------------------------
@@ -30,12 +33,15 @@ def api_key() -> str:
 def client(api_key, monkeypatch):
     """Return a TestClient for the search-mcp FastAPI app."""
     import sys
+
     monkeypatch.setenv("SAIMON_API_KEY", api_key)
     sys.modules.pop("mcp.search.server", None)
     sys.modules.pop("mcp.search", None)
     from research_shared.shadow_registry import reset_shadow_registry
+
     reset_shadow_registry()
     from mcp.search.server import app
+
     return TestClient(app)
 
 
@@ -43,11 +49,13 @@ def client(api_key, monkeypatch):
 def verify_client(api_key, monkeypatch):
     """Return a TestClient for the verify-mcp FastAPI app."""
     import sys
+
     monkeypatch.setenv("SAIMON_API_KEY", api_key)
     monkeypatch.setenv("SHADOW_SOURCES_ENABLED", "true")
     sys.modules.pop("mcp.verify.server", None)
     sys.modules.pop("mcp.verify", None)
     from mcp.verify.server import app
+
     return TestClient(app)
 
 
@@ -101,9 +109,7 @@ class TestShadowSearchEndToEnd:
         identifiers = [r["identifier"] for r in data["data"]["results"]]
         assert len(identifiers) == len(set(identifiers))
 
-    def test_citations_present_in_response(
-        self, client, sample_trace_id, auth_headers
-    ):
+    def test_citations_present_in_response(self, client, sample_trace_id, auth_headers):
         """Response includes citations array."""
         response = client.post(
             "/tools/search_shadow_libraries",
@@ -132,13 +138,15 @@ class TestShadowSearchEndToEnd:
         )
         data = response.json()
         shadow_indexes = [
-            s for s in data["data"]["source_indexes"]
-            if s["type"] == "shadow_library"
+            s for s in data["data"]["source_indexes"] if s["type"] == "shadow_library"
         ]
         names = {s["identifier"] for s in shadow_indexes}
         assert names == {
-            "annas_archive", "libgen", "scihub",
-            "internet_archive", "academic_torrents",
+            "annas_archive",
+            "libgen",
+            "scihub",
+            "internet_archive",
+            "academic_torrents",
         }
 
     def test_verify_claim_with_shadow_sources(
@@ -161,10 +169,7 @@ class TestShadowSearchEndToEnd:
         data = response.json()
         assert data["status"] in ("success", "degraded")
         verifications = data["data"]["verifications"]
-        assert any(
-            v["method"] == "shadow_source_corroboration"
-            for v in verifications
-        )
+        assert any(v["method"] == "shadow_source_corroboration" for v in verifications)
 
     def test_verify_and_search_share_source_indexes(
         self, client, verify_client, sample_trace_id, auth_headers

@@ -165,6 +165,39 @@ class TestLLMBackendInjection:
         assert "AI governance" in prompt_arg
         assert "blog" in prompt_arg.lower()
 
+    def test_generate_content_honors_optional_controls(
+        self, monkeypatch, api_key, sample_trace_id, mock_llm
+    ):
+        """audience/max_length controls are rendered into the LLM prompt."""
+        from fastapi.testclient import TestClient
+
+        sys.modules.pop("mcp.generate.server", None)
+        monkeypatch.setenv("SAIMON_API_KEY", api_key)
+
+        import mcp.generate.server as server_mod
+        server_mod._llm_client = mock_llm
+        client = TestClient(server_mod.app)
+
+        response = client.post(
+            "/tools/generate_content",
+            json={
+                "trace_id": sample_trace_id,
+                "content_type": "blog_post",
+                "parameters": {
+                    "prompt": "Write about AI governance",
+                    "tone": "analytical",
+                    "audience": "legal researchers",
+                    "max_length": "1200",
+                },
+            },
+            headers={"X-Saimon-API-Key": api_key},
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+        prompt_arg = mock_llm.generate.call_args_list[0][0][0]
+        assert "legal researchers" in prompt_arg
+        assert "1200" in prompt_arg
+
     def test_generate_content_degraded_without_llm(
         self, monkeypatch, api_key, sample_trace_id
     ):

@@ -1186,6 +1186,25 @@ async def _auto_discover_sources(prompt: str) -> list[Any]:
 # tool: generate_content
 # ---------------------------------------------------------------------------
 
+def _build_extra_param_lines(parameters: dict[str, Any]) -> str:
+    """Render optional generation controls into prompt instruction lines.
+
+    ``audience``, ``max_length``, ``depth``, and ``format`` are advisory
+    controls callers may pass; they are rendered into the prompt so the LLM
+    honors them.
+    """
+    lines: list[str] = []
+    if parameters.get("audience"):
+        lines.append(f"- Audience: {parameters['audience']}")
+    if parameters.get("max_length"):
+        lines.append(f"- Maximum length: {parameters['max_length']} words")
+    if parameters.get("depth"):
+        lines.append(f"- Depth: {parameters['depth']}")
+    if parameters.get("format"):
+        lines.append(f"- Format: {parameters['format']}")
+    return "\n".join(lines)
+
+
 @app.post("/tools/generate_content")
 async def generate_content(
     payload: ResearchRequest, request: Request
@@ -1222,6 +1241,7 @@ async def generate_content(
 
     citations = [s.identifier for s in payload.sources] if payload.sources else []
     tone = payload.parameters.get("tone", "neutral")
+    extra_lines = _build_extra_param_lines(payload.parameters)
 
     # ── auto-discover sources from prompt text ──
     auto_discover = payload.parameters.get("auto_discover", True)
@@ -1242,6 +1262,10 @@ async def generate_content(
                 citations.append(d.get('doi', d.get('identifier', '')))
         except Exception:  # noqa: BLE001, S110 — best-effort
             pass
+
+    # ── append optional controls (audience/max_length/depth/format) ──
+    if extra_lines:
+        prompt = f"{prompt}\n\n{extra_lines}"
 
     # ── try LLM backend ──
     if _llm_client is not None:

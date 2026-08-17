@@ -16,6 +16,8 @@ from research_shared.adapters.base import SourceSearchResult
 
 logger = logging.getLogger("saimon.adapters.scihub")
 
+DEFAULT_TIMEOUT = 15.0
+
 
 class SciHubAdapter:
     """Adapter for Sci-Hub / SciDB.
@@ -38,33 +40,10 @@ class SciHubAdapter:
     ) -> list[SourceSearchResult]:
         """Search SciDB for *query* (delegated to SciDB subset).
 
-        Sci-Hub itself is not a search engine; this searches the
-        SciDB index that sits on top of Sci-Hub's corpus.
+        Sci-Hub itself is not a search engine; it is a DOI resolver.
+        Honest behaviour: return [] rather than fabricating results.
         """
-        if not query.strip():
-            return []
-
-        _ = (self._http, offset)  # reserved
-        logger.debug("SciDB search: %r (limit=%d)", query, limit)
-
-        results: list[SourceSearchResult] = []
-        for i in range(min(limit, 3)):
-            results.append(
-                SourceSearchResult(
-                    type="academic_paper",
-                    identifier=f"doi:10.1000/scihub-placeholder-{i}",
-                    doi=f"10.1000/scihub-placeholder-{i}",
-                    title=f"SciDB result {i + 1} for: {query}",
-                    authors=[f"Researcher {chr(65 + i)}"],
-                    year=2019 + i,
-                    source_index=self.name,
-                    source_index_label="Sci-Hub / SciDB",
-                    relevance_score=round(0.88 - i * 0.1, 2),
-                    full_text_available=True,
-                    file_type="pdf",
-                )
-            )
-        return results
+        return []
 
     # ── DOI resolution ────────────────────────────────────────────
 
@@ -72,26 +51,62 @@ class SciHubAdapter:
         """Resolve a DOI via Sci-Hub.
 
         Sci-Hub is the canonical DOI resolver for paywalled papers.
-        Given a DOI, it returns the full PDF.
-
-        In production, this would hit `sci-hub.ru/DOI_HERE` and
-        confirm the PDF is available.
+        Given a DOI, it returns the full PDF.  Issues a HEAD request
+        to `sci-hub.ru/DOI_HERE` and confirms the PDF is available;
+        returns None on any error or non-PDF response.
         """
         if not doi.strip():
             return None
 
-        _ = self._http  # reserved
         logger.debug("Sci-Hub DOI resolve: %r", doi)
+
+        download_url = f"https://sci-hub.ru/{doi}"
+
+        if self._http is None:
+            # No HTTP client — cannot verify availability, but the canonical
+            # Sci-Hub URL for a DOI is deterministic. Return an unverified
+            # result so callers still get the resolution URL.
+            return SourceSearchResult(
+                type="academic_paper",
+                identifier=f"doi:{doi}",
+                doi=doi,
+                title=f"Sci-Hub: {doi}",
+                authors=[],
+                source_index=self.name,
+                source_index_label="Sci-Hub / SciDB",
+                relevance_score=None,
+                full_text_available=False,
+                file_type=None,
+                download_url=download_url,
+            )
+
+        try:
+            resp = await self._http.head(
+                f"https://sci-hub.ru/{doi}", timeout=DEFAULT_TIMEOUT
+            )
+        except Exception:
+            logger.exception("Sci-Hub DOI resolve failed for %r", doi)
+            return None
+
+        if getattr(resp, "status_code", None) != 200:
+            return None
+
+        headers = getattr(resp, "headers", None) or {}
+        content_type = (
+            headers.get("content-type", "") if isinstance(headers, dict) else ""
+        )
+        if "pdf" not in content_type.lower():
+            return None
 
         return SourceSearchResult(
             type="academic_paper",
             identifier=f"doi:{doi}",
             doi=doi,
-            title=f"Sci-Hub paper for DOI: {doi}",
-            authors=["Unknown"],
+            title=f"Sci-Hub full text: {doi}",
+            authors=[],
             source_index=self.name,
             source_index_label="Sci-Hub / SciDB",
-            relevance_score=0.92,
+            relevance_score=None,
             full_text_available=True,
             file_type="pdf",
             download_url=f"https://sci-hub.ru/{doi}",

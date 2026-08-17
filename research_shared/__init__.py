@@ -7,6 +7,7 @@
 from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.db import DatabaseConfig, DatabaseError, DatabasePool
+from research_shared.domain_plugin import DomainPlugin, DomainTool
 from research_shared.envelope import (
     ErrorCode,
     ResearchRequest,
@@ -25,6 +26,8 @@ __all__ = [
     "DatabaseConfig",
     "DatabaseError",
     "DatabasePool",
+    "DomainPlugin",
+    "DomainTool",
     "ErrorCode",
     "LLMClient",
     "LLMConfig",

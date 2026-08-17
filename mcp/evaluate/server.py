@@ -16,6 +16,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 
+from mcp.evaluate.writing_style import evaluate_voice
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.hardening import apply_hardening, build_audit_logger
@@ -40,7 +41,9 @@ def set_llm_client(client: LLMClient | None) -> None:
 # application factory
 # ---------------------------------------------------------------------------
 
-_lifespan = build_lifespan("evaluate-mcp", llm_client_ref=lambda: _llm_client, llm_client_setter=set_llm_client)
+_lifespan = build_lifespan(
+    "evaluate-mcp", llm_client_ref=lambda: _llm_client, llm_client_setter=set_llm_client
+)
 app = FastAPI(title="evaluate-mcp", version="0.1.0", lifespan=_lifespan)
 
 # ---------------------------------------------------------------------------
@@ -114,10 +117,12 @@ _CRITERIA: dict[str, dict[str, Any]] = {
 # health
 # ---------------------------------------------------------------------------
 
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
     """Unauthenticated health check."""
     import logging as _logging
+
     _log = _logging.getLogger("saimon.health")
     llm_ok = False
     if _llm_client is not None:
@@ -162,6 +167,17 @@ _TOOLS = [
         "description": "Get the schema for a specific evaluation criterion.",
         "parameters": {"criterion_name": "str (required)"},
     },
+    {
+        "name": "evaluate_voice",
+        "description": (
+            "Score a scene's style/voice consistency against per-character "
+            "or POV voice profiles, with drift findings."
+        ),
+        "parameters": {
+            "scene_text": "str (required)",
+            "voice_profiles": "list[dict] (required)",
+        },
+    },
 ]
 
 
@@ -175,6 +191,7 @@ async def list_tools(request: Request) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 def _ok(
     trace_id: str,
@@ -191,7 +208,9 @@ def _ok(
 
 def _degraded(trace_id: str, data: Any = None) -> ResearchResponse:
     return ResearchResponse(
-        trace_id=trace_id, status="degraded", data=data,
+        trace_id=trace_id,
+        status="degraded",
+        data=data,
     )
 
 
@@ -269,7 +288,9 @@ from statistics import stdev as _stdev
 
 
 def _score_ai_detection(
-    content: str, _tone: str | None = None, content_type: str | None = None,
+    content: str,
+    _tone: str | None = None,
+    content_type: str | None = None,
 ) -> dict[str, Any]:
     """Score content for AI-generated fingerprints using deterministic heuristics.
 
@@ -295,25 +316,42 @@ def _score_ai_detection(
 
     # ---- Check 1: Template phrases ----
     _TEMPLATE_PHRASES = [
-        "delve into", "it's worth noting", "moreover", "furthermore",
-        "thus", "in conclusion", "as an AI", "it is important to note",
-        "crucial to understand", "plays a pivotal role",
+        "delve into",
+        "it's worth noting",
+        "moreover",
+        "furthermore",
+        "thus",
+        "in conclusion",
+        "as an AI",
+        "it is important to note",
+        "crucial to understand",
+        "plays a pivotal role",
         # Modern DeepSeek / GPT-4 era phrases
-        "it is worth noting that", "it should be noted that",
-        "it is essential to", "it is crucial to", "it is imperative that",
-        "a testament to", "in the realm of", "in the context of",
-        "it is widely acknowledged", "it is generally accepted",
-        "a compelling case", "a nuanced understanding",
-        "not only ... but also", "striking the right balance",
-        "in an era of", "in today's rapidly evolving",
-        "a delicate balance", "a double-edged sword",
-        "a paradigm shift", "at the forefront of",
-        "it is no exaggeration", "it goes without saying",
+        "it is worth noting that",
+        "it should be noted that",
+        "it is essential to",
+        "it is crucial to",
+        "it is imperative that",
+        "a testament to",
+        "in the realm of",
+        "in the context of",
+        "it is widely acknowledged",
+        "it is generally accepted",
+        "a compelling case",
+        "a nuanced understanding",
+        "not only ... but also",
+        "striking the right balance",
+        "in an era of",
+        "in today's rapidly evolving",
+        "a delicate balance",
+        "a double-edged sword",
+        "a paradigm shift",
+        "at the forefront of",
+        "it is no exaggeration",
+        "it goes without saying",
     ]
     content_lower = content.lower()
-    template_hits = sum(
-        1 for phrase in _TEMPLATE_PHRASES if phrase in content_lower
-    )
+    template_hits = sum(1 for phrase in _TEMPLATE_PHRASES if phrase in content_lower)
     check1 = max(0.0, 1.0 - (template_hits / sentence_count) * 2)
 
     # ---- Check 2: Over-hedging ----
@@ -328,8 +366,14 @@ def _score_ai_detection(
 
     # ---- Check 3: Adjective inflation ----
     _ADJECTIVES = [
-        "robust", "comprehensive", "crucial", "paramount",
-        "multifaceted", "holistic", "dynamic", "vibrant",
+        "robust",
+        "comprehensive",
+        "crucial",
+        "paramount",
+        "multifaceted",
+        "holistic",
+        "dynamic",
+        "vibrant",
     ]
     adj_hits = sum(1 for adj in _ADJECTIVES if adj in content_lower)
     adj_per_100 = adj_hits / max(1, word_count / 100)
@@ -338,12 +382,13 @@ def _score_ai_detection(
     # ---- Check 4: Bullet-point addiction (form-factor-aware) ----
     form_factor = _resolve_form_factor(content_type)
     bullet_lines = sum(
-        1 for line in lines
-        if line.strip().startswith(("-", "*"))
-        or _re.match(r"^\d+[.)]\s", line.strip())
+        1
+        for line in lines
+        if line.strip().startswith(("-", "*")) or _re.match(r"^\d+[.)]\s", line.strip())
     )
     non_bullet_lines = sum(
-        1 for line in lines
+        1
+        for line in lines
         if line.strip()
         and not line.strip().startswith(("-", "*"))
         and not _re.match(r"^\d+[.)]\s", line.strip())
@@ -382,9 +427,9 @@ def _score_ai_detection(
 
     # ---- Check 5: No personal stance (regex-based) ----
     _PERSONAL_REGEX = _re.compile(
-        r'\b(I|we|my|our|me|us)\s+(am|was|have|had|did|'
-        r'spent|found|fixed|debugged|tried|wrote|built|'
-        r'think|believe|noticed|discovered|feel|\w+ed|\w+ing)\b',
+        r"\b(I|we|my|our|me|us)\s+(am|was|have|had|did|"
+        r"spent|found|fixed|debugged|tried|wrote|built|"
+        r"think|believe|noticed|discovered|feel|\w+ed|\w+ing)\b",
         _re.IGNORECASE,
     )
     personal_hits = len(_PERSONAL_REGEX.findall(content))
@@ -392,8 +437,15 @@ def _score_ai_detection(
 
     # ---- Check 6: Formulaic transitions ----
     _TRANSITIONS = [
-        "first", "secondly", "third", "finally", "in conclusion",
-        "lastly", "to begin", "next", "additionally",
+        "first",
+        "secondly",
+        "third",
+        "finally",
+        "in conclusion",
+        "lastly",
+        "to begin",
+        "next",
+        "additionally",
     ]
     transition_hits = 0
     for para in paragraphs:
@@ -413,7 +465,9 @@ def _score_ai_detection(
         for w in top5:
             positions = [i for i, cw in enumerate(content_words) if cw == w]
             if len(positions) >= 3:
-                gaps = [positions[i + 1] - positions[i] for i in range(len(positions) - 1)]
+                gaps = [
+                    positions[i + 1] - positions[i] for i in range(len(positions) - 1)
+                ]
                 if len(gaps) >= 2:
                     try:
                         gap_mean = _mean(gaps)
@@ -421,7 +475,9 @@ def _score_ai_detection(
                         burst_variances.append(gap_var)
                     except Exception:  # noqa: BLE001
                         _log = _logging.getLogger("saimon.evaluate.ai_detection")
-                        _log.debug("Burstiness variance computation failed", exc_info=True)
+                        _log.debug(
+                            "Burstiness variance computation failed", exc_info=True
+                        )
         if burst_variances:
             avg_burst_var = _mean(burst_variances)
             # High variance (>3) = bursty/human, low variance (<1) = uniform/AI
@@ -455,7 +511,9 @@ def _score_ai_detection(
         try:
             sent_mean = _mean(sent_lengths)
             sent_std = _stdev(sent_lengths)
-            cv = sent_std / sent_mean if sent_mean > 0 else 0.0  # coefficient of variation
+            cv = (
+                sent_std / sent_mean if sent_mean > 0 else 0.0
+            )  # coefficient of variation
             # CV < 0.3 = suspiciously uniform (AI-like) → 0.0
             # CV > 0.9 = natural variation (human) → 1.0
             cv_score = min(1.0, max(0.0, (cv - 0.3) / 0.6))
@@ -471,9 +529,11 @@ def _score_ai_detection(
         check9 = 0.5  # neutral
 
     # ---- Check 10: Punctuation diversity ----
-    punctuation_chars = {c for c in content if c in (
-        ".", ",", ";", ":", "!", "?", "—", "–", "…", "(", ")", "\"", "'", "-"
-    )}
+    punctuation_chars = {
+        c
+        for c in content
+        if c in (".", ",", ";", ":", "!", "?", "—", "–", "…", "(", ")", '"', "'", "-")
+    }
     punct_per_100 = len(punctuation_chars) / max(1, word_count / 100)
     # >8 unique types per 100 words = human-like → 1.0
     # <3 unique types per 100 = AI-like → 0.0
@@ -483,23 +543,44 @@ def _score_ai_detection(
     # Detect impersonal/balanced/hedged tone — hallmark of AI-generated
     # corporate or explanatory text. High hedging + low personal stance = AI signal.
     _CORPORATE_NEUTRALITY = [
-        "can reduce", "may help", "offers several", "contribute to",
-        "without fundamentally", "these capabilities", "practical benefits",
-        "can lead to", "may result in", "has the potential",
-        "it is possible", "in many cases", "tends to",
-        "generally speaking", "for the most part", "in general",
-        "it can be argued", "one might argue", "some may argue",
-        "it is often said", "it is commonly believed",
-        "a wide range of", "a variety of", "various factors",
-        "several key", "multiple aspects", "numerous ways",
-        "can be seen as", "can be viewed as", "can be considered",
-        "it is reasonable to", "it is fair to say",
-        "strikes a balance", "finds a middle ground",
-        "on balance", "all things considered",
+        "can reduce",
+        "may help",
+        "offers several",
+        "contribute to",
+        "without fundamentally",
+        "these capabilities",
+        "practical benefits",
+        "can lead to",
+        "may result in",
+        "has the potential",
+        "it is possible",
+        "in many cases",
+        "tends to",
+        "generally speaking",
+        "for the most part",
+        "in general",
+        "it can be argued",
+        "one might argue",
+        "some may argue",
+        "it is often said",
+        "it is commonly believed",
+        "a wide range of",
+        "a variety of",
+        "various factors",
+        "several key",
+        "multiple aspects",
+        "numerous ways",
+        "can be seen as",
+        "can be viewed as",
+        "can be considered",
+        "it is reasonable to",
+        "it is fair to say",
+        "strikes a balance",
+        "finds a middle ground",
+        "on balance",
+        "all things considered",
     ]
-    corp_hits = sum(
-        1 for phrase in _CORPORATE_NEUTRALITY if phrase in content_lower
-    )
+    corp_hits = sum(1 for phrase in _CORPORATE_NEUTRALITY if phrase in content_lower)
     corp_per_100 = corp_hits / max(1, word_count / 100)
     # High corporate neutrality → AI-like (lower score)
     check11 = max(0.0, 1.0 - corp_per_100 * 2.0)
@@ -525,7 +606,20 @@ def _score_ai_detection(
 
     # ---- Aggregate (weighted) ----
     # template phrases 2x, adjective inflation 2x, rest 1x
-    checks = [check1, check2, check3, check4, check5, check6, check7, check8, check9, check10, check11, check12]
+    checks = [
+        check1,
+        check2,
+        check3,
+        check4,
+        check5,
+        check6,
+        check7,
+        check8,
+        check9,
+        check10,
+        check11,
+        check12,
+    ]
     weights = [2.0, 1.0, 2.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
     total_weight = sum(weights)
     overall = sum(c * w for c, w in zip(checks, weights)) / total_weight
@@ -579,7 +673,9 @@ def _score_ai_detection(
 
 
 def _score_criterion(
-    criterion: str, content: str, tone: str | None = None,
+    criterion: str,
+    content: str,
+    tone: str | None = None,
     content_type: str | None = None,
 ) -> dict[str, Any]:
     """Return a score for a single criterion (heuristic fallback)."""
@@ -611,7 +707,9 @@ def _score_criterion(
             "score": 0.72,
             "justification": f"Requested tone: {tone or 'neutral'}. Heuristic tone_match score.",
         },
-        "ai_detection": lambda: _score_ai_detection(content, tone, content_type=content_type),
+        "ai_detection": lambda: _score_ai_detection(
+            content, tone, content_type=content_type
+        ),
     }
 
     scorer = scorers.get(criterion)
@@ -651,6 +749,7 @@ def _compute_overall(
 # tool: evaluate_content
 # ---------------------------------------------------------------------------
 
+
 @app.post("/tools/evaluate_content")
 async def evaluate_content(
     payload: ResearchRequest, request: Request
@@ -667,6 +766,7 @@ async def evaluate_content(
         if isinstance(requested, str):
             # Try JSON decode first (handles '["clarity","conciseness"]')
             import json as _json
+
             try:
                 parsed = _json.loads(requested)
                 if isinstance(parsed, list):
@@ -724,20 +824,26 @@ async def evaluate_content(
         try:
             scores = await _llm_evaluate(llm_criteria, content, tone)
         except (LLMError, NotImplementedError, _json.JSONDecodeError):
-            scores = [_score_criterion(c, content, tone, content_type=payload.content_type) for c in llm_criteria]
+            scores = [
+                _score_criterion(c, content, tone, content_type=payload.content_type)
+                for c in llm_criteria
+            ]
     elif llm_criteria:
-        scores = [_score_criterion(c, content, tone, content_type=payload.content_type) for c in llm_criteria]
+        scores = [
+            _score_criterion(c, content, tone, content_type=payload.content_type)
+            for c in llm_criteria
+        ]
 
     # Always append ai_detection via deterministic heuristic if requested
     if has_ai_detection:
-        scores.append(_score_ai_detection(content, tone, content_type=payload.content_type))
+        scores.append(
+            _score_ai_detection(content, tone, content_type=payload.content_type)
+        )
 
     # Compute overall score
     overall = _compute_overall(scores)
 
-    citations = (
-        [s.identifier for s in payload.sources] if payload.sources else []
-    )
+    citations = [s.identifier for s in payload.sources] if payload.sources else []
 
     resp = _ok(
         trace_id=payload.trace_id,
@@ -748,9 +854,7 @@ async def evaluate_content(
         },
         citations=citations,
     )
-    logger.log_response(
-        status=resp.status, citations_count=len(resp.citations or [])
-    )
+    logger.log_response(status=resp.status, citations_count=len(resp.citations or []))
     return resp
 
 
@@ -758,10 +862,9 @@ async def evaluate_content(
 # tool: list_criteria
 # ---------------------------------------------------------------------------
 
+
 @app.post("/tools/list_criteria")
-async def list_criteria(
-    payload: ResearchRequest, request: Request
-) -> ResearchResponse:
+async def list_criteria(payload: ResearchRequest, request: Request) -> ResearchResponse:
     _require_auth(request)
 
     logger = build_audit_logger(payload, request, _auth, "evaluate-mcp")
@@ -785,6 +888,7 @@ async def list_criteria(
 # tool: get_criterion_detail
 # ---------------------------------------------------------------------------
 
+
 @app.post("/tools/get_criterion_detail")
 async def get_criterion_detail(
     payload: ResearchRequest, request: Request
@@ -793,9 +897,7 @@ async def get_criterion_detail(
 
     criterion_name = payload.parameters.get("criterion_name")
     if not criterion_name:
-        return _error(
-            payload.trace_id, "Parameter 'criterion_name' is required."
-        )
+        return _error(payload.trace_id, "Parameter 'criterion_name' is required.")
 
     logger = build_audit_logger(payload, request, _auth, "evaluate-mcp")
     logger.log_request(
@@ -809,10 +911,40 @@ async def get_criterion_detail(
         supported = ", ".join(sorted(_CRITERIA.keys()))
         return _error(
             payload.trace_id,
-            f"Unknown criterion: {criterion_name!r}. "
-            f"Supported: {supported}.",
+            f"Unknown criterion: {criterion_name!r}. Supported: {supported}.",
         )
 
     resp = _ok(trace_id=payload.trace_id, data=schema)
+    logger.log_response(status=resp.status)
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# tool: evaluate_voice (writing style/voice consistency)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/tools/evaluate_voice")
+async def evaluate_voice_tool(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    _require_auth(request)
+
+    scene_text = payload.parameters.get("scene_text")
+    voice_profiles = payload.parameters.get("voice_profiles")
+    if not scene_text or not str(scene_text).strip():
+        return _error(payload.trace_id, "Parameter 'scene_text' is required.")
+    if not isinstance(voice_profiles, list):
+        return _error(payload.trace_id, "Parameter 'voice_profiles' must be a list.")
+
+    logger = build_audit_logger(payload, request, _auth, "evaluate-mcp")
+    logger.log_request(
+        content_type=payload.content_type,
+        tool="evaluate_voice",
+        profile_count=len(voice_profiles),
+    )
+
+    result = evaluate_voice(str(scene_text), voice_profiles)
+    resp = _ok(payload.trace_id, data=result)
     logger.log_response(status=resp.status)
     return resp

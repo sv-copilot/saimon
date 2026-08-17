@@ -12,7 +12,7 @@ import importlib.util
 from pathlib import Path
 from typing import Any
 
-from conftest import pytest_collection_modifyitems
+from research_shared.pytest_hooks import skip_integration_tests_in_ci
 
 
 class FakeItem:
@@ -34,20 +34,20 @@ class TestCiIntegrationSkipHook:
         monkeypatch.setenv("CI", "true")
         plain = FakeItem(())
         integration = FakeItem(("integration",))
-        pytest_collection_modifyitems(None, [plain, integration])
+        skip_integration_tests_in_ci([plain, integration])
         assert plain.own_markers == []
         assert [marker.name for marker in integration.own_markers] == ["skip"]
 
     def test_does_not_skip_unmarked_tests_in_ci(self, monkeypatch):
         monkeypatch.setenv("CI", "true")
         plain = FakeItem(())
-        pytest_collection_modifyitems(None, [plain])
+        skip_integration_tests_in_ci([plain])
         assert plain.own_markers == []
 
     def test_does_not_skip_outside_ci(self, monkeypatch):
         monkeypatch.delenv("CI", raising=False)
         integration = FakeItem(("integration",))
-        pytest_collection_modifyitems(None, [integration])
+        skip_integration_tests_in_ci([integration])
         assert integration.own_markers == []
 
 

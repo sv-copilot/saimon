@@ -119,7 +119,16 @@ class TestDBBackendInjection:
         monkeypatch.setenv("SAIMON_API_KEY", api_key)
 
         mock_db.fetch.return_value = [
-            {"id": "kg-002", "title": "Related 1", "relationship": "cites"},
+            {
+                "edge_id": "e-001",
+                "relation_type": "cites",
+                "weight": 1.0,
+                "source_id": "kg-001",
+                "target_id": "kg-002",
+                "node_id": "kg-002",
+                "title": "Related 1",
+                "content_type": "research_note",
+            },
         ]
 
         import mcp.explore.server as server_mod
@@ -131,7 +140,7 @@ class TestDBBackendInjection:
             json={
                 "trace_id": sample_trace_id,
                 "content_type": "explore",
-                "parameters": {"item_id": "kg-001"},
+                "parameters": {"node_id": "kg-001"},
             },
             headers={"X-Saimon-API-Key": api_key},
         )

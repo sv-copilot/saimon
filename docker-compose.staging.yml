@@ -88,3 +88,25 @@ services:
     ports:
       - "127.0.0.1:8106:8006"
     restart: always
+
+  api-mcp:
+    image: ghcr.io/sv-copilot/saimon:rc
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 10m
+    ports:
+      - "127.0.0.1:8107:8007"
+    restart: always
+
+  domain-mcp:
+    image: ghcr.io/sv-copilot/saimon:rc
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 10m
+    ports:
+      - "127.0.0.1:8108:8008"
+    restart: always

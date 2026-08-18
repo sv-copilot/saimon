@@ -681,13 +681,14 @@ async def _call_evaluate(content: str) -> dict[str, Any]:
     returns a neutral fallback with score 0.5.
     """
     import os as _os
+    import uuid as _uuid
 
     import httpx
 
     api_key = _os.environ.get("SAIMON_API_KEY", "")
     url = f"{_evaluate_mcp_url}/tools/evaluate_content"
     body = {
-        "trace_id": "ai-detect-loop",
+        "trace_id": str(_uuid.uuid4()),
         "content_type": "evaluate",
         "parameters": {
             "content": content,

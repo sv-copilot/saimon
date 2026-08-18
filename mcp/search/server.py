@@ -592,7 +592,12 @@ async def list_source_indexes(
                     "trust_model": adapter.trust_model,
                     "status": "available",
                 })
-            resp = _ok(trace_id=payload.trace_id, data={"source_indexes": source_indexes_db})
+            # Dedupe by (type, identifier) — registry entries (appended last) win
+            deduped: dict[tuple[str, str], dict[str, Any]] = {}
+            for entry in source_indexes_db:
+                key = (entry.get("type"), entry.get("identifier"))
+                deduped[key] = entry
+            resp = _ok(trace_id=payload.trace_id, data={"source_indexes": list(deduped.values())})
             logger.log_response(status=resp.status)
             return resp
         except (DatabaseError, NotImplementedError):

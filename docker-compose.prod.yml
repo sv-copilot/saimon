@@ -240,6 +240,34 @@ services:
           cpus: "0.1"
           memory: "128M"
 
+  # -----------------------------------------------------------------------
+  # domain-mcp (port 8008) — domain plugin loader + tool router
+  # -----------------------------------------------------------------------
+  domain-mcp:
+    image: ghcr.io/sv-copilot/saimon:main
+    restart: always
+    environment:
+      PORT: "8008"
+      SAIMON_API_KEY: ${SAIMON_DOMAIN_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      SAIMON_DOMAIN_PLUGIN_PATHS: ${SAIMON_DOMAIN_PLUGIN_PATHS}
+      SAIMON_ENV: production
+    ports:
+      - "127.0.0.1:8108:8008"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "256M"
+        reservations:
+          cpus: "0.1"
+          memory: "128M"
+
 volumes:
   saimon_pgdata:
     external: true

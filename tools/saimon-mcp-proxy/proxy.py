@@ -422,7 +422,7 @@ async def _call_saimon(
                     del body["parameters"][key]
     body["trace_id"] = _make_trace_id()
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=120.0) as client:
         # Each MCP has its own API key; fall back to default
         svc_key = os.environ.get(
             f"SAIMON_{tool['service'].upper()}_KEY", API_KEY,

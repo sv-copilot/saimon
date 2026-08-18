@@ -92,6 +92,74 @@ CREATE INDEX IF NOT EXISTS idx_kg_edges_target
     ON knowledge_graph_edges(target_id);
 
 -- ---------------------------------------------------------------------------
+-- observations — verified facts extracted from sources/claims
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS observations (
+    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    claim_text             TEXT NOT NULL,
+    topic                  TEXT,
+    summary                TEXT,
+    confidence_0_1         REAL NOT NULL DEFAULT 0.5,
+    rationale              TEXT,
+    source_text_hash       TEXT,
+    primacy_distance_score REAL,
+    verification_status    TEXT,           -- 'verified' | 'unverified'
+    source_quality_tier    TEXT,           -- 'A' | 'B' | 'C' | 'unknown'
+    source_quality_score   REAL,
+    primacy_tier           TEXT,           -- 'primary' | 'secondary' | 'tertiary'
+    metadata               JSONB NOT NULL DEFAULT '{}',
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_observations_status
+    ON observations(verification_status);
+CREATE INDEX IF NOT EXISTS idx_observations_doi
+    ON observations((metadata->>'doi'));
+
+-- ---------------------------------------------------------------------------
+-- observation_verifications — one row per (observation, verification method)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS observation_verifications (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    observation_id  UUID NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+    verification_id UUID,                   -- nullable: generate path omits it
+    method          TEXT NOT NULL,
+    verdict         TEXT NOT NULL,
+    confidence      REAL NOT NULL DEFAULT 0.5,
+    explanation     TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_obs_verifications_obs
+    ON observation_verifications(observation_id);
+
+-- ---------------------------------------------------------------------------
+-- observation_verification_evidence — shadow-source / citation evidence links
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS observation_verification_evidence (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    verification_id     UUID NOT NULL,
+    evidence_type       TEXT NOT NULL,      -- 'citation' | 'shadow_source'
+    evidence_identifier TEXT NOT NULL,      -- DOI or source identifier
+    relevance_score     REAL NOT NULL DEFAULT 0.5,
+    metadata            JSONB NOT NULL DEFAULT '{}',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_obs_evidence_ver
+    ON observation_verification_evidence(verification_id);
+
+-- ---------------------------------------------------------------------------
+-- observation_relations — typed edges between observations
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS observation_relations (
+    source_id     UUID NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+    target_id     UUID NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+    relation_type TEXT NOT NULL,
+    label         TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(source_id, target_id, relation_type)
+);
+
+-- ---------------------------------------------------------------------------
 -- seed_requests — platform recovery / re-seed source
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS seed_requests (

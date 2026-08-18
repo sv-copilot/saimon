@@ -107,14 +107,14 @@ jobs:
           script: |
             set -e
             cd /data/planning/saimon
-            echo "Pulling latest dev image..."
+            echo "Pulling latest rc image..."
             docker compose -f docker-compose.yml -f docker-compose.staging.yml pull
             echo "Restarting services..."
             docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --force-recreate
             echo "Cleaning up old images..."
             docker image prune -f
             echo "Health checks..."
-            for port in 8101 8102 8103 8104 8105 8106; do
+            for port in 8101 8102 8103 8104 8105 8106 8107 8108; do
               for i in 1 2 3 4 5; do
                 status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/health 2>/dev/null || echo '000')
                 if [ "$status" = "200" ]; then
@@ -151,7 +151,7 @@ jobs:
             echo "Cleaning up old images..."
             docker image prune -f
             echo "Health checks..."
-            for port in 8101 8102 8103 8104 8105 8106; do
+            for port in 8101 8102 8103 8104 8105 8106 8107 8108; do
               for i in 1 2 3 4 5; do
                 status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/health 2>/dev/null || echo '000')
                 if [ "$status" = "200" ]; then

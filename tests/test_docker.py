@@ -426,6 +426,7 @@ class TestProductionCompose:
         expected = {
             "postgres", "search-mcp", "generate-mcp", "export-mcp",
             "evaluate-mcp", "verify-mcp", "explore-mcp", "api-mcp",
+            "domain-mcp",
         }
         assert set(services.keys()) == expected
 
@@ -436,7 +437,8 @@ class TestProductionCompose:
 
     def test_prod_services_have_resource_limits(self, prod_compose_yaml):
         for name in ["search-mcp", "generate-mcp", "export-mcp",
-                     "evaluate-mcp", "verify-mcp", "explore-mcp", "api-mcp"]:
+                     "evaluate-mcp", "verify-mcp", "explore-mcp", "api-mcp",
+                     "domain-mcp"]:
             svc = prod_compose_yaml["services"][name]
             deploy = svc.get("deploy", {})
             resources = deploy.get("resources", {})

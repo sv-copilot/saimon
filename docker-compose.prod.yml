@@ -11,15 +11,13 @@
 # - Restart policy set to "always".
 # - PostgreSQL data volume is persistent.
 
-version: "3.9"
-
 services:
   # -----------------------------------------------------------------------
   # PostgreSQL 16 — production hardening
   # -----------------------------------------------------------------------
   postgres:
     restart: always
-    ports:
+    ports: !override
       - "127.0.0.1:5433:5432"
     volumes:
       - saimon_pgdata:/var/lib/postgresql/data
@@ -49,7 +47,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       SAIMON_ENV: production
       SERPER_API_KEY: ${SERPER_API_KEY:-}
-    ports:
+    ports: !override
       - "127.0.0.1:8101:8001"
     logging:
       driver: json-file
@@ -84,7 +82,7 @@ services:
       SAIMON_AI_DETECT_MAX_RETRIES: ${SAIMON_AI_DETECT_MAX_RETRIES:-3}
       SAIMON_AI_DETECT_THRESHOLD: ${SAIMON_AI_DETECT_THRESHOLD:-0.5}
       SAIMON_ENV: production
-    ports:
+    ports: !override
       - "127.0.0.1:8102:8002"
     logging:
       driver: json-file
@@ -111,7 +109,7 @@ services:
       SAIMON_API_KEY: ${SAIMON_EXPORT_API_KEY}
       DATABASE_URL: ${DATABASE_URL}
       SAIMON_ENV: production
-    ports:
+    ports: !override
       - "127.0.0.1:8103:8003"
     logging:
       driver: json-file
@@ -140,7 +138,7 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       SAIMON_ENV: production
-    ports:
+    ports: !override
       - "127.0.0.1:8104:8004"
     logging:
       driver: json-file
@@ -170,7 +168,7 @@ services:
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       SAIMON_ENV: production
-    ports:
+    ports: !override
       - "127.0.0.1:8105:8005"
     logging:
       driver: json-file
@@ -197,7 +195,7 @@ services:
       SAIMON_API_KEY: ${SAIMON_EXPLORE_API_KEY}
       DATABASE_URL: ${DATABASE_URL}
       SAIMON_ENV: production
-    ports:
+    ports: !override
       - "127.0.0.1:8106:8006"
     logging:
       driver: json-file
@@ -224,7 +222,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       SAIMON_JWT_SECRET: ${SAIMON_JWT_SECRET}
       SAIMON_ENV: production
-    ports:
+    ports: !override
       - "127.0.0.1:8107:8007"
     logging:
       driver: json-file
@@ -252,7 +250,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       SAIMON_DOMAIN_PLUGIN_PATHS: ${SAIMON_DOMAIN_PLUGIN_PATHS}
       SAIMON_ENV: production
-    ports:
+    ports: !override
       - "127.0.0.1:8108:8008"
     logging:
       driver: json-file

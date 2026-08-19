@@ -21,6 +21,8 @@ Saimon staging runs on a Hetzner CX22 VPS in Nuremberg (hel1).
 | evaluate-mcp | 8104 | `/saimon/evaluate/*` |
 | verify-mcp | 8105 | `/saimon/verify/*` |
 | explore-mcp | 8106 | `/saimon/explore/*` |
+| api-mcp | 8107 | `/saimon/api/*` |
+| domain-mcp | 8108 | `/saimon/domain/*` |
 | PostgreSQL | 5433 | (internal only) |
 
 ## Deploy
@@ -42,7 +44,7 @@ docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --force
 
 ```bash
 ssh staging-rs
-for port in 8101 8102 8103 8104 8105 8106; do
+for port in 8101 8102 8103 8104 8105 8106 8107 8108; do
   curl -s http://127.0.0.1:$port/health
 done
 ```

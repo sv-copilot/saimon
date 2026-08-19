@@ -18,6 +18,26 @@ import pytest
 import yaml
 
 # ---------------------------------------------------------------------------
+# Compose `!override` tag support (HARNESS-FIX-2, 2026-08-19)
+# ---------------------------------------------------------------------------
+# docker-compose.prod.yml / .staging.yml now use `ports: !override` to REPLACE
+# the base port list instead of appending to it (Compose's default list merge
+# left the base `0.0.0.0:800X` binding in place). PyYAML's safe loader does not
+# know the compose-specific `!override` tag, so register a constructor that
+# returns the tagged node's value as-is.
+
+
+def _construct_override(loader, node):
+    if isinstance(node, yaml.SequenceNode):
+        return loader.construct_sequence(node, deep=True)
+    if isinstance(node, yaml.MappingNode):
+        return loader.construct_mapping(node, deep=True)
+    return loader.construct_scalar(node)
+
+
+yaml.SafeLoader.add_constructor("!override", _construct_override)
+
+# ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 

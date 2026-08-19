@@ -4,8 +4,6 @@
 # Stop all services:   docker compose down
 # View logs:            docker compose logs -f
 
-version: "3.9"
-
 services:
   # -----------------------------------------------------------------------
   # PostgreSQL 16 — shared knowledge graph

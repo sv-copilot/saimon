@@ -98,6 +98,31 @@ jobs:
     environment: staging
 
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Back up compose files
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -e
+            cd /data/planning/saimon
+            stamp=$(date +%Y%m%d)
+            cp -n docker-compose.yml docker-compose.yml.bak-$stamp
+            cp -n docker-compose.staging.yml docker-compose.staging.yml.bak-$stamp
+            cp -n schema.sql schema.sql.bak-$stamp
+
+      - name: Sync compose files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          source: "docker-compose.yml,docker-compose.staging.yml,schema.sql"
+          target: /data/planning/saimon/
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
@@ -135,6 +160,31 @@ jobs:
     environment: production
 
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Back up compose files
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            set -e
+            cd /data/saimon
+            stamp=$(date +%Y%m%d)
+            cp -n docker-compose.yml docker-compose.yml.bak-$stamp
+            cp -n docker-compose.prod.yml docker-compose.prod.yml.bak-$stamp
+            cp -n schema.sql schema.sql.bak-$stamp
+
+      - name: Sync compose files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          source: "docker-compose.yml,docker-compose.prod.yml,schema.sql"
+          target: /data/saimon/
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:

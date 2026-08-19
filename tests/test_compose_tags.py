@@ -143,3 +143,45 @@ def test_prod_domain_mcp_has_loopback_port(prod_config):
         if p.get("host_ip") == "127.0.0.1" and p.get("published") == "8108"
     ]
     assert loopback, "domain-mcp prod override missing loopback 127.0.0.1:8108"
+
+
+# ── SAIMON-STAGING-DEPLOY-FIX-2 / HARNESS-FIX-2 (2026-08-19) ──────────────
+# The prior tag-only test missed the real bug: Compose MERGES `ports` by
+# APPEND, so the loopback override did NOT remove the base `0.0.0.0:800X`
+# binding — every MCP was double-bound (public + loopback). The override now
+# uses `ports: !override` to REPLACE the base list, so the merged config must
+# contain ZERO non-loopback bindings.
+
+PUBLIC_HOST_IPS = (None, "0.0.0.0", "::")
+
+
+def _public_bindings(config: dict) -> list[tuple[str, str]]:
+    """Return [(service, published_port)] for any non-loopback host binding."""
+    bad = []
+    for name, svc in config.get("services", {}).items():
+        for p in svc.get("ports", []):
+            if p.get("host_ip") in PUBLIC_HOST_IPS:
+                bad.append((name, p.get("published")))
+    return bad
+
+
+def test_staging_no_public_port_bindings(staging_config):
+    bad = _public_bindings(staging_config)
+    assert bad == [], f"staging merged config has public port bindings: {bad}"
+
+
+def test_prod_no_public_port_bindings(prod_config):
+    bad = _public_bindings(prod_config)
+    assert bad == [], f"prod merged config has public port bindings: {bad}"
+
+
+def test_domain_mcp_has_command_in_staging(staging_config):
+    cmd = staging_config["services"]["domain-mcp"].get("command")
+    assert cmd, "domain-mcp missing command in staging merge"
+    assert "domain-mcp" in (cmd if isinstance(cmd, list) else [cmd])
+
+
+def test_domain_mcp_has_command_in_prod(prod_config):
+    cmd = prod_config["services"]["domain-mcp"].get("command")
+    assert cmd, "domain-mcp missing command in prod merge"
+    assert "domain-mcp" in (cmd if isinstance(cmd, list) else [cmd])

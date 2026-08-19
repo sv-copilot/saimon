@@ -38,6 +38,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY research_shared/ research_shared/
 COPY mcp/ mcp/
+COPY plugins/ plugins/
 
 # ---------------------------------------------------------------------------
 # set ownership to non-root user

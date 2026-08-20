@@ -45,19 +45,36 @@ class LLMConfig:
 
     api_key: str | None = None
     base_url: str = "https://api.deepseek.com/v1"
-    model: str = "deepseek-chat"
+    model: str = "deepseek-v4-pro"
     timeout: int = 60
     max_tokens: int = 4096
 
     @classmethod
-    def from_env(cls) -> LLMConfig:
-        """Build config from SAIMON_* and DEEPSEEK_* environment variables."""
+    def from_env(cls, route: str | None = None) -> LLMConfig:
+        """Build config from SAIMON_* and DEEPSEEK_* environment variables.
+
+        When ``route`` is provided, the model and max_tokens defaults resolve
+        from the canonical model-routing config; ``SAIMON_*`` env vars always
+        win as an override.
+        """
+        from research_shared import model_routing
+
+        routed_model = model_routing.DEFAULT_MODEL
+        routed_max_tokens = 4096
+        if route:
+            try:
+                tier = model_routing.resolve_route(route)
+                routed_model = tier.get("model", model_routing.DEFAULT_MODEL)
+                routed_max_tokens = tier.get("max_tokens", 4096)
+            except KeyError:
+                pass
+
         return cls(
             api_key=os.getenv("DEEPSEEK_API_KEY") or os.getenv("SAIMON_API_KEY"),
             base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
-            model=os.getenv("SAIMON_LLM_MODEL", "deepseek-chat"),
+            model=os.getenv("SAIMON_LLM_MODEL") or routed_model,
             timeout=int(os.getenv("SAIMON_LLM_TIMEOUT", "60")),
-            max_tokens=int(os.getenv("SAIMON_LLM_MAX_TOKENS", "4096")),
+            max_tokens=int(os.getenv("SAIMON_LLM_MAX_TOKENS") or routed_max_tokens),
         )
 
     def __repr__(self) -> str:

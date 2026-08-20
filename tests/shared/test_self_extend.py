@@ -17,7 +17,7 @@ class TestSelfExtendConfig:
     def test_defaults(self):
         """Default config has sensible values."""
         config = SelfExtendConfig()
-        assert config.llm_model == "deepseek-chat"
+        assert config.llm_model == "deepseek-v4-pro"
         assert config.research_temperature == 0.3
         assert config.max_research_tokens == 1024
         assert config.fallback_description == "Auto-registered content type."
@@ -25,7 +25,7 @@ class TestSelfExtendConfig:
     def test_from_env_defaults(self, clean_env):
         """With no env vars, uses defaults."""
         config = SelfExtendConfig.from_env()
-        assert config.llm_model == "deepseek-chat"
+        assert config.llm_model == "deepseek-v4-pro"
         assert config.research_temperature == 0.3
         assert config.fallback_description == "Auto-registered content type."
 
@@ -45,12 +45,12 @@ class TestSelfExtendConfig:
     def test_repr(self):
         """Config repr is informative."""
         config = SelfExtendConfig(
-            llm_model="deepseek-chat",
+            llm_model="deepseek-v4-pro",
             research_temperature=0.3,
             fallback_description="Test fallback.",
         )
         r = repr(config)
-        assert "deepseek-chat" in r
+        assert "deepseek-v4-pro" in r
         assert "0.3" in r
 
 

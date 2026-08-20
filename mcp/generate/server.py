@@ -965,31 +965,32 @@ async def _iterate_until_human_like(
 # ---------------------------------------------------------------------------
 
 async def _generate_embedding(text: str) -> list[float] | None:
-    """Generate a pgvector-compatible embedding via OpenAI API.
+    """Generate a pgvector-compatible embedding.
 
-    Uses text-embedding-ada-002 (1536 dimensions).  Returns None if
-    OPENAI_API_KEY is not set or the API call fails.
+    Backend, URL, model and dimensions are read from the embedding config
+    (env-overridable) — the hardcoded OpenAI URL/model/key is gone.  Returns
+    None if the API key is not set or the API call fails.
     """
-    import os
+    from research_shared.embedding import EmbeddingConfig
 
-    api_key = os.environ.get("OPENAI_API_KEY")
+    cfg = EmbeddingConfig.from_env()
+    api_key = _os.environ.get(cfg.api_key_env)
     if not api_key:
-        import logging
-        _log = logging.getLogger("saimon.embedding")
-        _log.warning("OPENAI_API_KEY not set — embeddings disabled.")
+        _log = _logging.getLogger("saimon.embedding")
+        _log.warning("%s not set — embeddings disabled.", cfg.api_key_env)
         return None
 
     try:
         import httpx
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                "https://api.openai.com/v1/embeddings",
+                cfg.url,
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "text-embedding-ada-002",
+                    "model": cfg.model,
                     "input": text[:8000],
                 },
                 timeout=30.0,
@@ -997,14 +998,11 @@ async def _generate_embedding(text: str) -> list[float] | None:
             if resp.status_code == 200:
                 data = resp.json()
                 return data["data"][0]["embedding"]
-            else:
-                import logging
-                _log = logging.getLogger("saimon.embedding")
-                _log.warning("Embedding API returned %d: %s", resp.status_code, resp.text[:200])
-                return None
+            _log = _logging.getLogger("saimon.embedding")
+            _log.warning("Embedding API returned %d: %s", resp.status_code, resp.text[:200])
+            return None
     except Exception:  # noqa: BLE001
-        import logging
-        _log = logging.getLogger("saimon.embedding")
+        _log = _logging.getLogger("saimon.embedding")
         _log.warning("Embedding generation failed", exc_info=True)
         return None
 

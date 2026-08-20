@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS knowledge_graph_nodes (
     content_type    TEXT NOT NULL REFERENCES content_type_registry(name),
     body            TEXT NOT NULL DEFAULT '',
     metadata        JSONB NOT NULL DEFAULT '{}',
-    embedding       VECTOR(1536),                  -- pgvector extension required
+    embedding       VECTOR(768),                  -- pgvector (nomic-embed-text)
     user_id         UUID REFERENCES users(id),     -- NULL = shared/public content
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -71,6 +71,8 @@ CREATE INDEX IF NOT EXISTS idx_kg_nodes_content_type
     ON knowledge_graph_nodes(content_type);
 CREATE INDEX IF NOT EXISTS idx_kg_nodes_created_at
     ON knowledge_graph_nodes(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_kg_nodes_embedding
+    ON knowledge_graph_nodes USING hnsw (embedding vector_cosine_ops);
 
 -- ---------------------------------------------------------------------------
 -- knowledge_graph_edges — relationships between nodes

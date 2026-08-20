@@ -270,6 +270,46 @@ def _error(trace_id: str, message: str) -> ResearchResponse:
 # tool: search_knowledge_graph
 # ---------------------------------------------------------------------------
 
+
+async def _vector_search(
+    query: str, limit: int, user_id: str | None
+) -> list[dict[str, Any]] | None:
+    """pgvector cosine-similarity search over knowledge graph embeddings.
+
+    Returns None when the query cannot be embedded (no local model) or no DB
+    pool is available, so callers fall back to keyword search.
+    """
+    from research_shared.embedding import EmbeddingConfig, embed_local
+
+    cfg = EmbeddingConfig.from_env()
+    vector = embed_local(query, cfg.model, cfg.dimensions)
+    if vector is None or _db_pool is None:
+        return None
+
+    select = (
+        "SELECT id, title, content_type, "
+        "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
+        "1 - (embedding <=> $1) as similarity "
+        "FROM knowledge_graph_nodes "
+        "WHERE embedding IS NOT NULL"
+    )
+    if user_id:
+        rows = await _db_pool.fetch(
+            select + " AND (user_id = $2 OR user_id IS NULL) "
+            "ORDER BY embedding <=> $1 LIMIT $3",
+            vector,
+            user_id,
+            limit,
+        )
+    else:
+        rows = await _db_pool.fetch(
+            select + " AND user_id IS NULL ORDER BY embedding <=> $1 LIMIT $2",
+            vector,
+            limit,
+        )
+    return [dict(row) for row in rows]
+
+
 @app.post("/tools/search_knowledge_graph")
 async def search_knowledge_graph(
     payload: ResearchRequest, request: Request
@@ -290,6 +330,20 @@ async def search_knowledge_graph(
     # ── try DB backend ──
     if _db_pool is not None:
         try:
+            # Try vector similarity first (ranked neighbors); fall back to
+            # keyword ILIKE when the query cannot be embedded.
+            vector_results = await _vector_search(query, limit, user_id)
+            if vector_results:
+                resp = _ok(
+                    trace_id=payload.trace_id,
+                    data={"results": vector_results, "total": len(vector_results)},
+                    citations=[str(r["id"]) for r in vector_results],
+                )
+                logger.log_response(
+                    status=resp.status, citations_count=len(resp.citations or [])
+                )
+                return resp
+
             # Split multi-word queries into per-word ILIKE conditions
             # so "Sprocket bartender" matches "Sprocket is a bartender"
             words = [w.strip() for w in query.split() if w.strip()]

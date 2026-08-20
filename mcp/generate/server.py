@@ -967,44 +967,21 @@ async def _iterate_until_human_like(
 async def _generate_embedding(text: str) -> list[float] | None:
     """Generate a pgvector-compatible embedding.
 
-    Backend, URL, model and dimensions are read from the embedding config
-    (env-overridable) — the hardcoded OpenAI URL/model/key is gone.  Returns
-    None if the API key is not set or the API call fails.
+    Uses the local `nomic-embed-text` (768-dim) backend via fastembed.  The
+    backend and dimensions are read from the embedding config.  Returns None
+    (fail-closed) if the model is unavailable.
     """
-    from research_shared.embedding import EmbeddingConfig
+    from research_shared.embedding import EmbeddingConfig, embed_local
 
     cfg = EmbeddingConfig.from_env()
-    api_key = _os.environ.get(cfg.api_key_env)
-    if not api_key:
-        _log = _logging.getLogger("saimon.embedding")
-        _log.warning("%s not set — embeddings disabled.", cfg.api_key_env)
-        return None
+    if cfg.backend == "local":
+        return embed_local(text, cfg.model, cfg.dimensions)
 
-    try:
-        import httpx
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                cfg.url,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": cfg.model,
-                    "input": text[:8000],
-                },
-                timeout=30.0,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                return data["data"][0]["embedding"]
-            _log = _logging.getLogger("saimon.embedding")
-            _log.warning("Embedding API returned %d: %s", resp.status_code, resp.text[:200])
-            return None
-    except Exception:  # noqa: BLE001
-        _log = _logging.getLogger("saimon.embedding")
-        _log.warning("Embedding generation failed", exc_info=True)
-        return None
+    _log = _logging.getLogger("saimon.embedding")
+    _log.warning(
+        "Embedding backend %r not implemented — embeddings disabled.", cfg.backend
+    )
+    return None
 
 
 # ---------------------------------------------------------------------------

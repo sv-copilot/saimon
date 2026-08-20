@@ -17,6 +17,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 
 from mcp.evaluate.writing_style import evaluate_voice
+from research_shared import model_routing
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.hardening import apply_hardening, build_audit_logger
@@ -268,7 +269,9 @@ async def _llm_evaluate(
         content=content[:3000],
         tone=tone or "neutral",
     )
-    raw = await _llm_client.generate(prompt)  # type: ignore[union-attr]
+    raw = await _llm_client.generate(
+        prompt, **model_routing.route_params("saimon.evaluate")
+    )  # type: ignore[union-attr]
     try:
         result = _json.loads(raw)
     except _json.JSONDecodeError:

@@ -1079,7 +1079,9 @@ async def verify_claim(
                 boosted_prompt = _build_risk_boosted_prompt(
                     base_prompt, claim, risk_items
                 )
-                raw = await _llm_client.generate(boosted_prompt)  # type: ignore[union-attr]
+                raw = await _llm_client.generate(
+                    boosted_prompt, **model_routing.route_params("saimon.verify")
+                )  # type: ignore[union-attr]
                 result = _json.loads(raw)
                 verifications = result.get("verifications", [])
             else:

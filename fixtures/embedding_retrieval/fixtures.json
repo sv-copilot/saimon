@@ -1,0 +1,20 @@
+{
+  "fixtures": [
+    {
+      "id": "retr-1",
+      "input": "Find documents about the offline eval harness.",
+      "expected": "doc-1 doc-2 doc-3",
+      "candidate": "doc-1 doc-3",
+      "token_usage": 9,
+      "latency_ms": 30.0
+    },
+    {
+      "id": "retr-2",
+      "input": "Find documents about model routing configuration.",
+      "expected": "doc-4 doc-5",
+      "candidate": "doc-4 doc-5",
+      "token_usage": 7,
+      "latency_ms": 25.0
+    }
+  ]
+}

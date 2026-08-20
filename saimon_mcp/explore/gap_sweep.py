@@ -13,7 +13,7 @@ All queries run against the database pool passed in. The function returns a
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +31,9 @@ DEFAULT_SPARSE_THRESHOLD = 1
 
 
 async def list_gaps(
-    db_pool: Optional[Any] = None,
+    db_pool: Any | None = None,
     sparse_threshold: int = DEFAULT_SPARSE_THRESHOLD,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Sweep the KG and return a list of gap dictionaries.
 
@@ -47,7 +47,7 @@ async def list_gaps(
     if db_pool is None:
         return []
 
-    gaps: List[Dict[str, Any]] = []
+    gaps: list[dict[str, Any]] = []
 
     try:
         async with db_pool.acquire() as conn:
@@ -137,7 +137,7 @@ async def list_gaps(
                     "severity": GAP_SEVERITIES["node_unverified"],
                     "count": int(unverified_nodes_count),
                 })
-    except Exception as e:
+    except Exception:
         logger.exception("gap sweep failed")
         # Preserve the "empty means clean" contract — do not raise.
         return []
@@ -145,7 +145,7 @@ async def list_gaps(
     return gaps
 
 
-async def saimon_list_gaps(db_pool: Optional[Any] = None) -> List[Dict[str, Any]]:
+async def saimon_list_gaps(db_pool: Any | None = None) -> list[dict[str, Any]]:
     """
     MCP tool handler for `saimon_list_gaps`.
 

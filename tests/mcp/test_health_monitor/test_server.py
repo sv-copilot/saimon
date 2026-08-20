@@ -1,6 +1,5 @@
 """Tests for health monitor — aggregation + quality metrics (#47)."""
 
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -22,7 +21,7 @@ class TestHealthAggregate:
         response = client.get("/health/aggregate")
         data = response.json()
         services = data["services"]
-        expected = {"search", "generate", "export", "evaluate", "verify", "explore"}
+        expected = {"search", "generate", "export", "evaluate", "verify", "explore", "crew"}
         assert set(services.keys()) == expected
 
     def test_aggregate_overall_status_is_valid(self, client):

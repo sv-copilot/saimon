@@ -100,6 +100,7 @@ class TestEntrypointScript:
         "evaluate-mcp",
         "verify-mcp",
         "explore-mcp",
+        "crew-mcp",
     ]
 
     MODULE_MAP: ClassVar = {
@@ -109,6 +110,7 @@ class TestEntrypointScript:
         "evaluate-mcp": "mcp.evaluate.server:app",
         "verify-mcp": "mcp.verify.server:app",
         "explore-mcp": "mcp.explore.server:app",
+        "crew-mcp": "mcp.crew.server:app",
     }
 
     PORT_MAP: ClassVar = {
@@ -118,6 +120,7 @@ class TestEntrypointScript:
         "evaluate-mcp": 8004,
         "verify-mcp": 8005,
         "explore-mcp": 8006,
+        "crew-mcp": 8009,
     }
 
     def test_entrypoint_exists(self):
@@ -446,7 +449,7 @@ class TestProductionCompose:
         expected = {
             "postgres", "search-mcp", "generate-mcp", "export-mcp",
             "evaluate-mcp", "verify-mcp", "explore-mcp", "api-mcp",
-            "domain-mcp",
+            "domain-mcp", "crew-mcp",
         }
         assert set(services.keys()) == expected
 

@@ -227,5 +227,35 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # -----------------------------------------------------------------------
+  # crew-mcp — CrewAI crews (port 8009)
+  # -----------------------------------------------------------------------
+  crew-mcp:
+    build: .
+    image: ghcr.io/sv-copilot/saimon:dev
+    container_name: saimon-crew
+    command: crew-mcp
+    environment:
+      PORT: "8009"
+      SAIMON_API_KEY: ${SAIMON_CREW_API_KEY:-sk-test-crew-key}
+      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      SEARCH_MCP_URL: ${SEARCH_MCP_URL:-http://search-mcp:8001}
+      VERIFY_MCP_URL: ${VERIFY_MCP_URL:-http://verify-mcp:8005}
+      EXPLORE_MCP_URL: ${EXPLORE_MCP_URL:-http://explore-mcp:8006}
+      PLANNING_CHECKOUT_PATH: ${PLANNING_CHECKOUT_PATH:-/data/planning/drake-governance}
+    ports:
+      - "8009:8009"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8009/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
 volumes:
   pgdata:

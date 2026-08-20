@@ -119,6 +119,11 @@ class SecretsConfig:
             ("DATABASE_URL", False),
         ],
         "explore-mcp": [("SAIMON_API_KEY", True), ("DATABASE_URL", False)],
+        "crew-mcp": [
+            ("SAIMON_API_KEY", True),
+            ("DEEPSEEK_API_KEY", False),
+            ("DATABASE_URL", False),
+        ],
     }
 
     # ------------------------------------------------------------------

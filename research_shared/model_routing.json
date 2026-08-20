@@ -55,6 +55,7 @@
     "saimon.generate": "reasoning",
     "saimon.verify": "reasoning",
     "saimon.evaluate": "classification",
-    "saimon.extract_claims": "mechanical"
+    "saimon.extract_claims": "mechanical",
+    "saimon.research": "reasoning"
   }
 }

@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from mcp.explore.gap_sweep import list_gaps, saimon_list_gaps, TOOL_SPEC, GAP_SEVERITIES
+from saimon_mcp.explore.gap_sweep import list_gaps, saimon_list_gaps, TOOL_SPEC, GAP_SEVERITIES
 
 
 class FakeConnection:

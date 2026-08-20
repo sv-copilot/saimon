@@ -14,6 +14,7 @@ All queries run against the database pool passed in. The function returns a
 
 import logging
 from typing import Any
+from research_shared.db import DatabaseError
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +118,7 @@ async def list_gaps(
                         "severity": GAP_SEVERITIES["search_empty"],
                         "count": int(empty_search_count),
                     })
-            except Exception as e:
+            except DatabaseError as e:
                 # The shadow search log table may not exist in some deployments.
                 # Log and continue — this gap is optional in the first pass.
                 logger.debug("shadow_search_log query skipped: %s", e)
@@ -137,7 +138,7 @@ async def list_gaps(
                     "severity": GAP_SEVERITIES["node_unverified"],
                     "count": int(unverified_nodes_count),
                 })
-    except Exception:
+    except DatabaseError:
         logger.exception("gap sweep failed")
         # Preserve the "empty means clean" contract — do not raise.
         return []

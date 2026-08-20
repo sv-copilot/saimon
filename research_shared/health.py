@@ -27,6 +27,7 @@ _DEFAULT_SERVICE_URLS: dict[str, str] = {
     "evaluate": "http://evaluate:8004",
     "verify": "http://verify:8005",
     "explore": "http://explore:8006",
+    "crew": "http://crew-mcp:8009",
 }
 
 

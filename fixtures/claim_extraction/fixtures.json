@@ -1,0 +1,20 @@
+{
+  "fixtures": [
+    {
+      "id": "claim-1",
+      "input": "The sky is blue and grass is green.",
+      "expected": "The sky is blue\nGrass is green",
+      "candidate": "The sky is blue\nGrass is green",
+      "token_usage": 12,
+      "latency_ms": 90.0
+    },
+    {
+      "id": "claim-2",
+      "input": "Paris is the capital of France and Berlin is the capital of Germany.",
+      "expected": "Paris is the capital of France\nBerlin is the capital of Germany",
+      "candidate": "Paris is the capital of France\nBerlin is the capital of Germany",
+      "token_usage": 18,
+      "latency_ms": 110.0
+    }
+  ]
+}

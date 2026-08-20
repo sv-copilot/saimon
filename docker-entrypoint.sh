@@ -2,14 +2,15 @@
 # docker-entrypoint.sh — CMD override dispatch for Saimon MCPs
 #
 # Usage: docker run --rm saimon <mcp-name>
-#   search-mcp    → uvicorn mcp.search.server:app --host 0.0.0.0 --port ${PORT:-8001}
-#   generate-mcp  → uvicorn mcp.generate.server:app --host 0.0.0.0 --port ${PORT:-8002}
-#   export-mcp    → uvicorn mcp.export.server:app --host 0.0.0.0 --port ${PORT:-8003}
-#   evaluate-mcp  → uvicorn mcp.evaluate.server:app --host 0.0.0.0 --port ${PORT:-8004}
-#   verify-mcp    → uvicorn mcp.verify.server:app --host 0.0.0.0 --port ${PORT:-8005}
-#   explore-mcp   → uvicorn mcp.explore.server:app --host 0.0.0.0 --port ${PORT:-8006}
-#   api-mcp       → uvicorn mcp.api.server:app --host 0.0.0.0 --port ${PORT:-8007}
-#   domain-mcp    → uvicorn mcp.domain.server:app --host 0.0.0.0 --port ${PORT:-8008}
+#   search-mcp    → uvicorn saimon_mcp.search.server:app --host 0.0.0.0 --port ${PORT:-8001}
+#   generate-mcp  → uvicorn saimon_mcp.generate.server:app --host 0.0.0.0 --port ${PORT:-8002}
+#   export-mcp    → uvicorn saimon_mcp.export.server:app --host 0.0.0.0 --port ${PORT:-8003}
+#   evaluate-mcp  → uvicorn saimon_mcp.evaluate.server:app --host 0.0.0.0 --port ${PORT:-8004}
+#   verify-mcp    → uvicorn saimon_mcp.verify.server:app --host 0.0.0.0 --port ${PORT:-8005}
+#   explore-mcp   → uvicorn saimon_mcp.explore.server:app --host 0.0.0.0 --port ${PORT:-8006}
+#   api-mcp       → uvicorn saimon_mcp.api.server:app --host 0.0.0.0 --port ${PORT:-8007}
+#   domain-mcp    → uvicorn saimon_mcp.domain.server:app --host 0.0.0.0 --port ${PORT:-8008}
+#   crew-mcp      → uvicorn saimon_mcp.crew.server:app --host 0.0.0.0 --port ${PORT:-8009}
 
 set -euo pipefail
 
@@ -24,40 +25,44 @@ fi
 # Map MCP name → module path + default port
 case "$MCP" in
     search-mcp)
-        MODULE="mcp.search.server:app"
+        MODULE="saimon_mcp.search.server:app"
         DEFAULT_PORT=8001
         ;;
     generate-mcp)
-        MODULE="mcp.generate.server:app"
+        MODULE="saimon_mcp.generate.server:app"
         DEFAULT_PORT=8002
         ;;
     export-mcp)
-        MODULE="mcp.export.server:app"
+        MODULE="saimon_mcp.export.server:app"
         DEFAULT_PORT=8003
         ;;
     evaluate-mcp)
-        MODULE="mcp.evaluate.server:app"
+        MODULE="saimon_mcp.evaluate.server:app"
         DEFAULT_PORT=8004
         ;;
     verify-mcp)
-        MODULE="mcp.verify.server:app"
+        MODULE="saimon_mcp.verify.server:app"
         DEFAULT_PORT=8005
         ;;
     explore-mcp)
-        MODULE="mcp.explore.server:app"
+        MODULE="saimon_mcp.explore.server:app"
         DEFAULT_PORT=8006
         ;;
     api-mcp)
-        MODULE="mcp.api.server:app"
+        MODULE="saimon_mcp.api.server:app"
         DEFAULT_PORT=8007
         ;;
     domain-mcp)
-        MODULE="mcp.domain.server:app"
+        MODULE="saimon_mcp.domain.server:app"
         DEFAULT_PORT=8008
+        ;;
+    crew-mcp)
+        MODULE="saimon_mcp.crew.server:app"
+        DEFAULT_PORT=8009
         ;;
     *)
         echo "Unknown MCP: $MCP" >&2
-        echo "Available: search-mcp generate-mcp export-mcp evaluate-mcp verify-mcp explore-mcp api-mcp domain-mcp" >&2
+        echo "Available: search-mcp generate-mcp export-mcp evaluate-mcp verify-mcp explore-mcp api-mcp domain-mcp crew-mcp" >&2
         exit 1
         ;;
 esac

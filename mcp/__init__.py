@@ -1,1 +1,0 @@
-# mcp — MCP service packages

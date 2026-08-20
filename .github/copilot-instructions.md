@@ -17,13 +17,13 @@ When asked to research, verify, or find sources, use the Researcher agent
 Follow the AGENTS.md contract for slice-based development:
 - Branch from `ai-dev` as `slice/NAME`
 - TDD: RED → GREEN → REFACTOR → PROVE
-- Pre-PR: `python3 -m pytest tests/ -q && ruff check research_shared/ mcp/`
+- Pre-PR: `python3 -m pytest tests/ -q && ruff check research_shared/ saimon_mcp/`
 - Squash-merge to `ai-dev`
 
 ## Architecture
 
 - `research_shared/` — shared library (envelope, llm, db, auth, audit, lifespan, etc.)
-- `mcp/search/` through `mcp/explore/` — 6 MCP FastAPI servers
+- `saimon_mcp/search/` through `saimon_mcp/explore/` — 6 MCP FastAPI servers
 - `tools/saimon-mcp-proxy/` — MCP JSON-RPC proxy for VS Code integration
 - `schema.sql` — PostgreSQL schema with pgvector
 - `.github/agents/` — Custom agent definitions

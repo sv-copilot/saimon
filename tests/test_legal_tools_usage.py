@@ -266,10 +266,10 @@ class TestDomainMcpRouting:
         monkeypatch.setenv("SAIMON_DOMAIN_PLUGIN_PATHS", "")
         import sys
 
-        sys.modules.pop("mcp.domain.server", None)
+        sys.modules.pop("saimon_mcp.domain.server", None)
         from fastapi.testclient import TestClient
 
-        from mcp.domain import server as srv
+        from saimon_mcp.domain import server as srv
 
         loaded = srv._load_plugins(["plugins.legal"])
         assert "legal" in loaded

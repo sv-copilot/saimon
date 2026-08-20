@@ -1,10 +1,17 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-pydantic[email]==2.10.4
-openai==1.59.6
+pydantic[email]>=2.11.9,<3.0.0
+openai>=1.83.0,<2.0.0
 asyncpg==0.30.0
 structlog==24.4.0
 httpx==0.28.1
+fastembed>=0.4.0
+# crewai 1.14.1 declares `mcp~=1.26.0` (verified from PyPI metadata).
+# Pinned explicitly so pip cannot drift the mcp version crewai depends on
+# (SAIMON-CREW-LLM-FIX-1, #190). The saimon service package is `saimon_mcp`,
+# so the PyPI `mcp` distribution is never shadowed.
+mcp>=1.26.0,<2.0.0
+crewai>=1.0.0,<2.0.0
 beautifulsoup4>=4.12
 pyjwt==2.10.1
 bcrypt==4.2.1

@@ -86,8 +86,8 @@ Saimon generates 14 content types with 5 voice profiles:
 
 ```bash
 python3 -m pytest tests/ -q          # 616 tests
-ruff check research_shared/ mcp/     # Lint
-python3 -m compileall research_shared/ mcp/  # Compile check
+ruff check research_shared/ saimon_mcp/     # Lint
+python3 -m compileall research_shared/ saimon_mcp/  # Compile check
 ```
 
 ## Documentation

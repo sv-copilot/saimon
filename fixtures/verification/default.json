@@ -1,0 +1,5 @@
+{
+  "provider": "fixture",
+  "candidate_key": "candidate",
+  "success_threshold": 0.5
+}

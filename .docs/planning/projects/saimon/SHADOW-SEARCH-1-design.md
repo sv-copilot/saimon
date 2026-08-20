@@ -510,7 +510,7 @@ we add `bibliography` as a new type and extend `white_paper` and
 
 ## 7. `list_sources` → `list_source_indexes` Fix
 
-### 7.1 Changes to `mcp/search/server.py`
+### 7.1 Changes to `saimon_mcp/search/server.py`
 
 **New endpoint (primary):**
 
@@ -612,8 +612,8 @@ Rename to `get_source_index_detail` with same deprecation pattern.
 | `research_shared/envelope.py` | Add `SourceSearchResult` model |
 | `research_shared/shadow_registry.py` | **NEW** — Source index registry with adapter discovery |
 | `research_shared/adapters/` | **NEW** — Adapter dir: `base.py`, `annas_archive.py`, `libgen.py`, `scihub.py`, `internet_archive.py`, `academic_torrents.py` |
-| `mcp/search/server.py` | Add `search_shadow_libraries` tool; rename `list_sources`→`list_source_indexes`; add shadow source status to index listing |
-| `mcp/verify/server.py` | Add `shadow_source_corroboration` method; add `use_shadow_sources` param to `verify_claim` |
+| `saimon_mcp/search/server.py` | Add `search_shadow_libraries` tool; rename `list_sources`→`list_source_indexes`; add shadow source status to index listing |
+| `saimon_mcp/verify/server.py` | Add `shadow_source_corroboration` method; add `use_shadow_sources` param to `verify_claim` |
 | `research_shared/seed_data.py` | Add `bibliography` content type; extend `white_paper`, `case_study` shadow params |
 | `schema.sql` | Add `shadow_sources_cache` table |
 
@@ -712,8 +712,8 @@ NEW:
 
 MODIFY:
   research_shared/envelope.py     # Add SourceSearchResult (or put in adapters/base.py)
-  mcp/search/server.py            # +search_shadow_libraries, rename list_sources→list_source_indexes
-  mcp/verify/server.py            # +shadow_source_corroboration, +use_shadow_sources
+  saimon_mcp/search/server.py            # +search_shadow_libraries, rename list_sources→list_source_indexes
+  saimon_mcp/verify/server.py            # +shadow_source_corroboration, +use_shadow_sources
   research_shared/seed_data.py    # +bibliography content type, extend white_paper/case_study
   schema.sql                      # +shadow_sources_cache table
   AGENTS.md                       # Update Slice Inventory
@@ -737,8 +737,8 @@ MODIFY:
 ```bash
 # Pre-PR:
 python3 -m pytest tests/ -q
-python3 -m compileall research_shared/ mcp/
-ruff check research_shared/ mcp/
+python3 -m compileall research_shared/ saimon_mcp/
+ruff check research_shared/ saimon_mcp/
 ```
 
 ---

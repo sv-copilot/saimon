@@ -288,3 +288,45 @@ class TestHelperTools:
         assert body["data"]["queue_id"]
         # secret values must be scrubbed before logging/storage
         assert "sk-secret-value" not in str(body)
+
+
+class TestStartupPluginLoading:
+    """SAIMON-DOMAIN-PLUGIN-LOAD-1: plugins.legal must register at startup.
+
+    ``_load_plugins()`` was defined but never invoked at startup, so domain-mcp
+    served every request with an empty plugin registry (staging showed
+    ``plugins: 0`` and ``legal.parse_citation`` returned
+    ``Unknown domain plugin``). These tests pin that importing the server module
+    with ``SAIMON_DOMAIN_PLUGIN_PATHS=plugins.legal`` registers the legal domain.
+    """
+
+    def _fresh_server_with_legal(self, monkeypatch):
+        monkeypatch.setenv("SAIMON_API_KEY", "sk-test-domain-key")
+        monkeypatch.setenv("SAIMON_DOMAIN_PLUGIN_PATHS", "plugins.legal")
+        # Force a fresh import: drop the cached submodule AND the parent
+        # package's ``server`` attribute (``from package import submodule``
+        # returns the cached attribute otherwise).
+        sys.modules.pop("mcp.domain.server", None)
+        import mcp.domain
+
+        if hasattr(mcp.domain, "server"):
+            delattr(mcp.domain, "server")
+        from mcp.domain import server as srv
+
+        return srv
+
+    def test_legal_registers_at_import(self, monkeypatch):
+        srv = self._fresh_server_with_legal(monkeypatch)
+        assert "legal" in srv._plugins
+
+    def test_list_plugins_returns_legal(self, monkeypatch):
+        srv = self._fresh_server_with_legal(monkeypatch)
+        client = TestClient(srv.app)
+        response = client.post(
+            "/tools/list_plugins",
+            json={"trace_id": str(uuid.uuid4()), "content_type": "domain", "parameters": {}},
+            headers={"X-Saimon-API-Key": "sk-test-domain-key"},
+        )
+        assert response.status_code == 200
+        domains = [p["domain"] for p in response.json()["data"]["plugins"]]
+        assert "legal" in domains

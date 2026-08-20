@@ -160,6 +160,14 @@ _lifespan = build_lifespan(
 )
 app = FastAPI(title="domain-mcp", version="0.1.0", lifespan=_lifespan)
 
+# SAIMON-DOMAIN-PLUGIN-LOAD-1: wire plugin loading at startup. The loader was
+# previously defined but never invoked, so the server ran with an empty plugin
+# registry (staging showed plugins: 0 and legal.* calls returned
+# "Unknown domain plugin"). Load at module import so plugins register before
+# any request is served. Missing/typo'd modules are logged "not installed" and
+# never crash startup (existing fail-safe).
+_load_plugins()
+
 _auth_config = AuthConfig.from_env()
 _auth = AuthValidator(_auth_config)
 apply_hardening(app, _auth)

@@ -1,4 +1,4 @@
-"""Tests for mcp.verify.writing_continuity — continuity verification.
+"""Tests for saimon_mcp.verify.writing_continuity — continuity verification.
 
 The primitive compares a scene against a universe knowledge graph and flags
 continuity breaks (e.g. a character acting after death).  Tests inject a
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp.verify.writing_continuity import extract_entities, verify_against_kg
+from saimon_mcp.verify.writing_continuity import extract_entities, verify_against_kg
 
 # Fixture universe: Mara Voss is deceased, Jonas Reed is alive.
 FIXTURE_UNIVERSE: dict[str, dict[str, Any]] = {

@@ -1,4 +1,4 @@
-"""Tests for mcp.evaluate.writing_style — style/voice consistency (slice #77).
+"""Tests for saimon_mcp.evaluate.writing_style — style/voice consistency (slice #77).
 
 The primitive scores a scene against per-character/POV voice profiles and
 returns drift findings that cite the offending line and the expected profile.
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 
-from mcp.evaluate.writing_style import evaluate_voice
+from saimon_mcp.evaluate.writing_style import evaluate_voice
 
 PROFILES = [
     {
@@ -64,10 +64,10 @@ class TestEvaluateVoice:
 class TestEvaluateVoiceRoute:
     def test_exposed_as_evaluate_mcp_tool(self, monkeypatch):
         monkeypatch.setenv("SAIMON_API_KEY", "sk-test-evaluate-key")
-        sys.modules.pop("mcp.evaluate.server", None)
+        sys.modules.pop("saimon_mcp.evaluate.server", None)
         from fastapi.testclient import TestClient
 
-        from mcp.evaluate.server import app
+        from saimon_mcp.evaluate.server import app
 
         client = TestClient(app)
         response = client.post(
@@ -90,10 +90,10 @@ class TestEvaluateVoiceRoute:
 
     def test_requires_scene_text(self, monkeypatch):
         monkeypatch.setenv("SAIMON_API_KEY", "sk-test-evaluate-key")
-        sys.modules.pop("mcp.evaluate.server", None)
+        sys.modules.pop("saimon_mcp.evaluate.server", None)
         from fastapi.testclient import TestClient
 
-        from mcp.evaluate.server import app
+        from saimon_mcp.evaluate.server import app
 
         client = TestClient(app)
         response = client.post(

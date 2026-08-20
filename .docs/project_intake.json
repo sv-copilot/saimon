@@ -42,7 +42,7 @@
   ],
   "validation": {
     "test": "python3 -m pytest tests/ -q",
-    "lint": "ruff check research_shared/ mcp/",
+    "lint": "ruff check research_shared/ saimon_mcp/",
     "build": "docker build -t saimon .",
     "smoke": "docker run --rm saimon search-mcp --health-check"
   }

@@ -37,7 +37,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY research_shared/ research_shared/
-COPY mcp/ mcp/
+COPY saimon_mcp/ saimon_mcp/
 COPY plugins/ plugins/
 
 # ---------------------------------------------------------------------------

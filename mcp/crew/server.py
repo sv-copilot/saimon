@@ -150,3 +150,46 @@ async def research_tool(payload: ResearchRequest, request: Request) -> ResearchR
     return ResearchResponse(
         trace_id=payload.trace_id, status="success", data=result
     )
+
+
+@app.post("/tools/extract_claims")
+async def extract_claims_tool(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    """crew.extract_claims@v1 — falsifiable claim extraction."""
+    _require_auth(request)
+    import json as _json
+
+    from mcp.crew.claim_extract import run_extract_claims
+
+    source_text = str(payload.parameters.get("text") or "")
+    try:
+        max_claims = int(payload.parameters.get("max_claims") or 10)
+    except (TypeError, ValueError):
+        max_claims = 10
+    claims = await run_extract_claims(source_text, max_claims=max_claims)
+
+    # Best-effort persistence into observations with provenance.
+    if _db_pool is not None and claims:
+        for claim in claims:
+            try:
+                await _db_pool.execute(
+                    "INSERT INTO observations "
+                    "(claim_text, topic, confidence_0_1, rationale, metadata) "
+                    "VALUES ($1, $2, $3, $4, $5)",
+                    claim["claim_text"],
+                    claim.get("topic", ""),
+                    claim["confidence_0_1"],
+                    claim.get("rationale", ""),
+                    _json.dumps({"provenance": "crew.extract_claims@v1"}),
+                )
+            except Exception:
+                _logging.getLogger("saimon.crew").debug(
+                    "extract_claims persistence failed", exc_info=True
+                )
+
+    return ResearchResponse(
+        trace_id=payload.trace_id,
+        status="success",
+        data={"claims": claims, "total": len(claims)},
+    )

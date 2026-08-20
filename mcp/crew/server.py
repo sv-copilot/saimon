@@ -183,7 +183,7 @@ async def extract_claims_tool(
                     claim.get("rationale", ""),
                     _json.dumps({"provenance": "crew.extract_claims@v1"}),
                 )
-            except Exception:  # noqa: BLE001 — persistence is best-effort
+            except Exception:
                 _logging.getLogger("saimon.crew").debug(
                     "extract_claims persistence failed", exc_info=True
                 )

@@ -28,7 +28,10 @@ def make_crew_llm(route: str) -> Any | None:
 
     from research_shared import model_routing
 
-    params = model_routing.route_params(route)
+    try:
+        params = model_routing.route_params(route)
+    except KeyError:
+        return None
     return LLM(
         model=params["model"],
         base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),

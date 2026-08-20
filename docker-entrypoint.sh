@@ -10,6 +10,7 @@
 #   explore-mcp   → uvicorn mcp.explore.server:app --host 0.0.0.0 --port ${PORT:-8006}
 #   api-mcp       → uvicorn mcp.api.server:app --host 0.0.0.0 --port ${PORT:-8007}
 #   domain-mcp    → uvicorn mcp.domain.server:app --host 0.0.0.0 --port ${PORT:-8008}
+#   crew-mcp      → uvicorn mcp.crew.server:app --host 0.0.0.0 --port ${PORT:-8009}
 
 set -euo pipefail
 

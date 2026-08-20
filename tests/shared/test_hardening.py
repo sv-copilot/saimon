@@ -22,37 +22,37 @@ from research_shared.audit import AuditLogger, set_audit_db_pool
 
 @pytest.fixture
 def search_client():
-    from mcp.search.server import app
+    from saimon_mcp.search.server import app
     return TestClient(app)
 
 
 @pytest.fixture
 def generate_client():
-    from mcp.generate.server import app
+    from saimon_mcp.generate.server import app
     return TestClient(app)
 
 
 @pytest.fixture
 def verify_client():
-    from mcp.verify.server import app
+    from saimon_mcp.verify.server import app
     return TestClient(app)
 
 
 @pytest.fixture
 def explore_client():
-    from mcp.explore.server import app
+    from saimon_mcp.explore.server import app
     return TestClient(app)
 
 
 @pytest.fixture
 def evaluate_client():
-    from mcp.evaluate.server import app
+    from saimon_mcp.evaluate.server import app
     return TestClient(app)
 
 
 @pytest.fixture
 def export_client():
-    from mcp.export.server import app
+    from saimon_mcp.export.server import app
     return TestClient(app)
 
 

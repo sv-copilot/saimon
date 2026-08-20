@@ -8,9 +8,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 # Import each MCP's app
-from mcp.search.server import app as search_app, _db_pool as _search_db, _auth as _search_auth
-from mcp.explore.server import app as explore_app, _db_pool as _explore_db
-from mcp.generate.server import app as generate_app, _db_pool as _generate_db
+from saimon_mcp.search.server import app as search_app, _db_pool as _search_db, _auth as _search_auth
+from saimon_mcp.explore.server import app as explore_app, _db_pool as _explore_db
+from saimon_mcp.generate.server import app as generate_app, _db_pool as _generate_db
 
 
 SQL_INJECTION_PAYLOADS = [

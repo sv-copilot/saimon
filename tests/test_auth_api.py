@@ -118,7 +118,7 @@ def mock_pool():
 def client(mock_pool):
     """Return a TestClient for the api-mcp FastAPI app with mocked DB."""
     # Mock set_db_pool and get_db_pool
-    import mcp.api.server as server_module
+    import saimon_mcp.api.server as server_module
 
     # We need to patch the database pool used by the server
     original_pool = getattr(server_module, "_db_pool", None)
@@ -129,7 +129,7 @@ def client(mock_pool):
 
     # Patch _ensure_users_table to be a no-op (no real DB schema)
     with patch.object(server_module, "_ensure_users_table", new_callable=AsyncMock):
-        from mcp.api.server import app
+        from saimon_mcp.api.server import app
         client = TestClient(app)
         yield client
 

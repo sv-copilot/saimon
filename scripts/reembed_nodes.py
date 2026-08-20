@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 ALTER_SQL = (
     "ALTER TABLE knowledge_graph_nodes "
-    "ALTER COLUMN embedding TYPE VECTOR(768);"
+    "ALTER COLUMN embedding TYPE VECTOR(768)"
 )
 
 

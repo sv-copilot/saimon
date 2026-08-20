@@ -11,6 +11,11 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+# fastembed model identifier for nomic-embed-text (768-dim). The bare name
+# is not a valid fastembed id; the full repo-qualified id is required.
+DEFAULT_EMBEDDING_MODEL = "nomic-ai/nomic-embed-text-v1.5"
+DEFAULT_EMBEDDING_DIMENSIONS = 768
+
 
 @dataclass
 class EmbeddingConfig:
@@ -18,8 +23,8 @@ class EmbeddingConfig:
 
     backend: str = "local"
     url: str = ""
-    model: str = "nomic-embed-text"
-    dimensions: int = 768
+    model: str = DEFAULT_EMBEDDING_MODEL
+    dimensions: int = DEFAULT_EMBEDDING_DIMENSIONS
     api_key_env: str = ""
 
     @classmethod
@@ -28,8 +33,10 @@ class EmbeddingConfig:
         return cls(
             backend=os.getenv("SAIMON_EMBEDDING_BACKEND", "local"),
             url=os.getenv("SAIMON_EMBEDDING_URL", ""),
-            model=os.getenv("SAIMON_EMBEDDING_MODEL", "nomic-embed-text"),
-            dimensions=int(os.getenv("SAIMON_EMBEDDING_DIMENSIONS", "768")),
+            model=os.getenv("SAIMON_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
+            dimensions=int(
+                os.getenv("SAIMON_EMBEDDING_DIMENSIONS", str(DEFAULT_EMBEDDING_DIMENSIONS))
+            ),
             api_key_env=os.getenv("SAIMON_EMBEDDING_API_KEY_ENV", ""),
         )
 
@@ -44,8 +51,8 @@ def reset_embedding_cache() -> None:
 
 def embed_local(
     text: str,
-    model_name: str = "nomic-embed-text",
-    dimensions: int = 768,
+    model_name: str = DEFAULT_EMBEDDING_MODEL,
+    dimensions: int = DEFAULT_EMBEDDING_DIMENSIONS,
 ) -> list[float] | None:
     """Embed text with a local fastembed ONNX model (CPU).
 

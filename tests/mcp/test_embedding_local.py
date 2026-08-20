@@ -91,6 +91,13 @@ class TestSchemaMigration:
         assert "hnsw" in schema.lower()
         assert "embedding" in schema.lower()
 
+    def test_default_model_is_valid_fastembed_identifier(self) -> None:
+        from research_shared.embedding import DEFAULT_EMBEDDING_MODEL
+
+        # fastembed requires the repo-qualified id; the bare name would fail.
+        assert DEFAULT_EMBEDDING_MODEL.startswith("nomic-ai/")
+        assert "/" in DEFAULT_EMBEDDING_MODEL
+
 
 class TestVectorSearch:
     def test_vector_search_returns_ranked_results(

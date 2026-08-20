@@ -42,6 +42,7 @@ MCP_SERVICES = (
     "explore-mcp",
     "api-mcp",
     "domain-mcp",
+    "crew-mcp",
 )
 
 

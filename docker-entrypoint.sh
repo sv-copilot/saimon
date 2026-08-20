@@ -55,9 +55,13 @@ case "$MCP" in
         MODULE="mcp.domain.server:app"
         DEFAULT_PORT=8008
         ;;
+    crew-mcp)
+        MODULE="mcp.crew.server:app"
+        DEFAULT_PORT=8009
+        ;;
     *)
         echo "Unknown MCP: $MCP" >&2
-        echo "Available: search-mcp generate-mcp export-mcp evaluate-mcp verify-mcp explore-mcp api-mcp domain-mcp" >&2
+        echo "Available: search-mcp generate-mcp export-mcp evaluate-mcp verify-mcp explore-mcp api-mcp domain-mcp crew-mcp" >&2
         exit 1
         ;;
 esac

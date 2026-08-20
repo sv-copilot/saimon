@@ -110,3 +110,16 @@ services:
     ports: !override
       - "127.0.0.1:8108:8008"
     restart: always
+
+  crew-mcp:
+    image: ghcr.io/sv-copilot/saimon:rc
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 10m
+    ports: !override
+      - "127.0.0.1:8109:8009"
+    restart: always

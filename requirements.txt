@@ -6,6 +6,7 @@ asyncpg==0.30.0
 structlog==24.4.0
 httpx==0.28.1
 fastembed>=0.4.0
+crewai>=1.0.0,<2.0.0
 beautifulsoup4>=4.12
 pyjwt==2.10.1
 bcrypt==4.2.1

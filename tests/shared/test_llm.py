@@ -10,7 +10,7 @@ class TestLLMConfig:
         """With no env vars, uses sensible defaults."""
         config = LLMConfig.from_env()
         assert config.base_url == "https://api.deepseek.com/v1"
-        assert config.model == "deepseek-chat"
+        assert config.model == "deepseek-v4-pro"
         assert config.api_key is None
 
     def test_from_env_reads_api_key(self, mock_api_key_env):

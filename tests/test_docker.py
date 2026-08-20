@@ -74,7 +74,7 @@ class TestDockerfile:
     def test_dockerfile_copies_source(self):
         content = read_file("Dockerfile")
         assert "COPY research_shared/" in content
-        assert "COPY mcp/" in content
+        assert "COPY saimon_mcp/" in content
 
     def test_dockerfile_uses_entrypoint_script(self):
         content = read_file("Dockerfile")
@@ -104,13 +104,13 @@ class TestEntrypointScript:
     ]
 
     MODULE_MAP: ClassVar = {
-        "search-mcp": "mcp.search.server:app",
-        "generate-mcp": "mcp.generate.server:app",
-        "export-mcp": "mcp.export.server:app",
-        "evaluate-mcp": "mcp.evaluate.server:app",
-        "verify-mcp": "mcp.verify.server:app",
-        "explore-mcp": "mcp.explore.server:app",
-        "crew-mcp": "mcp.crew.server:app",
+        "search-mcp": "saimon_mcp.search.server:app",
+        "generate-mcp": "saimon_mcp.generate.server:app",
+        "export-mcp": "saimon_mcp.export.server:app",
+        "evaluate-mcp": "saimon_mcp.evaluate.server:app",
+        "verify-mcp": "saimon_mcp.verify.server:app",
+        "explore-mcp": "saimon_mcp.explore.server:app",
+        "crew-mcp": "saimon_mcp.crew.server:app",
     }
 
     PORT_MAP: ClassVar = {
@@ -312,7 +312,7 @@ class TestHealthEndpoints:
     @pytest.mark.parametrize("mcp_name,port", list(MCP_PORTS.items()))
     def test_health_endpoint_exists_in_code(self, mcp_name, port):
         """Verify each server.py defines a /health GET endpoint."""
-        server_path = REPO_ROOT / "mcp" / mcp_name / "server.py"
+        server_path = REPO_ROOT / "saimon_mcp" / mcp_name / "server.py"
         content = server_path.read_text()
         assert '@app.get("/health")' in content, (
             f"{mcp_name}/server.py missing @app.get('/health')"
@@ -321,7 +321,7 @@ class TestHealthEndpoints:
     @pytest.mark.parametrize("mcp_name", list(MCP_PORTS.keys()))
     def test_health_returns_service_name(self, mcp_name):
         """Verify the health endpoint response includes the service name."""
-        server_path = REPO_ROOT / "mcp" / mcp_name / "server.py"
+        server_path = REPO_ROOT / "saimon_mcp" / mcp_name / "server.py"
         content = server_path.read_text()
         service_name = f"{mcp_name}-mcp"
         # The health response should reference the service name
@@ -332,7 +332,7 @@ class TestHealthEndpoints:
     @pytest.mark.parametrize("mcp_name", list(MCP_PORTS.keys()))
     def test_health_is_unauthenticated(self, mcp_name):
         """Verify the health endpoint does NOT call _require_auth."""
-        server_path = REPO_ROOT / "mcp" / mcp_name / "server.py"
+        server_path = REPO_ROOT / "saimon_mcp" / mcp_name / "server.py"
         content = server_path.read_text()
 
         # Find the health function block
@@ -671,20 +671,20 @@ class TestDeepHealthChecks:
     @pytest.mark.parametrize("mcp_name", MCP_NAMES)
     def test_health_has_checks_field(self, mcp_name):
         """Verify /health response includes a 'checks' dict."""
-        server_path = REPO_ROOT / "mcp" / mcp_name / "server.py"
+        server_path = REPO_ROOT / "saimon_mcp" / mcp_name / "server.py"
         content = server_path.read_text()
         assert '"checks"' in content, (
             f"{mcp_name}/server.py health must include 'checks' field"
         )
 
     def test_search_health_checks_database(self):
-        content = read_file("mcp/search/server.py")
+        content = read_file("saimon_mcp/search/server.py")
         assert "database" in content.lower(), (
             "search health must report database status"
         )
 
     def test_generate_health_checks_llm_and_db(self):
-        content = read_file("mcp/generate/server.py")
+        content = read_file("saimon_mcp/generate/server.py")
         assert "llm" in content.lower(), (
             "generate health must report LLM status"
         )
@@ -693,25 +693,25 @@ class TestDeepHealthChecks:
         )
 
     def test_export_health_reports_stateless(self):
-        content = read_file("mcp/export/server.py")
+        content = read_file("saimon_mcp/export/server.py")
         assert "stateless" in content.lower(), (
             "export health must report stateless backend"
         )
 
     def test_evaluate_health_checks_llm(self):
-        content = read_file("mcp/evaluate/server.py")
+        content = read_file("saimon_mcp/evaluate/server.py")
         assert "llm" in content.lower(), (
             "evaluate health must report LLM status"
         )
 
     def test_verify_health_checks_llm(self):
-        content = read_file("mcp/verify/server.py")
+        content = read_file("saimon_mcp/verify/server.py")
         assert "llm" in content.lower(), (
             "verify health must report LLM status"
         )
 
     def test_explore_health_checks_database(self):
-        content = read_file("mcp/explore/server.py")
+        content = read_file("saimon_mcp/explore/server.py")
         assert "database" in content.lower(), (
             "explore health must report database status"
         )
@@ -771,7 +771,7 @@ class TestAllServersUseLifespan:
 
     @pytest.mark.parametrize("mcp_name", MCP_NAMES)
     def test_server_imports_lifespan(self, mcp_name):
-        server_path = REPO_ROOT / "mcp" / mcp_name / "server.py"
+        server_path = REPO_ROOT / "saimon_mcp" / mcp_name / "server.py"
         content = server_path.read_text()
         assert "build_lifespan" in content, (
             f"{mcp_name}/server.py must import build_lifespan"
@@ -779,7 +779,7 @@ class TestAllServersUseLifespan:
 
     @pytest.mark.parametrize("mcp_name", MCP_NAMES)
     def test_server_passes_lifespan_to_fastapi(self, mcp_name):
-        server_path = REPO_ROOT / "mcp" / mcp_name / "server.py"
+        server_path = REPO_ROOT / "saimon_mcp" / mcp_name / "server.py"
         content = server_path.read_text()
         assert "lifespan=" in content, (
             f"{mcp_name}/server.py must pass lifespan= to FastAPI()"

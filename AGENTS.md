@@ -36,8 +36,8 @@ From repo root:
 
 ```bash
 python3 -m pytest tests/ -q
-python3 -m compileall research_shared/ mcp/
-ruff check research_shared/ mcp/
+python3 -m compileall research_shared/ saimon_mcp/
+ruff check research_shared/ saimon_mcp/
 pip-audit --requirement requirements.txt
 ```
 
@@ -46,7 +46,7 @@ pip-audit --requirement requirements.txt
 - Keep product runtime code in this repository.
 - Planning artifacts live in `simon-projects` under `.docs/planning/projects/saimon/`.
 - Use `research_shared/` for shared library code (envelope, LLM, DB, auth, resilience, audit).
-- Each MCP lives under `mcp/<name>/`.
+- Each MCP lives under `saimon_mcp/<name>/`.
 - Do not commit secrets, API keys, or `.env` files.
 
 ## Architecture
@@ -72,8 +72,8 @@ Every slice completes through four gates before merging to `ai-dev`:
 
 ```bash
 python3 -m pytest tests/ -q
-python3 -m compileall research_shared/ mcp/
-ruff check research_shared/ mcp/
+python3 -m compileall research_shared/ saimon_mcp/
+ruff check research_shared/ saimon_mcp/
 pip-audit --requirement requirements.txt
 ```
 
@@ -155,12 +155,12 @@ tracked in
 | Slice | Branch | Status | What |
 |---|---|---|---|
 | SHARED-LIB-1 | `slice/SHARED-LIB-1` | ✅ merged | `research_shared/`: envelope, llm, db, auth, resilience, audit |
-| MCP-SEARCH-1 | `slice/MCP-SEARCH-1` | ✅ merged | `mcp/search/`: FastAPI server, 5 tool endpoints |
-| MCP-GENERATE-1 | `slice/MCP-GENERATE-1` | ✅ merged | `mcp/generate/`: LLM content generation MCP |
-| MCP-EXPORT-1 | `slice/MCP-EXPORT-1` | ✅ merged | `mcp/export/`: output formatting MCP |
-| MCP-EVALUATE-1 | `slice/MCP-EVALUATE-1` | ✅ merged | `mcp/evaluate/`: quality gate MCP |
-| MCP-VERIFY-1 | `slice/MCP-VERIFY-1` | ✅ merged | `mcp/verify/`: fact-checking MCP |
-| MCP-EXPLORE-1 | `slice/MCP-EXPLORE-1` | ✅ merged | `mcp/explore/`: discovery MCP |
+| MCP-SEARCH-1 | `slice/MCP-SEARCH-1` | ✅ merged | `saimon_mcp/search/`: FastAPI server, 5 tool endpoints |
+| MCP-GENERATE-1 | `slice/MCP-GENERATE-1` | ✅ merged | `saimon_mcp/generate/`: LLM content generation MCP |
+| MCP-EXPORT-1 | `slice/MCP-EXPORT-1` | ✅ merged | `saimon_mcp/export/`: output formatting MCP |
+| MCP-EVALUATE-1 | `slice/MCP-EVALUATE-1` | ✅ merged | `saimon_mcp/evaluate/`: quality gate MCP |
+| MCP-VERIFY-1 | `slice/MCP-VERIFY-1` | ✅ merged | `saimon_mcp/verify/`: fact-checking MCP |
+| MCP-EXPLORE-1 | `slice/MCP-EXPLORE-1` | ✅ merged | `saimon_mcp/explore/`: discovery MCP |
 | DOCKER-1 | `slice/DOCKER-1` | ✅ merged | Dockerfile, docker-compose (7 svc + PG16), entrypoint, .dockerignore, schema.sql |
 | DOMAIN-BOOTSTRAP-1 | `slice/DOMAIN-BOOTSTRAP-1` | ✅ merged | `research_shared/seed_data.py`: 13 content types, 5 voice profiles, 15 seed requests; updated schema.sql |
 | MCP-INTEGRATION-1 | `slice/MCP-INTEGRATION-1` | ✅ merged | Wire MCPs to real backends: LLM, DB, seed_data; 333 tests + 26 integration tests |
@@ -340,12 +340,12 @@ Then follow TDD: RED → GREEN → REFACTOR → PROVE.
 | Slice | Branch | Status | What |
 |---|---|---|---|
 | SHARED-LIB-1 | `slice/SHARED-LIB-1` | ✅ merged | `research_shared/`: envelope, llm, db, auth, resilience, audit |
-| MCP-SEARCH-1 | `slice/MCP-SEARCH-1` | ✅ merged | `mcp/search/`: FastAPI server, 5 tool endpoints |
-| MCP-GENERATE-1 | `slice/MCP-GENERATE-1` | ✅ merged | `mcp/generate/`: LLM content generation MCP |
-| MCP-EXPORT-1 | `slice/MCP-EXPORT-1` | ✅ merged | `mcp/export/`: output formatting MCP |
-| MCP-EVALUATE-1 | `slice/MCP-EVALUATE-1` | ✅ merged | `mcp/evaluate/`: quality gate MCP |
-| MCP-VERIFY-1 | `slice/MCP-VERIFY-1` | ✅ merged | `mcp/verify/`: fact-checking MCP |
-| MCP-EXPLORE-1 | `slice/MCP-EXPLORE-1` | ✅ merged | `mcp/explore/`: discovery MCP |
+| MCP-SEARCH-1 | `slice/MCP-SEARCH-1` | ✅ merged | `saimon_mcp/search/`: FastAPI server, 5 tool endpoints |
+| MCP-GENERATE-1 | `slice/MCP-GENERATE-1` | ✅ merged | `saimon_mcp/generate/`: LLM content generation MCP |
+| MCP-EXPORT-1 | `slice/MCP-EXPORT-1` | ✅ merged | `saimon_mcp/export/`: output formatting MCP |
+| MCP-EVALUATE-1 | `slice/MCP-EVALUATE-1` | ✅ merged | `saimon_mcp/evaluate/`: quality gate MCP |
+| MCP-VERIFY-1 | `slice/MCP-VERIFY-1` | ✅ merged | `saimon_mcp/verify/`: fact-checking MCP |
+| MCP-EXPLORE-1 | `slice/MCP-EXPLORE-1` | ✅ merged | `saimon_mcp/explore/`: discovery MCP |
 | DOCKER-1 | `slice/DOCKER-1` | ✅ merged | Dockerfile, docker-compose (7 svc + PG16), entrypoint, .dockerignore, schema.sql |
 | DOMAIN-BOOTSTRAP-1 | `slice/DOMAIN-BOOTSTRAP-1` | ✅ merged | `research_shared/seed_data.py`: 13 content types, 5 voice profiles, 15 seed requests; updated schema.sql |
 | MCP-INTEGRATION-1 | `slice/MCP-INTEGRATION-1` | ✅ merged | Wire MCPs to real backends: LLM, DB, seed_data; 333 tests + 26 integration tests |
@@ -417,8 +417,8 @@ RED → GREEN → REFACTOR → PROVE.
 - Branch: ai-dev
 - Python: python3.11 (via pyenv or system)
 - Validation: python3 -m pytest tests/ -q
-- Lint: ruff check research_shared/ mcp/
-- Compile: python3 -m compileall research_shared/ mcp/
+- Lint: ruff check research_shared/ saimon_mcp/
+- Compile: python3 -m compileall research_shared/ saimon_mcp/
 
 Begin by reading AGENTS.md in full, then tell me what you see:
 which slices are unmerged, which PRs need attention, and what

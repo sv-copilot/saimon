@@ -53,7 +53,7 @@ class TestCiIntegrationSkipHook:
 
 class TestShadowSearchMarkedIntegration:
     def test_shadow_search_module_is_marked_integration(self):
-        path = Path("tests/mcp/test_integration/test_shadow_search_integration.py")
+        path = Path("tests/saimon_mcp/test_integration/test_shadow_search_integration.py")
         spec = importlib.util.spec_from_file_location("shadow_search_integration", path)
         assert spec is not None and spec.loader is not None
         module = importlib.util.module_from_spec(spec)

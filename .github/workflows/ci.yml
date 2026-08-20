@@ -31,10 +31,10 @@ jobs:
           pip install ruff pytest pytest-asyncio pip-audit
 
       - name: Ruff lint
-        run: ruff check research_shared/ mcp/
+        run: ruff check research_shared/ saimon_mcp/
 
       - name: Compile check
-        run: python -m compileall research_shared/ mcp/
+        run: python -m compileall research_shared/ saimon_mcp/
 
       - name: Dependency audit
         run: pip-audit --requirement requirements.txt || echo "⚠️ pip-audit found issues — review above"

@@ -222,7 +222,7 @@ def mock_pool():
 @pytest.fixture
 def client(mock_pool):
     """Return a TestClient with all table ensure functions mocked."""
-    import mcp.api.server as server_module
+    import saimon_mcp.api.server as server_module
 
     original_pool = getattr(server_module, "_db_pool", None)
     server_module._db_pool = mock_pool
@@ -232,7 +232,7 @@ def client(mock_pool):
         with patch.object(server_module, "_ensure_sessions_table", new_callable=AsyncMock):
             with patch.object(server_module, "_ensure_messages_table", new_callable=AsyncMock):
                 with patch.object(server_module, "_ensure_documents_table", new_callable=AsyncMock):
-                    from mcp.api.server import app
+                    from saimon_mcp.api.server import app
                     client = TestClient(app)
                     yield client
 

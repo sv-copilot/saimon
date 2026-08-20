@@ -90,8 +90,8 @@ def server(api_key, monkeypatch):
     """Import a fresh domain-mcp server module with no plugins configured."""
     monkeypatch.setenv("SAIMON_API_KEY", api_key)
     monkeypatch.setenv("SAIMON_DOMAIN_PLUGIN_PATHS", "")
-    sys.modules.pop("mcp.domain.server", None)
-    from mcp.domain import server as srv
+    sys.modules.pop("saimon_mcp.domain.server", None)
+    from saimon_mcp.domain import server as srv
 
     return srv
 
@@ -306,12 +306,12 @@ class TestStartupPluginLoading:
         # Force a fresh import: drop the cached submodule AND the parent
         # package's ``server`` attribute (``from package import submodule``
         # returns the cached attribute otherwise).
-        sys.modules.pop("mcp.domain.server", None)
-        import mcp.domain
+        sys.modules.pop("saimon_mcp.domain.server", None)
+        import saimon_mcp.domain
 
-        if hasattr(mcp.domain, "server"):
-            delattr(mcp.domain, "server")
-        from mcp.domain import server as srv
+        if hasattr(saimon_mcp.domain, "server"):
+            delattr(saimon_mcp.domain, "server")
+        from saimon_mcp.domain import server as srv
 
         return srv
 

@@ -1,6 +1,5 @@
 """Tests for SAIMON-KG-SEED (#40) — self_seed tool and KG persistence."""
 
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +76,7 @@ class TestKGSearchAfterSeed:
         """The search knowledge graph endpoint is available."""
         # This test verifies the endpoint exists; full integration requires DB
         # We test via the explore server since it's the browse/search interface
-        pass  # Requires DB connection — tested in integration environment
+        # Requires DB connection — tested in integration environment
 
 
 # ---------------------------------------------------------------------------
@@ -115,8 +114,9 @@ class TestHealthKG:
 
     def test_explore_health_includes_kg_nodes(self):
         """explore-mcp /health includes kg_nodes in checks."""
-        from fastapi.testclient import TestClient
         import sys
+
+        from fastapi.testclient import TestClient
 
         sys.modules.pop("mcp.explore.server", None)
         from mcp.explore.server import app
@@ -137,25 +137,46 @@ class TestHealthKG:
 class TestGenerateEmbedding:
     """Verify the embedding helper function."""
 
-    def test_embedding_returns_none_without_api_key(self, monkeypatch):
-        """_generate_embedding returns None when OPENAI_API_KEY is not set."""
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    def test_embedding_returns_none_without_model(self, monkeypatch):
+        """_generate_embedding returns None when the local model is unavailable."""
         import asyncio
+        import sys as _sys
+        monkeypatch.setitem(_sys.modules, "fastembed", None)
         from mcp.generate.server import _generate_embedding
+        from research_shared.embedding import reset_embedding_cache
 
+        reset_embedding_cache()
         result = asyncio.run(_generate_embedding("test text"))
         assert result is None
 
     def test_embedding_truncates_long_text(self, monkeypatch):
-        """_generate_embedding truncates input to 8000 chars."""
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        """_generate_embedding truncates input to 8000 chars before embedding."""
         import asyncio
-        from mcp.generate.server import _generate_embedding
+        import sys as _sys
+        from types import SimpleNamespace
 
+        captured = {}
+
+        class FakeModel:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def embed(self, documents):
+                captured["docs"] = documents
+                return [[0.1] * 768 for _ in documents]
+
+        monkeypatch.setitem(
+            _sys.modules, "fastembed", SimpleNamespace(TextEmbedding=FakeModel)
+        )
+        monkeypatch.setenv("SAIMON_EMBEDDING_BACKEND", "local")
+        from mcp.generate.server import _generate_embedding
+        from research_shared.embedding import reset_embedding_cache
+
+        reset_embedding_cache()
         long_text = "x" * 10000
-        # Without API key, returns None — but verifies no crash on long input
         result = asyncio.run(_generate_embedding(long_text))
-        assert result is None  # No API key → None expected
+        assert result is not None
+        assert len(captured["docs"][0]) == 8000
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +189,7 @@ class TestPersistContentNode:
     def test_persist_returns_none_without_db(self):
         """_persist_content_node returns None when _db_pool is None."""
         import asyncio
+
         from mcp.generate.server import _persist_content_node
 
         result = asyncio.run(_persist_content_node(

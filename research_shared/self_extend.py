@@ -31,7 +31,7 @@ class SelfExtendError(Exception):
 class SelfExtendConfig:
     """Configuration for the self-extension flow."""
 
-    llm_model: str = "deepseek-chat"
+    llm_model: str = "deepseek-v4-pro"
     research_temperature: float = 0.3
     max_research_tokens: int = 1024
     fallback_description: str = "Auto-registered content type."
@@ -42,7 +42,7 @@ class SelfExtendConfig:
         import os
 
         return cls(
-            llm_model=os.getenv("SAIMON_SE_LLM_MODEL", "deepseek-chat"),
+            llm_model=os.getenv("SAIMON_SE_LLM_MODEL", "deepseek-v4-pro"),
             research_temperature=float(
                 os.getenv("SAIMON_SE_RESEARCH_TEMP", "0.3")
             ),

@@ -25,6 +25,7 @@ from mcp.verify.writing_continuity import (
 from mcp.verify.writing_continuity import (
     verify_against_kg,
 )
+from research_shared import model_routing
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.hardening import apply_hardening, build_audit_logger
@@ -338,7 +339,9 @@ async def _llm_verify(
         claim=claim,
         sources_text=sources_text,
     )
-    raw = await _llm_client.generate(prompt)  # type: ignore[union-attr]
+    raw = await _llm_client.generate(
+        prompt, **model_routing.route_params("saimon.verify")
+    )  # type: ignore[union-attr]
     result = _json.loads(raw)
     return result.get("verifications", [])
 
@@ -565,7 +568,9 @@ async def _llm_refute(
         claim=claim,
         sources_text=sources_text,
     )
-    raw = await _llm_client.generate(prompt)  # type: ignore[union-attr]
+    raw = await _llm_client.generate(
+        prompt, **model_routing.route_params("saimon.verify")
+    )  # type: ignore[union-attr]
     return _json.loads(raw)
 
 
@@ -702,7 +707,9 @@ async def _llm_extract_claims(
     prompt = _EXTRACT_CLAIMS_PROMPT.format(source_text=source_text)
     if max_claims > 0:
         prompt += f"\n\nExtract at most {max_claims} claims."
-    raw = await _llm_client.generate(prompt)  # type: ignore[union-attr]
+    raw = await _llm_client.generate(
+        prompt, **model_routing.route_params("saimon.extract_claims")
+    )  # type: ignore[union-attr]
     result = _json.loads(raw)
     return result.get("claims", [])
 
@@ -1072,7 +1079,9 @@ async def verify_claim(
                 boosted_prompt = _build_risk_boosted_prompt(
                     base_prompt, claim, risk_items
                 )
-                raw = await _llm_client.generate(boosted_prompt)  # type: ignore[union-attr]
+                raw = await _llm_client.generate(
+                    boosted_prompt, **model_routing.route_params("saimon.verify")
+                )  # type: ignore[union-attr]
                 result = _json.loads(raw)
                 verifications = result.get("verifications", [])
             else:

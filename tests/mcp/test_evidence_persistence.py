@@ -6,12 +6,10 @@ generate_verified end-to-end chain, evidence links, transaction
 rollback, health checks, embedding degradation.
 """
 
-import os
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -127,7 +125,7 @@ class TestExtractClaimsPersistence:
     @pytest.mark.asyncio
     async def test_extract_claims_persists_observations(self):
         """Claims extracted from source text are persisted as observations."""
-        from mcp.verify.server import _persist_observation, _create_observation_relation
+        from mcp.verify.server import _persist_observation
 
         mock_pool = AsyncMock()
         mock_pool.execute = AsyncMock(return_value="INSERT 0 1")
@@ -186,7 +184,7 @@ class TestGenerateVerifiedPersistence:
 
         with (
             patch("mcp.generate.server._db_pool", mock_pool),
-            patch("mcp.generate.server._generate_embedding", AsyncMock(return_value=[0.1] * 1536)),
+            patch("mcp.generate.server._generate_embedding", AsyncMock(return_value=[0.1] * 768)),
         ):
             node_id = await _persist_content_node(
                 "Test Title", "research_note", "Body content",
@@ -284,7 +282,7 @@ class TestTransactionRollback:
     @pytest.mark.asyncio
     async def test_transaction_context_manager_exists(self):
         """The transaction() context manager can be imported."""
-        from research_shared.db import DatabasePool, DatabaseConfig
+        from research_shared.db import DatabasePool
 
         # Verify the method exists on the class
         assert hasattr(DatabasePool, "transaction")
@@ -300,8 +298,6 @@ class TestHealthCheckCounts:
     @pytest.mark.asyncio
     async def test_verify_health_has_observations_count(self):
         """verify-mcp /health reports observations_count."""
-        import json
-        from mcp import verify
 
         # The health endpoint should include observations_count in checks
         with patch("mcp.verify.server._db_pool") as mock_pool:
@@ -340,15 +336,15 @@ class TestEmbeddingDegradation:
     """Embedding generation degrades gracefully when API key is missing."""
 
     @pytest.mark.asyncio
-    async def test_generate_embedding_no_api_key(self):
-        """When OPENAI_API_KEY is not set, _generate_embedding returns None."""
+    async def test_generate_embedding_no_model(self, monkeypatch):
+        """When the local model is unavailable, _generate_embedding returns None."""
         from mcp.generate.server import _generate_embedding
+        from research_shared.embedding import reset_embedding_cache
 
-        with patch.dict(os.environ, {}, clear=True):
-            # Ensure OPENAI_API_KEY is not set
-            os.environ.pop("OPENAI_API_KEY", None)
-            result = await _generate_embedding("test text")
-            assert result is None
+        reset_embedding_cache()
+        monkeypatch.setitem(sys.modules, "fastembed", None)
+        result = await _generate_embedding("test text")
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_persist_content_node_null_embedding(self):

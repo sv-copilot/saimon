@@ -142,7 +142,10 @@ async def research_tool(payload: ResearchRequest, request: Request) -> ResearchR
     from mcp.crew.research import run_research
 
     topic = payload.parameters.get("topic", "")
-    max_messages = int(payload.parameters.get("max_messages", 10))
+    try:
+        max_messages = int(payload.parameters.get("max_messages") or 10)
+    except (TypeError, ValueError):
+        max_messages = 10
     result = await run_research(topic, max_messages=max_messages)
     return ResearchResponse(
         trace_id=payload.trace_id, status="success", data=result

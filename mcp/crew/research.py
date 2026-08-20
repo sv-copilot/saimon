@@ -72,15 +72,25 @@ async def run_research(topic: str, max_messages: int = 10) -> dict[str, Any]:
         }
 
     crew = build_research_crew(llm, max_messages=max_messages)
-    result = crew.kickoff(inputs={"topic": topic})
+    try:
+        result = crew.kickoff(inputs={"topic": topic})
+    except Exception:  # noqa: BLE001 — degrade to "unavailable" on crew failure
+        return {
+            "confirmed": [],
+            "inferred": [],
+            "unavailable": ["crew research failed"],
+        }
     raw = str(getattr(result, "raw", "") or getattr(result, "output", "") or "")
     try:
         parsed = _json.loads(raw)
         if isinstance(parsed, dict):
+            def _as_list(value: Any) -> list:
+                return list(value) if isinstance(value, list) else []
+
             return {
-                "confirmed": parsed.get("confirmed", []),
-                "inferred": parsed.get("inferred", []),
-                "unavailable": parsed.get("unavailable", []),
+                "confirmed": _as_list(parsed.get("confirmed")),
+                "inferred": _as_list(parsed.get("inferred")),
+                "unavailable": _as_list(parsed.get("unavailable")),
             }
     except _json.JSONDecodeError:
         pass

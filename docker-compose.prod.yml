@@ -266,6 +266,35 @@ services:
           cpus: "0.1"
           memory: "128M"
 
+  # -----------------------------------------------------------------------
+  # crew-mcp (port 8009) — CrewAI crews
+  # -----------------------------------------------------------------------
+  crew-mcp:
+    image: ghcr.io/sv-copilot/saimon:main
+    restart: always
+    environment:
+      PORT: "8009"
+      SAIMON_API_KEY: ${SAIMON_CREW_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      SAIMON_ENV: production
+    ports: !override
+      - "127.0.0.1:8109:8009"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: "512M"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+
 volumes:
   saimon_pgdata:
     external: true

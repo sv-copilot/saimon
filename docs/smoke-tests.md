@@ -8,13 +8,22 @@ Run these after any deployment to verify the full platform.
 ```bash
 # Staging
 export BASE="http://127.0.0.1"
-export KEY_SEARCH="sk-test-search-key"
-export KEY_GENERATE="sk-test-generate-key"
-export KEY_EXPORT="sk-test-export-key"
-export KEY_EVALUATE="sk-test-evaluate-key"
-export KEY_VERIFY="sk-test-verify-key"
-export KEY_EXPLORE="sk-test-explore-key"
-export TID="00000000-0000-0000-0000-000000000000"
+
+# Keys: `sk-test-*` values are DEV-ONLY. Staging requires the per-service keys
+# from the deployed `.env` — source them WITHOUT ever printing values:
+cd /data/planning/saimon
+export KEY_SEARCH=$(grep -E '^SAIMON_SEARCH_API_KEY=' .env | cut -d= -f2- | tr -d '"')
+export KEY_GENERATE=$(grep -E '^SAIMON_GENERATE_API_KEY=' .env | cut -d= -f2- | tr -d '"')
+export KEY_EXPORT=$(grep -E '^SAIMON_EXPORT_API_KEY=' .env | cut -d= -f2- | tr -d '"')
+export KEY_EVALUATE=$(grep -E '^SAIMON_EVALUATE_API_KEY=' .env | cut -d= -f2- | tr -d '"')
+export KEY_VERIFY=$(grep -E '^SAIMON_VERIFY_API_KEY=' .env | cut -d= -f2- | tr -d '"')
+export KEY_EXPLORE=$(grep -E '^SAIMON_EXPLORE_API_KEY=' .env | cut -d= -f2- | tr -d '"')
+export KEY_DOMAIN=$(grep -E '^SAIMON_DOMAIN_API_KEY=' .env | cut -d= -f2- | tr -d '"')
+
+# trace_id MUST be a valid UUID (36 chars). The 34-char base + a 2-digit suffix
+# yields fixed valid UUIDs (e.g. ...000000000001); the old 36-char base + suffix
+# produced 38-char ids that the API rejects with HTTP 422.
+export TID="00000000-0000-0000-0000-0000000000"
 ```
 
 ## Smoke Test Suite
@@ -168,7 +177,7 @@ curl -s -X POST $BASE:8102/tools/list_content_types \
 curl -s -X POST $BASE:8104/tools/evaluate_content \
   -H "X-Saimon-API-Key: $KEY_EVALUATE" \
   -H "Content-Type: application/json" \
-  -d "{\"trace_id\":\"${TID}10\",\"content_type\":\"evaluate\",\"parameters\":{\"content\":\"The Transformer architecture introduced self-attention mechanisms that process all tokens in parallel, replacing recurrent neural networks for sequence modeling tasks.\",\"criteria\":\"accuracy,clarity\"}}"
+  -d "{\"trace_id\":\"${TID}10\",\"content_type\":\"evaluate\",\"parameters\":{\"content\":\"The Transformer architecture introduced self-attention mechanisms that process all tokens in parallel, replacing recurrent neural networks for sequence modeling tasks.\",\"criteria\":\"clarity,coherence\"}}"
 ```
 
 **Expected:** `status: success`, returns scored evaluation with per-criterion breakdown. Tests LLM connectivity for evaluate-mcp.
@@ -243,7 +252,7 @@ CONTENT=$(echo $GEN | python3 -c "import sys,json; print(json.load(sys.stdin)['d
 EVAL=$(curl -s -X POST $BASE:8104/tools/evaluate_content \
   -H "X-Saimon-API-Key: $KEY_EVALUATE" \
   -H "Content-Type: application/json" \
-  -d "{\"trace_id\":\"${TID}17\",\"content_type\":\"evaluate\",\"parameters\":{\"content\":\"$CONTENT\",\"criteria\":\"accuracy,clarity\"}}")
+  -d "{\"trace_id\":\"${TID}17\",\"content_type\":\"evaluate\",\"parameters\":{\"content\":\"$CONTENT\",\"criteria\":\"clarity,coherence\"}}")
 echo "Evaluate: $(echo $EVAL | grep -o '\"status\":\"[^\"]*\"')"
 
 # 5. Check DB for persisted data
@@ -272,7 +281,7 @@ done
 ### 17. Auth — All 6 MCPs accept correct key
 
 ```bash
-for svc in search:8101:sk-test-search-key generate:8102:sk-test-generate-key export:8103:sk-test-export-key evaluate:8104:sk-test-evaluate-key verify:8105:sk-test-verify-key explore:8106:sk-test-explore-key; do
+for svc in search:8101:$KEY_SEARCH generate:8102:$KEY_GENERATE export:8103:$KEY_EXPORT evaluate:8104:$KEY_EVALUATE verify:8105:$KEY_VERIFY explore:8106:$KEY_EXPLORE; do
   name="${svc%%:*}"; rest="${svc#*:}"; port="${rest%%:*}"; key="${rest#*:}"
   code=$(curl -s -o /dev/null -w "%{http_code}" $BASE:$port/tools -H "X-Saimon-API-Key: $key")
   echo "  $name-mcp: $code (expect 200)"
@@ -280,6 +289,44 @@ done
 ```
 
 **Expected:** All return 200.
+
+---
+
+### 18. api-mcp (8107) — auth/session/document REST API
+
+```bash
+curl -s $BASE:8107/health
+```
+
+**Expected:** `{"status":"ok","service":"api-mcp","checks":{"database":"connected",...}}`.
+
+---
+
+### 19. domain-mcp (8108) — domain plugin router
+
+```bash
+curl -s $BASE:8108/health
+```
+
+**Expected:** `{"status":"ok","service":"domain-mcp","checks":{"database":"connected","plugins":1,...}}`
+(`plugins` > 0 once `SAIMON_DOMAIN_PLUGIN_PATHS` is configured).
+
+```bash
+# List loaded plugins (requires the domain API key):
+curl -s -X POST $BASE:8108/tools/list_plugins \
+  -H "X-Saimon-API-Key: $KEY_DOMAIN" \
+  -H "Content-Type: application/json" \
+  -d "{\"trace_id\":\"00000000-0000-0000-0000-0000000000aa\",\"content_type\":\"domain\",\"parameters\":{}}"
+
+# Call a legal domain tool:
+curl -s -X POST $BASE:8108/tools/call \
+  -H "X-Saimon-API-Key: $KEY_DOMAIN" \
+  -H "Content-Type: application/json" \
+  -d "{\"trace_id\":\"00000000-0000-0000-0000-0000000000ab\",\"content_type\":\"domain\",\"parameters\":{\"tool\":\"legal.parse_citation\",\"arguments\":{\"citation\":\"Roe v. Wade, 410 U.S. 113 (1973)\"}}}"
+```
+
+**Expected:** `list_plugins` returns `data.plugins` containing `domain: "legal"`;
+`legal.parse_citation` returns `status: success` with a parsed citation.
 
 ---
 

@@ -14,6 +14,7 @@ All queries run against the database pool passed in. The function returns a
 
 import logging
 from typing import Any
+
 from research_shared.db import DatabaseError
 
 logger = logging.getLogger(__name__)

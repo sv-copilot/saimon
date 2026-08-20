@@ -22,6 +22,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
+from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.hardening import apply_hardening
 from research_shared.lifespan import build_lifespan
 
@@ -132,3 +133,17 @@ async def health_aggregate() -> dict[str, Any]:
 async def list_tools(request: Request) -> dict[str, Any]:
     _require_auth(request)
     return {"tools": _TOOLS}
+
+
+@app.post("/tools/research")
+async def research_tool(payload: ResearchRequest, request: Request) -> ResearchResponse:
+    """crew.research@v1 — grounded research analysis."""
+    _require_auth(request)
+    from mcp.crew.research import run_research
+
+    topic = payload.parameters.get("topic", "")
+    max_messages = int(payload.parameters.get("max_messages", 10))
+    result = await run_research(topic, max_messages=max_messages)
+    return ResearchResponse(
+        trace_id=payload.trace_id, status="success", data=result
+    )

@@ -145,6 +145,7 @@ services:
     environment:
       PORT: "8005"
       SAIMON_API_KEY: ${SAIMON_VERIFY_API_KEY:-sk-test-verify-key}
+      SEARCH_API_KEY: ${SAIMON_SEARCH_API_KEY:-sk-test-search-key}
       DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
     ports:
       - "8005:8005"

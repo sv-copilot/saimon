@@ -12,6 +12,7 @@ Without an LLM, falls back to heuristic-based verification.
 from __future__ import annotations
 
 import json as _json
+import logging as _logging
 import os as _os
 import re as _re
 from typing import Any
@@ -267,8 +268,22 @@ def _error(trace_id: str, message: str) -> ResearchResponse:
 # LLM verification
 # ---------------------------------------------------------------------------
 
+_log = _logging.getLogger("saimon.verify")
+
 _SEARCH_MCP_URL = _os.environ.get("SEARCH_MCP_URL", "http://saimon-search:8001")
-_SEARCH_API_KEY = _os.environ.get("SAIMON_API_KEY", "sk-test-search-key")
+
+
+def _search_api_key() -> str:
+    """Dedicated cross-service key for verify→search calls.
+
+    SAIMON-VERIFY-SEARCH-AUTH-1 (#197): verify-mcp must NOT send its own
+    ``SAIMON_API_KEY`` to search-mcp — search rejects it with HTTP 401 and
+    verify then abstains for lack of sources. Use the dedicated
+    ``SEARCH_API_KEY`` env var (mapped in compose to search's own key).
+
+    Fail-closed: an unset key means no cross-service auth, not a fabricated one.
+    """
+    return _os.environ.get("SEARCH_API_KEY", "")
 
 _VERIFY_PROMPT = """You are an expert fact-checker with access to shadow library
 sources. Verify the following claim using these methods: {methods}.
@@ -290,7 +305,19 @@ Return ONLY a JSON object with:
 async def _search_sources(
     claim: str, limit: int = 5,
 ) -> list[dict[str, Any]]:
-    """Search shadow libraries for sources relevant to the claim."""
+    """Search shadow libraries for sources relevant to the claim.
+
+    Fail-closed on auth: a missing or rejected cross-service key returns an
+    empty source list (never fabricated sources) and logs
+    ``verify_search_auth_failed``.
+    """
+    key = _search_api_key()
+    if not key:
+        _log.error(
+            "verify_search_auth_failed: SEARCH_API_KEY not configured — "
+            "cannot authenticate to search-mcp (fail-closed)"
+        )
+        return []
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
@@ -300,8 +327,15 @@ async def _search_sources(
                     "content_type": "search",
                     "parameters": {"query": claim, "limit": limit},
                 },
-                headers={"X-Saimon-API-Key": _SEARCH_API_KEY},
+                headers={"X-Saimon-API-Key": key},
             )
+            if resp.status_code in (401, 403):
+                _log.error(
+                    "verify_search_auth_failed: search-mcp rejected the "
+                    "verify cross-service key (HTTP %d)",
+                    resp.status_code,
+                )
+                return []
             if resp.status_code == 200:
                 data = resp.json()
                 return data.get("data", {}).get("results", [])

@@ -45,7 +45,7 @@ async def reembed_nodes(pool, *, all_nodes: bool = False) -> int:
         await pool.execute(
             "UPDATE knowledge_graph_nodes "
             "SET embedding = $1, updated_at = now() WHERE id = $2",
-            vector,
+            str(vector),
             row["id"],
         )
         updated += 1

@@ -41,6 +41,28 @@ class SourceSearchResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# FulltextFetchResult
+# ---------------------------------------------------------------------------
+
+
+class FulltextFetchResult(BaseModel):
+    """Result of a full-text download attempt from a source index.
+
+    ``data`` holds the raw downloaded bytes.  Sources that cannot
+    provide bytes (e.g. torrent-only indexes) return ``data=None`` and
+    surface a ``download_url`` instead.
+    """
+
+    source_index: str = Field(..., description="Adapter identifier that produced this result.")
+    doi: str | None = Field(default=None, description="DOI if available.")
+    data: bytes | None = Field(default=None, description="Raw downloaded bytes.")
+    file_type: str | None = Field(default=None, description="File type: 'pdf', 'txt', 'epub', 'djvu', 'torrent'.")
+    download_url: str | None = Field(default=None, description="Direct or magnet URL when bytes are unavailable.")
+
+    model_config = {"extra": "forbid"}
+
+
+# ---------------------------------------------------------------------------
 # SourceIndexAdapter protocol
 # ---------------------------------------------------------------------------
 
@@ -65,4 +87,14 @@ class SourceIndexAdapter(Protocol):
 
     async def resolve_doi(self, doi: str) -> SourceSearchResult | None:
         """Resolve a DOI to a full result, or None if not found."""
+        ...
+
+    async def fetch_fulltext(
+        self, result: SourceSearchResult
+    ) -> FulltextFetchResult | None:
+        """Download the full text of *result*.
+
+        Optional capability.  Returns None (never raises) when full text
+        cannot be downloaded or the source does not support it.
+        """
         ...

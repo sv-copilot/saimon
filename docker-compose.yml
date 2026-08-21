@@ -41,6 +41,10 @@ services:
       SAIMON_API_KEY: ${SAIMON_SEARCH_API_KEY:-sk-test-search-key}
       DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
       SERPER_API_KEY: ${SERPER_API_KEY:-}
+      SAIMON_S3_ENDPOINT: ${SAIMON_S3_ENDPOINT:-}
+      SAIMON_S3_ACCESS_KEY: ${SAIMON_S3_ACCESS_KEY:-}
+      SAIMON_S3_SECRET_KEY: ${SAIMON_S3_SECRET_KEY:-}
+      SAIMON_S3_BUCKET: ${SAIMON_S3_BUCKET:-}
     ports:
       - "8001:8001"
     depends_on:
@@ -190,6 +194,10 @@ services:
       PORT: "8007"
       DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
       SAIMON_JWT_SECRET: ${SAIMON_JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      SAIMON_S3_ENDPOINT: ${SAIMON_S3_ENDPOINT:-}
+      SAIMON_S3_ACCESS_KEY: ${SAIMON_S3_ACCESS_KEY:-}
+      SAIMON_S3_SECRET_KEY: ${SAIMON_S3_SECRET_KEY:-}
+      SAIMON_S3_BUCKET: ${SAIMON_S3_BUCKET:-}
     ports:
       - "8007:8007"
     depends_on:

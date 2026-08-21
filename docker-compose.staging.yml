@@ -19,6 +19,10 @@ services:
     image: ghcr.io/sv-copilot/saimon:rc
     environment:
       SERPER_API_KEY: ${SERPER_API_KEY:-}
+      SAIMON_S3_ENDPOINT: ${SAIMON_S3_ENDPOINT:-}
+      SAIMON_S3_ACCESS_KEY: ${SAIMON_S3_ACCESS_KEY:-}
+      SAIMON_S3_SECRET_KEY: ${SAIMON_S3_SECRET_KEY:-}
+      SAIMON_S3_BUCKET: ${SAIMON_S3_BUCKET:-}
     logging:
       driver: json-file
       options:
@@ -91,6 +95,11 @@ services:
 
   api-mcp:
     image: ghcr.io/sv-copilot/saimon:rc
+    environment:
+      SAIMON_S3_ENDPOINT: ${SAIMON_S3_ENDPOINT:-}
+      SAIMON_S3_ACCESS_KEY: ${SAIMON_S3_ACCESS_KEY:-}
+      SAIMON_S3_SECRET_KEY: ${SAIMON_S3_SECRET_KEY:-}
+      SAIMON_S3_BUCKET: ${SAIMON_S3_BUCKET:-}
     logging:
       driver: json-file
       options:

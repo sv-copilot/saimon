@@ -147,6 +147,39 @@ class InternetArchiveAdapter:
         result.identifier = f"doi:{doi}"
         return result
 
+    # ── full-text storage ──────────────────────────────────────────
+
+    async def store_fulltext(
+        self,
+        storage: Any,
+        db: Any,
+        *,
+        doi: str,
+        title: str,
+        data: bytes,
+        file_type: str | None = None,
+    ) -> str | None:
+        """Upload full-text bytes to S3 and persist the object key.
+
+        Delegates to the shared ``research_shared.s3_storage`` helper.
+        Optional capability — returns None if storage is not configured.
+        """
+        from research_shared.s3_storage import S3StorageError, store_shadow_fulltext
+
+        try:
+            return await store_shadow_fulltext(
+                db,
+                storage,
+                doi=doi,
+                title=title,
+                data=data,
+                file_type=file_type,
+                source_index=self.name,
+            )
+        except S3StorageError as exc:
+            logger.warning("Internet Archive full-text store failed: %s", exc)
+            return None
+
 
 # ---------------------------------------------------------------------------
 # Helpers

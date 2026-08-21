@@ -1146,23 +1146,34 @@ async def verify_claim(
             if existing is None:
                 node_id = str(_uuid.uuid4())
                 verification_node_id = node_id
+                body_json = _json.dumps({
+                    "claim": claim,
+                    "verdict": overall,
+                    "verifications": verifications,
+                    "shadow_results_count": len(shadow_results),
+                })
+                # Best-effort embed at creation (fail-open): the backfill sweep
+                # catches any NULL-embedding node left behind by an embed failure.
+                embedding = None
+                try:
+                    from research_shared.embedding import embed_node_text
+
+                    embedding = embed_node_text(title, body_json)
+                except Exception:  # noqa: BLE001 — fail-open, sweep catches up
+                    embedding = None
                 await _db_pool.execute(
-                    "INSERT INTO knowledge_graph_nodes (id, title, content_type, body, metadata) "
-                    "VALUES ($1, $2, $3, $4, $5)",
+                    "INSERT INTO knowledge_graph_nodes (id, title, content_type, body, metadata, embedding) "
+                    "VALUES ($1, $2, $3, $4, $5, $6)",
                     node_id,
                     title,
                     "research_note",
-                    _json.dumps({
-                        "claim": claim,
-                        "verdict": overall,
-                        "verifications": verifications,
-                        "shadow_results_count": len(shadow_results),
-                    }),
+                    body_json,
                     _json.dumps({
                         "source": "verify-mcp",
                         "methods_used": method_names,
                         "shadow_sources": bool(shadow_results),
                     }),
+                    embedding,
                 )
             else:
                 verification_node_id = existing["id"]

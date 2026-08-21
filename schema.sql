@@ -220,6 +220,7 @@ CREATE TABLE IF NOT EXISTS shadow_sources_cache (
     source_index     TEXT NOT NULL,                      -- which adapter resolved it
     file_type       TEXT,                                -- 'pdf', 'epub', 'djvu'
     full_text_path  TEXT,                                -- path to cached passage / PDF
+    ingested_at     TIMESTAMPTZ,                         -- set when KG ingestion completed
     metadata        JSONB NOT NULL DEFAULT '{}',
     last_accessed   TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()

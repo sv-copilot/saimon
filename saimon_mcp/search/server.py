@@ -240,6 +240,23 @@ _TOOLS = [
             "fetch_only": "bool (optional — download + cache, skip RAG ingestion)",
         },
     },
+    {
+        "name": "saimon_list_audit_log",
+        "description": (
+            "Read-only listing of audit_log entries for observability and KPI "
+            "measurement. Returns entries with service_name, event_type, "
+            "trace_id, and payload (incl. citations_count and verify verdicts). "
+            "Filterable by service_name, event_type, payload key, and time range."
+        ),
+        "parameters": {
+            "service_name": "str (optional)",
+            "event_type": "str (optional)",
+            "payload_key": "str (optional — entries whose payload contains this key)",
+            "created_after": "str (optional — ISO timestamp, inclusive lower bound)",
+            "created_before": "str (optional — ISO timestamp, inclusive upper bound)",
+            "limit": "int (optional, default 50, max 200)",
+        },
+    },
 ]
 
 
@@ -801,6 +818,9 @@ async def saimon_list_audit_log(
     limit = min(int(payload.parameters.get("limit", 50)), 200)
     service_filter = payload.parameters.get("service_name")
     event_filter = payload.parameters.get("event_type")
+    payload_key = payload.parameters.get("payload_key")
+    created_after = payload.parameters.get("created_after")
+    created_before = payload.parameters.get("created_before")
 
     logger = build_audit_logger(payload, request, _auth, "search-mcp")
     logger.log_request(
@@ -812,37 +832,34 @@ async def saimon_list_audit_log(
     # ── try DB backend ──
     if _db_pool is not None:
         try:
-            if service_filter and event_filter:
-                rows = await _db_pool.fetch(
-                    "SELECT trace_id, service_name, event_type, payload, created_at "
-                    "FROM audit_log "
-                    "WHERE service_name = $1 AND event_type = $2 "
-                    "ORDER BY created_at DESC LIMIT $3",
-                    service_filter, event_filter, limit,
-                )
-            elif service_filter:
-                rows = await _db_pool.fetch(
-                    "SELECT trace_id, service_name, event_type, payload, created_at "
-                    "FROM audit_log "
-                    "WHERE service_name = $1 "
-                    "ORDER BY created_at DESC LIMIT $2",
-                    service_filter, limit,
-                )
-            elif event_filter:
-                rows = await _db_pool.fetch(
-                    "SELECT trace_id, service_name, event_type, payload, created_at "
-                    "FROM audit_log "
-                    "WHERE event_type = $1 "
-                    "ORDER BY created_at DESC LIMIT $2",
-                    event_filter, limit,
-                )
-            else:
-                rows = await _db_pool.fetch(
-                    "SELECT trace_id, service_name, event_type, payload, created_at "
-                    "FROM audit_log "
-                    "ORDER BY created_at DESC LIMIT $1",
-                    limit,
-                )
+            conditions: list[str] = []
+            params: list[Any] = []
+
+            if service_filter:
+                params.append(service_filter)
+                conditions.append(f"service_name = ${len(params)}")
+            if event_filter:
+                params.append(event_filter)
+                conditions.append(f"event_type = ${len(params)}")
+            if payload_key:
+                params.append(payload_key)
+                conditions.append(f"payload ? ${len(params)}")
+            if created_after:
+                params.append(created_after)
+                conditions.append(f"created_at >= ${len(params)}")
+            if created_before:
+                params.append(created_before)
+                conditions.append(f"created_at <= ${len(params)}")
+
+            where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+            params.append(limit)
+            sql = (
+                "SELECT trace_id, service_name, event_type, payload, created_at "
+                "FROM audit_log"
+                + where
+                + f" ORDER BY created_at DESC LIMIT ${len(params)}"
+            )
+            rows = await _db_pool.fetch(sql, *params)
             entries = [dict(r) for r in rows]
             resp = _ok(
                 trace_id=payload.trace_id,

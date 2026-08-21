@@ -167,6 +167,7 @@ services:
     environment:
       PORT: "8005"
       SAIMON_API_KEY: ${SAIMON_VERIFY_API_KEY}
+      SEARCH_API_KEY: ${SAIMON_SEARCH_API_KEY}
       DATABASE_URL: ${DATABASE_URL}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}

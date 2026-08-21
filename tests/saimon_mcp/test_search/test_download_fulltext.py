@@ -140,7 +140,7 @@ class TestConsent:
             adapter = FakeAdapter(FulltextFetchResult(
                 source_index=source_index,
                 doi="10.1000/example",
-                data=b"bytes",
+                data=b"The quick brown fox jumps over the lazy dog. " * 40,
                 file_type="txt",
             ))
             adapter.name = source_index

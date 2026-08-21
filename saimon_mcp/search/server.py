@@ -1029,6 +1029,7 @@ async def _download_fulltext_flow(
         mark_fulltext_ingested,
         store_shadow_fulltext,
     )
+    from research_shared.text_quality import text_quality_ok, text_quality_score
 
     if not _shadow_sources_enabled():
         return {"ok": False, "blocked": True, "error": "shadow sources are disabled"}
@@ -1146,6 +1147,16 @@ async def _download_fulltext_flow(
     if not text:
         return {"ok": False, "error": "could not extract text from downloaded bytes"}
 
+    # ── quality gate: reject garbled OCR before any S3/cache/KG write ──
+    if not text_quality_ok(text):
+        return {
+            "ok": False,
+            "error": "fulltext quality gate rejected the extracted text",
+            "quality_rejected": True,
+            "quality_score": round(text_quality_score(text), 4),
+            "doi": canonical_doi,
+        }
+
     # ── S3 upload + cache persistence ──
     try:
         s3_key = await store_shadow_fulltext(
@@ -1260,6 +1271,16 @@ async def download_fulltext(
         )
         resp = _error(payload.trace_id, result.get("error") or "full-text download blocked")
         logger.log_response(status=resp.status, blocked=True)
+        return resp
+
+    if result.get("quality_rejected"):
+        logger.warning(
+            "fulltext_quality_rejected",
+            doi=result.get("doi") or doi,
+            score=result.get("quality_score"),
+        )
+        resp = _error(payload.trace_id, result.get("error") or "full-text quality gate rejected")
+        logger.log_response(status=resp.status)
         return resp
 
     if not result.get("ok"):

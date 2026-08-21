@@ -15,7 +15,7 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from research_shared.adapters.base import SourceSearchResult
+from research_shared.adapters.base import FulltextFetchResult, SourceSearchResult
 
 logger = logging.getLogger("saimon.adapters.annas_archive")
 
@@ -140,3 +140,25 @@ class AnnasArchiveAdapter:
 
         logger.debug("Anna's Archive DOI resolve: %r", doi)
         return None
+
+    # ── full-text download ────────────────────────────────────────
+
+    async def fetch_fulltext(self, result: SourceSearchResult) -> FulltextFetchResult | None:
+        """Download via the Anna's Archive / SciDB redirect (fail-closed)."""
+        from research_shared.adapters.download import download_bytes
+
+        url = result.download_url
+        if not url:
+            return None
+
+        data = await download_bytes(self._http, url)
+        if data is None:
+            return None
+
+        return FulltextFetchResult(
+            source_index=self.name,
+            doi=result.doi,
+            data=data,
+            file_type=result.file_type,
+            download_url=url,
+        )

@@ -14,7 +14,7 @@ from urllib.parse import quote
 
 import httpx
 
-from research_shared.adapters.base import SourceSearchResult
+from research_shared.adapters.base import FulltextFetchResult, SourceSearchResult
 
 logger = logging.getLogger("saimon.adapters.internet_archive")
 
@@ -23,6 +23,7 @@ logger = logging.getLogger("saimon.adapters.internet_archive")
 # ---------------------------------------------------------------------------
 
 IA_SEARCH_URL = "https://archive.org/advancedsearch.php"
+IA_DOWNLOAD_URL = "https://archive.org/download"
 DEFAULT_ROWS = 10
 DEFAULT_TIMEOUT = 15.0  # seconds
 
@@ -180,6 +181,28 @@ class InternetArchiveAdapter:
             logger.warning("Internet Archive full-text store failed: %s", exc)
             return None
 
+    # ── full-text download ────────────────────────────────────────
+
+    async def fetch_fulltext(self, result: SourceSearchResult) -> FulltextFetchResult | None:
+        """Download OCR text for an Internet Archive item (fail-closed)."""
+        from research_shared.adapters.download import download_bytes
+
+        url = _ia_text_url(result)
+        if url is None:
+            return None
+
+        data = await download_bytes(self._http, url)
+        if data is None:
+            return None
+
+        return FulltextFetchResult(
+            source_index=self.name,
+            doi=result.doi,
+            data=data,
+            file_type="txt",
+            download_url=url,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -190,6 +213,20 @@ async def _async_get(url: str, timeout: float = DEFAULT_TIMEOUT) -> httpx.Respon
     """Make an async GET request using httpx.AsyncClient."""
     async with httpx.AsyncClient(timeout=timeout) as client:
         return await client.get(url)
+
+
+def _ia_text_url(result: SourceSearchResult) -> str | None:
+    """Return the OCR text download URL for an IA result, or None.
+
+    Prefers an explicit ``download_url``; otherwise derives the
+    ``{identifier}_djvu.txt`` OCR file from the ``ia:{identifier}`` id.
+    """
+    if result.download_url:
+        return result.download_url
+    identifier = (result.identifier or "").removeprefix("ia:")
+    if not identifier:
+        return None
+    return f"{IA_DOWNLOAD_URL}/{identifier}/{identifier}_djvu.txt"
 
 
 def _parse_doc(doc: dict) -> SourceSearchResult:

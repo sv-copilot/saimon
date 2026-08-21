@@ -76,6 +76,66 @@ class DatabaseConfig:
 
 
 # ---------------------------------------------------------------------------
+# pgvector codec (SAIMON-PGVECTOR-CODEC-1)
+# ---------------------------------------------------------------------------
+
+def _encode_vector(value: Any) -> str:
+    """Encode a Python list[float] (or existing string) as a pgvector text literal.
+
+    asyncpg has no built-in codec for the pgvector ``vector`` type, so passing
+    a ``list[float]`` as a query parameter raises ``DatabaseError: expected
+    str, got list``.  Encoding to the text form ``[1.0,2.0,3.0]`` lets the
+    server-side cast from text to vector succeed.
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (list, tuple)):
+        return "[" + ",".join(str(float(v)) for v in value) + "]"
+    return str(value)
+
+
+def _decode_vector(value: Any) -> Any:
+    """Decode a pgvector text literal back into a list[float]."""
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("[") and text.endswith("]"):
+            inner = text[1:-1].strip()
+            if inner:
+                return [float(v) for v in inner.split(",")]
+            return []
+    return value
+
+
+async def _register_pgvector_codec(conn: Any) -> None:
+    """Register the pgvector ``vector`` codec on a new asyncpg connection.
+
+    Fail-closed: if the vector type is unavailable (extension missing) or
+    codec registration fails, the connection is left untouched and callers
+    fall back to keyword search.
+    """
+    try:
+        row = await conn.fetchrow(
+            "SELECT t.typname, n.nspname "
+            "FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace "
+            "WHERE t.oid = 'vector'::regtype::oid"
+        )
+    except Exception:  # noqa: BLE001 — vector extension unavailable
+        return
+    if row is None:
+        return
+    try:
+        await conn.set_type_codec(
+            row["typname"],
+            schema=row["nspname"],
+            encoder=_encode_vector,
+            decoder=_decode_vector,
+            format="text",
+        )
+    except Exception:  # noqa: BLE001 — codec registration best-effort
+        return
+
+
+# ---------------------------------------------------------------------------
 # DatabasePool
 # ---------------------------------------------------------------------------
 
@@ -108,6 +168,7 @@ class DatabasePool:
                 self.config.database_url,
                 min_size=self.config.min_pool_size,
                 max_size=self.config.max_pool_size,
+                init=_register_pgvector_codec,
             )
         return self._pool
 

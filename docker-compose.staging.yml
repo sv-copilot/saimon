@@ -73,6 +73,7 @@ services:
     image: ghcr.io/sv-copilot/saimon:rc
     environment:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      SEARCH_API_KEY: ${SAIMON_SEARCH_API_KEY:-sk-test-search-key}
     logging:
       driver: json-file
       options:

@@ -153,6 +153,16 @@ class S3Storage:
             logger.warning("S3 download failed for %r: %s", key, exc)
             return None
 
+    def delete_bytes(self, key: str) -> bool:
+        """Delete object *key* from the bucket.  Returns True on success."""
+        try:
+            client = self._client()
+            client.delete_object(Bucket=self.bucket, Key=key)
+            return True
+        except Exception as exc:  # noqa: BLE001 — fail-closed on delete errors
+            logger.warning("S3 delete failed for %r: %s", key, exc)
+            return False
+
     def presigned_url(self, key: str, expires_in: int = 3600) -> str | None:
         """Return a presigned GET URL for *key*, or None on failure."""
         try:

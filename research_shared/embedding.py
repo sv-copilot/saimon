@@ -9,7 +9,9 @@ failure (missing package, missing model) returns None.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 # fastembed model identifier for nomic-embed-text (768-dim). The bare name
 # is not a valid fastembed id; the full repo-qualified id is required.
@@ -79,3 +81,55 @@ def embed_local(
         return floats
     except Exception:  # noqa: BLE001 — fail-closed on any embedding failure
         return None
+
+
+def embed_node_text(
+    title: str,
+    body: str = "",
+    *,
+    model_name: str = DEFAULT_EMBEDDING_MODEL,
+    dimensions: int = DEFAULT_EMBEDDING_DIMENSIONS,
+) -> list[float] | None:
+    """Embed a KG node's searchable text (title + body) into a vector.
+
+    Returns None for empty input or on embedding failure (fail-closed).
+    """
+    text = f"{title or ''}\n{body or ''}".strip()
+    if not text:
+        return None
+    return embed_local(text, model_name, dimensions)
+
+
+async def backfill_null_embeddings(
+    pool: Any,
+    *,
+    embed_fn: Callable[[str, str], list[float] | None] | None = None,
+    limit: int = 1000,
+) -> dict[str, int]:
+    """Embed knowledge-graph nodes whose ``embedding`` column is NULL.
+
+    Idempotent and re-runnable: already-embedded nodes are never selected.
+    ``embed_fn`` is injectable for tests; defaults to :func:`embed_node_text`.
+    Returns ``{"embedded": n, "failed": n}``.
+    """
+    embed = embed_fn or embed_node_text
+    rows = await pool.fetch(
+        "SELECT id, title, body FROM knowledge_graph_nodes "
+        "WHERE embedding IS NULL ORDER BY created_at LIMIT $1",
+        limit,
+    )
+    embedded = 0
+    failed = 0
+    for row in rows:
+        vector = embed(row.get("title") or "", row.get("body") or "")
+        if vector is None:
+            failed += 1
+            continue
+        await pool.execute(
+            "UPDATE knowledge_graph_nodes "
+            "SET embedding = $1, updated_at = now() WHERE id = $2",
+            str(vector),
+            row["id"],
+        )
+        embedded += 1
+    return {"embedded": embedded, "failed": failed}

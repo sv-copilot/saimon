@@ -234,6 +234,7 @@ async def _persist_fulltext_path(
         ON CONFLICT (doi) DO UPDATE SET
             full_text_path = EXCLUDED.full_text_path,
             file_type      = EXCLUDED.file_type,
+            ingested_at    = NULL,
             last_accessed  = now()
         """,
         canonical_doi,
@@ -241,4 +242,45 @@ async def _persist_fulltext_path(
         source_index or "unknown",
         file_type or "bin",
         key,
+    )
+
+
+_ingested_column_ensured = False
+_ingested_column_lock: Any | None = None
+
+
+def reset_ingested_column_guard() -> None:
+    """Reset the once-per-process schema guard (test hook)."""
+    global _ingested_column_ensured
+    _ingested_column_ensured = False
+
+
+async def ensure_ingested_column(db: Any) -> None:
+    """Idempotently add ``shadow_sources_cache.ingested_at`` (once per process).
+
+    Existing databases created before SAIMON-FULLTEXT-DEDUP-FIX-1 do not have
+    the column, so this self-heals the schema at the point of first use.
+    """
+    global _ingested_column_ensured, _ingested_column_lock
+    if _ingested_column_ensured:
+        return
+    if _ingested_column_lock is None:
+        import asyncio
+
+        _ingested_column_lock = asyncio.Lock()
+    async with _ingested_column_lock:
+        if _ingested_column_ensured:
+            return
+        await db.execute(
+            "ALTER TABLE shadow_sources_cache "
+            "ADD COLUMN IF NOT EXISTS ingested_at TIMESTAMPTZ"
+        )
+        _ingested_column_ensured = True
+
+
+async def mark_fulltext_ingested(db: Any, doi: str) -> None:
+    """Mark a DOI's cached full text as fully ingested into the knowledge graph."""
+    await db.execute(
+        "UPDATE shadow_sources_cache SET ingested_at = now() WHERE doi = $1",
+        _normalize_doi(doi),
     )

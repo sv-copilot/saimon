@@ -328,6 +328,17 @@ async def health():
     return {"status": "ok", "service": "api-mcp", "checks": checks}
 
 
+@app.get("/health/s3")
+async def health_s3():
+    """Report S3 object-storage connectivity (never raises)."""
+    from research_shared.s3_storage import S3Storage
+
+    storage = S3Storage.from_env()
+    s3 = storage.health_check()
+    status = "ok" if s3.get("s3") == "connected" else "degraded"
+    return {"status": status, "service": "api-mcp", "s3": s3}
+
+
 # ---------------------------------------------------------------------------
 # Auth endpoints
 # ---------------------------------------------------------------------------

@@ -1024,7 +1024,11 @@ async def _download_fulltext_flow(
         persist_fulltext_document,
         register_fulltext_content_types,
     )
-    from research_shared.s3_storage import store_shadow_fulltext
+    from research_shared.s3_storage import (
+        ensure_ingested_column,
+        mark_fulltext_ingested,
+        store_shadow_fulltext,
+    )
 
     if not _shadow_sources_enabled():
         return {"ok": False, "blocked": True, "error": "shadow sources are disabled"}
@@ -1058,14 +1062,18 @@ async def _download_fulltext_flow(
             "error": f"source index '{resolved_source_index}' is not in FULLTEXT_DOWNLOAD_CONSENT",
         }
 
-    # ── dedup: skip re-download when a cached full_text_path exists ──
+    # ── dedup: skip re-download only when ingestion COMPLETED ──
+    # A cache row with full_text_path but no ingested_at means a prior run
+    # failed between S3 upload and KG persist — we must re-ingest, not
+    # short-circuit to a silent cache_hit.
     if db is not None:
+        await ensure_ingested_column(db)
         cached = await db.fetchrow(
-            "SELECT full_text_path, file_type, title, source_index "
+            "SELECT full_text_path, file_type, title, source_index, ingested_at "
             "FROM shadow_sources_cache WHERE doi = $1",
             canonical_doi,
         )
-        if cached and cached.get("full_text_path"):
+        if cached and cached.get("full_text_path") and cached.get("ingested_at"):
             return {
                 "ok": True,
                 "cache_hit": True,
@@ -1182,6 +1190,7 @@ async def _download_fulltext_flow(
             chunks=chunks,
             embeddings=embeddings,
         )
+        await mark_fulltext_ingested(db, canonical_doi)
         return {
             "ok": True,
             "cache_hit": False,

@@ -236,11 +236,13 @@ async def persist_fulltext_document(
 ) -> dict[str, Any]:
     """Persist one document node + N chunk nodes with ``part_of`` edges.
 
+    Idempotent on DOI: if a ``fulltext_document`` node already exists for the
+    DOI, its stale chunks (and their ``part_of`` edges) are replaced rather
+    than duplicated.
+
     ``embeddings`` is aligned with ``chunks``; a None entry stores a NULL
     embedding (fail-closed when the local model is unavailable).
     """
-    document_node_id = str(uuid.uuid4())
-
     document_metadata = {
         "doi": doi,
         "source_index": source_index,
@@ -249,16 +251,50 @@ async def persist_fulltext_document(
         "fetched_at": fetched_at,
     }
 
-    await db.execute(
-        "INSERT INTO knowledge_graph_nodes "
-        "(id, title, content_type, body, metadata) "
-        "VALUES ($1, $2, $3, $4, $5)",
-        document_node_id,
-        title,
+    existing_id = await db.fetchval(
+        "SELECT id FROM knowledge_graph_nodes "
+        "WHERE content_type = $1 AND metadata->>'doi' = $2 "
+        "ORDER BY created_at LIMIT 1",
         CONTENT_TYPE_FULLTEXT_DOCUMENT,
-        abstract or "",
-        json.dumps(document_metadata),
+        doi,
     )
+    document_node_id = existing_id or str(uuid.uuid4())
+
+    if existing_id:
+        # Refresh: drop stale chunks + their part_of edges, then update the doc.
+        await db.execute(
+            "DELETE FROM knowledge_graph_edges WHERE source_id IN "
+            "(SELECT id FROM knowledge_graph_nodes "
+            " WHERE content_type = $1 AND metadata->>'doi' = $2)",
+            CONTENT_TYPE_FULLTEXT_CHUNK,
+            doi,
+        )
+        await db.execute(
+            "DELETE FROM knowledge_graph_nodes "
+            "WHERE content_type = $1 AND metadata->>'doi' = $2",
+            CONTENT_TYPE_FULLTEXT_CHUNK,
+            doi,
+        )
+        await db.execute(
+            "UPDATE knowledge_graph_nodes "
+            "SET title = $1, body = $2, metadata = $3, updated_at = now() "
+            "WHERE id = $4",
+            title,
+            abstract or "",
+            json.dumps(document_metadata),
+            document_node_id,
+        )
+    else:
+        await db.execute(
+            "INSERT INTO knowledge_graph_nodes "
+            "(id, title, content_type, body, metadata) "
+            "VALUES ($1, $2, $3, $4, $5)",
+            document_node_id,
+            title,
+            CONTENT_TYPE_FULLTEXT_DOCUMENT,
+            abstract or "",
+            json.dumps(document_metadata),
+        )
 
     chunk_node_ids: list[str] = []
     for index, chunk in enumerate(chunks):

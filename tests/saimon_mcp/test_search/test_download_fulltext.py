@@ -63,6 +63,9 @@ class FakeDB:
             return dict(self.meta_row)
         return None
 
+    async def fetchval(self, query: str, *args):
+        return None
+
 
 def _embed(text: str):
     return [0.1] * 768
@@ -170,6 +173,7 @@ class TestDedup:
             "file_type": "pdf",
             "title": "Cached Paper",
             "source_index": "scihub",
+            "ingested_at": "2026-08-21T00:00:00+00:00",
         })
         adapter = FakeAdapter()
         result = await _run(db=db, adapter=adapter)

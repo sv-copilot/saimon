@@ -1352,6 +1352,7 @@ async def generate_verified(
     )
 
     tone = payload.parameters.get("tone", "neutral")
+    citations = [s.identifier for s in payload.sources] if payload.sources else []
 
     if _llm_client is None:
         return _error(payload.trace_id, "LLM backend not available — cannot verify.")
@@ -1487,8 +1488,8 @@ async def generate_verified(
         "observation_ids": observation_ids if observation_ids else None,
     }
 
-    resp = _ok(trace_id=payload.trace_id, data=generated)
-    logger.log_response(status=resp.status)
+    resp = _ok(trace_id=payload.trace_id, data=generated, citations=citations)
+    logger.log_response(status=resp.status, citations_count=len(resp.citations or []))
     return resp
 
 

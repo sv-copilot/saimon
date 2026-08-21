@@ -14,11 +14,12 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from research_shared.adapters.base import SourceSearchResult
+from research_shared.adapters.base import FulltextFetchResult, SourceSearchResult
 
 logger = logging.getLogger("saimon.adapters.libgen")
 
 LIBGEN_SEARCH_URL = "https://libgen.li/index.php"
+LIBGEN_DOWNLOAD_URL = "https://libgen.li/ads.php"
 DEFAULT_TIMEOUT = 15.0
 
 
@@ -131,3 +132,34 @@ class LibGenAdapter:
 
         logger.debug("LibGen DOI resolve: %r", doi)
         return None
+
+    # ── full-text download ────────────────────────────────────────
+
+    async def fetch_fulltext(self, result: SourceSearchResult) -> FulltextFetchResult | None:
+        """Download a LibGen file by MD5/ID link (fail-closed)."""
+        from research_shared.adapters.download import download_bytes
+
+        url = result.download_url
+        if not url:
+            md5 = _libgen_md5(result)
+            if not md5:
+                return None
+            url = f"{LIBGEN_DOWNLOAD_URL}?md5={md5}"
+
+        data = await download_bytes(self._http, url)
+        if data is None:
+            return None
+
+        return FulltextFetchResult(
+            source_index=self.name,
+            doi=result.doi,
+            data=data,
+            file_type=result.file_type,
+            download_url=url,
+        )
+
+
+def _libgen_md5(result: SourceSearchResult) -> str | None:
+    """Extract the MD5 from a LibGen result identifier (``md5:...``)."""
+    identifier = (result.identifier or "").removeprefix("md5:")
+    return identifier or None

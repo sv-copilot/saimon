@@ -10,9 +10,10 @@ Tier: S — core source index for DOI-based paper resolution.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
-from research_shared.adapters.base import SourceSearchResult
+from research_shared.adapters.base import FulltextFetchResult, SourceSearchResult
 
 logger = logging.getLogger("saimon.adapters.scihub")
 
@@ -111,3 +112,53 @@ class SciHubAdapter:
             file_type="pdf",
             download_url=f"https://sci-hub.ru/{doi}",
         )
+
+    # ── full-text download ────────────────────────────────────────
+
+    async def fetch_fulltext(self, result: SourceSearchResult) -> FulltextFetchResult | None:
+        """Download the PDF for a DOI via Sci-Hub (fail-closed)."""
+        from research_shared.adapters.download import download_bytes
+
+        doi = result.doi
+        if not doi:
+            return None
+
+        url = result.download_url or f"https://sci-hub.ru/{doi}"
+        data = await download_bytes(self._http, url)
+        if data is None:
+            return None
+
+        if data.startswith(b"%PDF") or (result.file_type or "").lower() == "pdf":
+            return FulltextFetchResult(
+                source_index=self.name,
+                doi=doi,
+                data=data,
+                file_type="pdf",
+                download_url=url,
+            )
+
+        # HTML wrapper page — extract an embedded PDF link and retry.
+        pdf_url = _extract_pdf_url(data)
+        if pdf_url:
+            pdf_data = await download_bytes(self._http, pdf_url)
+            if pdf_data is not None:
+                return FulltextFetchResult(
+                    source_index=self.name,
+                    doi=doi,
+                    data=pdf_data,
+                    file_type="pdf",
+                    download_url=pdf_url,
+                )
+        return None
+
+
+def _extract_pdf_url(html: bytes) -> str | None:
+    """Extract the first PDF href from a Sci-Hub HTML wrapper page."""
+    try:
+        text = html.decode("utf-8", errors="ignore")
+    except Exception:  # noqa: BLE001 — best-effort decode
+        return None
+    match = re.search(r'href=["\']([^"\']+\.pdf(?:\?[^"\']*)?)["\']', text, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return None

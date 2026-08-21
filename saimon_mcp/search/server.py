@@ -225,6 +225,21 @@ _TOOLS = [
         "description": "Get metadata for a specific source index.",
         "parameters": {"source_index_id": "str"},
     },
+    {
+        "name": "download_fulltext",
+        "description": (
+            "Download the full text of a discovered document (DOI or source "
+            "result) to object storage and ingest it into the knowledge graph "
+            "as fulltext_document + fulltext_chunk nodes. Consent-gated by "
+            "FULLTEXT_DOWNLOAD_CONSENT; deduplicated on DOI."
+        ),
+        "parameters": {
+            "doi": "str (optional — canonical DOI)",
+            "source": "dict (optional — source result from search_shadow_libraries)",
+            "source_indexes": "list[str] (optional — restrict source indexes)",
+            "fetch_only": "bool (optional — download + cache, skip RAG ingestion)",
+        },
+    },
 ]
 
 
@@ -929,4 +944,315 @@ async def source_discovery(
         tier_used=tier_used,
         web_results=len(web_results),
     )
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# tool: download_fulltext
+# ---------------------------------------------------------------------------
+
+_DEFAULT_FULLTEXT_CONSENT = {
+    "annas_archive",
+    "libgen",
+    "scihub",
+    "internet_archive",
+    "academic_torrents",
+}
+
+
+def _resolve_fulltext_consent() -> set[str]:
+    """Parse the FULLTEXT_DOWNLOAD_CONSENT allowlist.
+
+    Operator decision 2026-08-20: all five source indexes are eligible by
+    default.  An explicitly-set env var narrows the allowlist.
+    """
+    raw = _os.environ.get("FULLTEXT_DOWNLOAD_CONSENT", "")
+    if not raw.strip():
+        return set(_DEFAULT_FULLTEXT_CONSENT)
+    return {part.strip().lower() for part in raw.split(",") if part.strip()}
+
+
+def _shadow_sources_enabled() -> bool:
+    return _os.environ.get("SHADOW_SOURCES_ENABLED", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _normalize_doi(doi: str) -> str:
+    return (doi or "").strip().lower()
+
+
+async def _download_fulltext_flow(
+    db: Any,
+    storage: Any,
+    get_adapter: Any,
+    *,
+    doi: str | None,
+    source: dict[str, Any] | None,
+    fetch_only: bool,
+    embed_fn: Any,
+) -> dict[str, Any]:
+    """Core full-text download + ingest flow (consent → fetch → extract → S3 → cache → persist).
+
+    Returns a result dict; never raises.
+    """
+    from research_shared.adapters.base import FulltextFetchResult, SourceSearchResult
+    from research_shared.fulltext import (
+        chunk_text,
+        content_hash,
+        extract_text,
+        persist_fulltext_document,
+        register_fulltext_content_types,
+    )
+    from research_shared.s3_storage import store_shadow_fulltext
+
+    if not _shadow_sources_enabled():
+        return {"ok": False, "blocked": True, "error": "shadow sources are disabled"}
+
+    # ── resolve source identity ──
+    resolved_source_index: str | None = None
+    title = ""
+    file_type: str | None = None
+    download_url: str | None = None
+    identifier: str | None = None
+
+    if source and isinstance(source, dict):
+        resolved_source_index = source.get("source_index")
+        title = source.get("title") or ""
+        file_type = source.get("file_type")
+        download_url = source.get("download_url")
+        identifier = source.get("identifier")
+        if not doi:
+            doi = source.get("doi")
+    if not doi:
+        return {"ok": False, "error": "either 'doi' or 'source' (with doi) is required"}
+
+    canonical_doi = _normalize_doi(doi)
+
+    # ── consent check ──
+    consent = _resolve_fulltext_consent()
+    if resolved_source_index is not None and resolved_source_index not in consent:
+        return {
+            "ok": False,
+            "blocked": True,
+            "error": f"source index '{resolved_source_index}' is not in FULLTEXT_DOWNLOAD_CONSENT",
+        }
+
+    # ── dedup: skip re-download when a cached full_text_path exists ──
+    if db is not None:
+        cached = await db.fetchrow(
+            "SELECT full_text_path, file_type, title, source_index "
+            "FROM shadow_sources_cache WHERE doi = $1",
+            canonical_doi,
+        )
+        if cached and cached.get("full_text_path"):
+            return {
+                "ok": True,
+                "cache_hit": True,
+                "s3_key": cached["full_text_path"],
+                "document_node_id": None,
+                "chunk_count": 0,
+                "title": cached.get("title") or title,
+                "source_index": cached.get("source_index") or resolved_source_index,
+            }
+
+    # ── determine source index when only a DOI was supplied ──
+    if resolved_source_index is None:
+        # Prefer a cached metadata row, else default to Sci-Hub for DOIs.
+        if db is not None:
+            row = await db.fetchrow(
+                "SELECT source_index, title, file_type FROM shadow_sources_cache WHERE doi = $1",
+                canonical_doi,
+            )
+            if row:
+                resolved_source_index = row.get("source_index")
+                title = title or row.get("title") or ""
+                file_type = file_type or row.get("file_type")
+        if resolved_source_index is None:
+            resolved_source_index = "scihub"
+
+    # ── consent check after source_index resolution ──
+    if resolved_source_index not in consent:
+        return {
+            "ok": False,
+            "blocked": True,
+            "error": f"source index '{resolved_source_index}' is not in FULLTEXT_DOWNLOAD_CONSENT",
+        }
+
+    adapter = get_adapter(resolved_source_index)
+    if adapter is None:
+        return {"ok": False, "error": f"no adapter registered for source index '{resolved_source_index}'"}
+
+    result = SourceSearchResult(
+        type="academic_paper",
+        identifier=identifier or f"doi:{canonical_doi}",
+        doi=canonical_doi,
+        title=title or canonical_doi,
+        source_index=resolved_source_index,
+        source_index_label=resolved_source_index,
+        file_type=file_type,
+        download_url=download_url,
+    )
+
+    # ── fetch (fail-closed) ──
+    fetched: FulltextFetchResult | None = None
+    try:
+        fetched = await adapter.fetch_fulltext(result)
+    except Exception:  # noqa: BLE001 — adapters must never throw
+        fetched = None
+
+    if fetched is None or fetched.data is None:
+        return {
+            "ok": False,
+            "error": "full text not downloadable" + (
+                f" (magnet link: {fetched.download_url})"
+                if fetched is not None and fetched.download_url else ""
+            ),
+        }
+
+    data = fetched.data
+    fetched_type = fetched.file_type or file_type
+
+    # ── extract text (fail-closed) ──
+    text = extract_text(data, fetched_type)
+    if not text:
+        return {"ok": False, "error": "could not extract text from downloaded bytes"}
+
+    # ── S3 upload + cache persistence ──
+    try:
+        s3_key = await store_shadow_fulltext(
+            db,
+            storage,
+            doi=canonical_doi,
+            title=title or canonical_doi,
+            data=data,
+            file_type=fetched_type,
+            source_index=resolved_source_index,
+        )
+    except Exception as exc:  # noqa: BLE001 — unconfigured storage fails closed
+        return {"ok": False, "error": f"S3 storage failed: {exc}"}
+
+    if fetch_only:
+        return {
+            "ok": True,
+            "fetch_only": True,
+            "s3_key": s3_key,
+            "document_node_id": None,
+            "chunk_count": 0,
+        }
+
+    # ── chunk + embed + persist ──
+    chunks = chunk_text(text)
+    if not chunks:
+        return {"ok": False, "error": "extracted text produced no chunks"}
+
+    embeddings = [embed_fn(chunk) if embed_fn is not None else None for chunk in chunks]
+
+    if db is not None:
+        await register_fulltext_content_types(db)
+        persisted = await persist_fulltext_document(
+            db,
+            doi=canonical_doi,
+            title=title or canonical_doi,
+            source_index=resolved_source_index,
+            abstract=(text[:500] or None),
+            s3_key=s3_key,
+            content_hash_value=content_hash(data),
+            fetched_at=_iso_now(),
+            chunks=chunks,
+            embeddings=embeddings,
+        )
+        return {
+            "ok": True,
+            "cache_hit": False,
+            "s3_key": s3_key,
+            "document_node_id": persisted["document_node_id"],
+            "chunk_count": persisted["chunk_count"],
+            "source_index": resolved_source_index,
+        }
+
+    return {
+        "ok": True,
+        "cache_hit": False,
+        "s3_key": s3_key,
+        "document_node_id": None,
+        "chunk_count": len(chunks),
+        "source_index": resolved_source_index,
+    }
+
+
+def _iso_now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
+
+
+@app.post("/tools/download_fulltext")
+async def download_fulltext(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    """Download a document's full text to object storage and ingest into the KG."""
+    _require_auth(request)
+
+    doi = payload.parameters.get("doi")
+    source = payload.parameters.get("source")
+    fetch_only = bool(payload.parameters.get("fetch_only", False))
+
+    if not doi and not source:
+        return _error(payload.trace_id, "Either 'doi' or 'source' is required.")
+
+    logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
+    logger.log_request(
+        content_type=payload.content_type,
+        tool="download_fulltext",
+        doi=doi,
+        fetch_only=fetch_only,
+    )
+
+    from research_shared.embedding import embed_local
+    from research_shared.s3_storage import S3Storage
+
+    storage = S3Storage.from_env()
+    result = await _download_fulltext_flow(
+        _db_pool,
+        storage,
+        _shadow_registry.get,
+        doi=doi,
+        source=source,
+        fetch_only=fetch_only,
+        embed_fn=embed_local,
+    )
+
+    if result.get("blocked"):
+        logger.warning(
+            "fulltext_download_blocked",
+            doi=doi,
+            reason=result.get("error"),
+        )
+        resp = _error(payload.trace_id, result.get("error") or "full-text download blocked")
+        logger.log_response(status=resp.status, blocked=True)
+        return resp
+
+    if not result.get("ok"):
+        logger.warning("fulltext_download_failed", doi=doi, reason=result.get("error"))
+        resp = _error(payload.trace_id, result.get("error") or "full-text download failed")
+        logger.log_response(status=resp.status)
+        return resp
+
+    logger.info(
+        "fulltext_download_complete",
+        doi=doi,
+        cache_hit=result.get("cache_hit", False),
+        fetch_only=result.get("fetch_only", False),
+        chunk_count=result.get("chunk_count", 0),
+    )
+    resp = _ok(
+        trace_id=payload.trace_id,
+        data=result,
+        citations=[result.get("document_node_id")] if result.get("document_node_id") else None,
+    )
+    logger.log_response(status=resp.status, chunk_count=result.get("chunk_count", 0))
     return resp

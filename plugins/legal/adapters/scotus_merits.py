@@ -12,7 +12,7 @@ import os
 from typing import Any
 
 from plugins.legal.adapters.base import parse_year
-from research_shared.adapters.base import SourceSearchResult
+from research_shared.adapters.base import FulltextFetchResult, SourceSearchResult
 
 logger = logging.getLogger("saimon.legal.scotus_merits")
 
@@ -92,4 +92,8 @@ class ScotusMeritsAdapter:
         return parse_scotus_results(resp.json())
 
     async def resolve_doi(self, doi: str) -> SourceSearchResult | None:
+        return None
+
+    async def fetch_fulltext(self, result: SourceSearchResult) -> FulltextFetchResult | None:
+        """Legal indexes do not expose downloadable full text — return None."""
         return None

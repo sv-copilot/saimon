@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from research_shared.adapters.base import SourceSearchResult
+from research_shared.adapters.base import FulltextFetchResult, SourceSearchResult
 
 logger = logging.getLogger("saimon.adapters.academic_torrents")
 
@@ -176,3 +176,21 @@ class AcademicTorrentsAdapter:
         finally:
             if close_client:
                 await client.aclose()
+
+    # ── full-text download ────────────────────────────────────────
+
+    async def fetch_fulltext(self, result: SourceSearchResult) -> FulltextFetchResult | None:
+        """Surface the magnet link only — no auto-download of torrents.
+
+        Returns a result with ``data=None`` and the magnet ``download_url``.
+        """
+        magnet = result.download_url
+        if not magnet:
+            return None
+        return FulltextFetchResult(
+            source_index=self.name,
+            doi=result.doi,
+            data=None,
+            file_type="torrent",
+            download_url=magnet,
+        )

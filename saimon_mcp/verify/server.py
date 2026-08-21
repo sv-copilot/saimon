@@ -302,10 +302,61 @@ Return ONLY a JSON object with:
 """
 
 
+# Common English stopwords dropped from keyword queries. Entities, numbers,
+# and content words are kept. Non-English claims simply keep more of their
+# terms (stopword filtering is a shaping aid, not a language gate).
+_QUERY_STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "but", "if", "then", "else", "of", "in",
+    "on", "at", "to", "for", "with", "by", "from", "as", "is", "are", "was",
+    "were", "be", "been", "being", "do", "does", "did", "have", "has", "had",
+    "will", "would", "shall", "should", "can", "could", "may", "might", "must",
+    "this", "that", "these", "those", "it", "its", "he", "she", "they", "them",
+    "his", "her", "their", "we", "you", "i", "me", "my", "our", "your", "not",
+    "no", "nor", "so", "than", "too", "very", "just", "about", "into", "over",
+    "under", "again", "further", "once", "most", "other", "some", "such",
+    "only", "own", "same",
+})
+
+_PUNCT_STRIP = _re.compile(r"[^\w\s]")
+
+
+def _extract_keyword_query(claim: str, max_terms: int = 8) -> str:
+    """Derive a keyword query from a claim sentence.
+
+    SAIMON-VERIFY-QUERY-SHAPING-1 (#199): shadow search returns 0 results for
+    full-sentence queries but 5 for keyword queries. Strip punctuation, drop
+    stopwords, keep key terms/entities/numbers, and cap length.
+    """
+    cleaned = _PUNCT_STRIP.sub(" ", claim or "")
+    tokens = cleaned.split()
+    kept = [token for token in tokens if token.lower() not in _QUERY_STOPWORDS]
+    if not kept:
+        kept = tokens  # all-stopword claim: fall back to raw tokens
+    return " ".join(kept[:max_terms])
+
+
+def _search_queries(claim: str) -> list[str]:
+    """Ordered candidate queries for a claim, progressively simpler.
+
+    ``doi:`` lookups are passed through verbatim (they are not prose claims).
+    """
+    if claim.startswith("doi:"):
+        return [claim]
+    queries: list[str] = []
+    for max_terms in (8, 5, 3):
+        query = _extract_keyword_query(claim, max_terms)
+        if query and query not in queries:
+            queries.append(query)
+    return queries
+
+
 async def _search_sources(
     claim: str, limit: int = 5,
 ) -> list[dict[str, Any]]:
     """Search shadow libraries for sources relevant to the claim.
+
+    Queries are keyword-shaped (see ``_search_queries``) with a progressive
+    fallback when a formulation returns zero results.
 
     Fail-closed on auth: a missing or rejected cross-service key returns an
     empty source list (never fabricated sources) and logs
@@ -320,25 +371,28 @@ async def _search_sources(
         return []
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                f"{_SEARCH_MCP_URL}/tools/search_shadow_libraries",
-                json={
-                    "trace_id": "00000000-0000-0000-0000-000000000000",
-                    "content_type": "search",
-                    "parameters": {"query": claim, "limit": limit},
-                },
-                headers={"X-Saimon-API-Key": key},
-            )
-            if resp.status_code in (401, 403):
-                _log.error(
-                    "verify_search_auth_failed: search-mcp rejected the "
-                    "verify cross-service key (HTTP %d)",
-                    resp.status_code,
+            for query in _search_queries(claim):
+                resp = await client.post(
+                    f"{_SEARCH_MCP_URL}/tools/search_shadow_libraries",
+                    json={
+                        "trace_id": "00000000-0000-0000-0000-000000000000",
+                        "content_type": "search",
+                        "parameters": {"query": query, "limit": limit},
+                    },
+                    headers={"X-Saimon-API-Key": key},
                 )
-                return []
-            if resp.status_code == 200:
-                data = resp.json()
-                return data.get("data", {}).get("results", [])
+                if resp.status_code in (401, 403):
+                    _log.error(
+                        "verify_search_auth_failed: search-mcp rejected the "
+                        "verify cross-service key (HTTP %d)",
+                        resp.status_code,
+                    )
+                    return []
+                if resp.status_code == 200:
+                    data = resp.json()
+                    results = data.get("data", {}).get("results", [])
+                    if results:
+                        return results
     except Exception:  # noqa: BLE001, S110
         pass
     return []

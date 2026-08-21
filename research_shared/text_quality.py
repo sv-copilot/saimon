@@ -22,6 +22,17 @@ _WHITESPACE = re.compile(r"\s+")
 # Environment knob. Default ON (0.5). Set to "off"/"0"/"false" to disable.
 _FULLTEXT_MIN_QUALITY_ENV = "FULLTEXT_MIN_QUALITY"
 
+# OCR-substitution glyphs produced when OCR swaps a letter for a lookalike
+# symbol (e.g. ``©`` for "b", ``^`` for an accent). Rare in clean prose but
+# dense in the garbled Copperfield OCR.
+_OCR_SYMBOLS = frozenset("©®™^~§¶¤¦¯´¨¸±µ×÷¬¼½¾¹²³")
+
+# Punctuation stripped from token edges before regularity classification.
+_EDGE_PUNCTUATION = ".,;:!?()[]{}<>\"'«»„“”‘’…¿¡_-"
+
+# Word-internal connectors that do not make a token irregular.
+_INTERNAL_CONNECTORS = "'-"
+
 
 def _is_garbage(char: str) -> bool:
     """True for replacement/control characters that signal corrupt text."""
@@ -47,11 +58,46 @@ def _longest_run_ratio(text: str) -> float:
     return longest / len(text)
 
 
+def _ocr_symbol_ratio(text: str) -> float:
+    """Fraction of *text* made of OCR-substitution glyphs."""
+    if not text:
+        return 0.0
+    return sum(1 for char in text if char in _OCR_SYMBOLS) / len(text)
+
+
+def _is_irregular_token(token: str) -> bool:
+    """True for OCR-fused tokens like ``©anb`` or ``5lug``.
+
+    A letter-containing token is irregular when it carries characters beyond
+    letters and internal apostrophes/hyphens (digits or symbols fused inside
+    a word). Pure numbers and punctuation-only tokens are not irregular, so
+    clean prose in any language is unaffected.
+    """
+    core = token.strip(_EDGE_PUNCTUATION)
+    if not core:
+        return False
+    if not any(char.isalpha() for char in core):
+        return False
+    return any(
+        not (char.isalpha() or char in _INTERNAL_CONNECTORS) for char in core
+    )
+
+
+def _irregular_token_ratio(tokens: list[str]) -> float:
+    """Fraction of tokens that are OCR-fused (digit/symbol inside a word)."""
+    if not tokens:
+        return 0.0
+    return sum(1 for token in tokens if _is_irregular_token(token)) / len(tokens)
+
+
 def text_quality_score(text: str) -> float:
     """Score extracted text quality in [0, 1] (higher is healthier).
 
     Too-short text scores 0. Otherwise the score combines alphabetic ratio,
-    (1 - garbage ratio), and (1 - longest-repetition ratio).
+    (1 - garbage ratio), (1 - longest-repetition ratio), (1 - OCR-symbol
+    ratio), and a token-regularity factor — so OCR-substituted text (e.g.
+    ``©anb``, ``5lug``) is rejected while clean prose in any language still
+    passes. Character-class + token-regularity health, not language identity.
     """
     normalized = _WHITESPACE.sub(" ", text or "").strip()
     if len(normalized) < MIN_TEXT_LENGTH:
@@ -64,8 +110,16 @@ def text_quality_score(text: str) -> float:
     letter_ratio = letters / total
     garbage_ratio = garbage / total
     repetition_ratio = _longest_run_ratio(normalized)
+    ocr_symbol_ratio = _ocr_symbol_ratio(normalized)
+    regularity_factor = 1.0 - _irregular_token_ratio(normalized.split())
 
-    score = letter_ratio * (1.0 - garbage_ratio) * (1.0 - repetition_ratio)
+    score = (
+        letter_ratio
+        * (1.0 - garbage_ratio)
+        * (1.0 - repetition_ratio)
+        * (1.0 - ocr_symbol_ratio)
+        * regularity_factor
+    )
     return max(0.0, min(1.0, score))
 
 

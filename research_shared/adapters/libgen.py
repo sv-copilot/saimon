@@ -95,28 +95,35 @@ class LibGenAdapter:
 
         logger.debug("LibGen search: %r (limit=%d)", query, limit)
 
-        if self._http is None:
-            logger.warning("LibGen search: no HTTP client configured")
-            return []
+        import httpx
+
+        client: Any = self._http
+        close_client = False
+        if client is None:
+            client = httpx.AsyncClient(timeout=DEFAULT_TIMEOUT)
+            close_client = True
 
         try:
-            resp = await self._http.post(
+            resp = await client.post(
                 LIBGEN_SEARCH_URL,
                 data={"req": query, "res": 25, "view": "simple"},
                 timeout=DEFAULT_TIMEOUT,
             )
+
+            if getattr(resp, "status_code", None) != 200:
+                logger.warning(
+                    "LibGen returned HTTP %r for %r",
+                    getattr(resp, "status_code", None), query,
+                )
+                return []
+
+            return _parse_libgen_results(getattr(resp, "text", "") or "", limit)
         except Exception:
             logger.exception("LibGen search failed for %r", query)
             return []
-
-        if getattr(resp, "status_code", None) != 200:
-            logger.warning(
-                "LibGen returned HTTP %r for %r",
-                getattr(resp, "status_code", None), query,
-            )
-            return []
-
-        return _parse_libgen_results(getattr(resp, "text", "") or "", limit)
+        finally:
+            if close_client:
+                await client.aclose()
 
     # ── DOI resolution ────────────────────────────────────────────
 

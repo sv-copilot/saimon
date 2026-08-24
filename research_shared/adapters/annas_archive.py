@@ -105,26 +105,33 @@ class AnnasArchiveAdapter:
 
         logger.debug("Anna's Archive search: %r (limit=%d)", query, limit)
 
-        if self._http is None:
-            logger.warning("Anna's Archive search: no HTTP client configured")
-            return []
+        import httpx
+
+        client: Any = self._http
+        close_client = False
+        if client is None:
+            client = httpx.AsyncClient(timeout=DEFAULT_TIMEOUT)
+            close_client = True
 
         try:
-            resp = await self._http.get(
+            resp = await client.get(
                 f"{ANNAS_ARCHIVE_SEARCH_URL}?q={query}", timeout=DEFAULT_TIMEOUT
             )
+
+            if getattr(resp, "status_code", None) != 200:
+                logger.warning(
+                    "Anna's Archive returned HTTP %r for %r",
+                    getattr(resp, "status_code", None), query,
+                )
+                return []
+
+            return _parse_annas_results(getattr(resp, "text", "") or "", limit)
         except Exception:
             logger.exception("Anna's Archive search failed for %r", query)
             return []
-
-        if getattr(resp, "status_code", None) != 200:
-            logger.warning(
-                "Anna's Archive returned HTTP %r for %r",
-                getattr(resp, "status_code", None), query,
-            )
-            return []
-
-        return _parse_annas_results(getattr(resp, "text", "") or "", limit)
+        finally:
+            if close_client:
+                await client.aclose()
 
     # ── DOI resolution ────────────────────────────────────────────
 

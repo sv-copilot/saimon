@@ -22,7 +22,7 @@ _BUILT_IN_TIERS: dict = {
         "provider": "deepseek",
         "model": "deepseek-v4-pro",
         "temperature": 0.2,
-        "max_tokens": 16000,
+        "max_tokens": 12000,
     },
     "classification": {
         "provider": "deepseek",
@@ -34,7 +34,7 @@ _BUILT_IN_TIERS: dict = {
         "provider": "deepseek",
         "model": "deepseek-v4-flash",
         "temperature": 0.1,
-        "max_tokens": 8000,
+        "max_tokens": 4000,
     },
 }
 _BUILT_IN_ROUTES: dict = {

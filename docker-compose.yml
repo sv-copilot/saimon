@@ -15,12 +15,22 @@ services:
       POSTGRES_USER: saimon
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-saimon-dev}
       POSTGRES_DB: saimon
+      SEARCH_DB_PASSWORD: ${SEARCH_DB_PASSWORD:-saimon-search-dev}
+      GENERATE_DB_PASSWORD: ${GENERATE_DB_PASSWORD:-saimon-generate-dev}
+      EXPORT_DB_PASSWORD: ${EXPORT_DB_PASSWORD:-saimon-export-dev}
+      EVALUATE_DB_PASSWORD: ${EVALUATE_DB_PASSWORD:-saimon-evaluate-dev}
+      VERIFY_DB_PASSWORD: ${VERIFY_DB_PASSWORD:-saimon-verify-dev}
+      EXPLORE_DB_PASSWORD: ${EXPLORE_DB_PASSWORD:-saimon-explore-dev}
+      API_DB_PASSWORD: ${API_DB_PASSWORD:-saimon-api-dev}
+      DOMAIN_DB_PASSWORD: ${DOMAIN_DB_PASSWORD:-saimon-domain-dev}
+      CREW_DB_PASSWORD: ${CREW_DB_PASSWORD:-saimon-crew-dev}
     # Port exposed via staging/prod override files
     # ports:
     #   - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./db/init-roles.sh:/docker-entrypoint-initdb.d/02-init-roles.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U saimon -d saimon"]
       interval: 5s
@@ -39,7 +49,7 @@ services:
     environment:
       PORT: "8001"
       SAIMON_API_KEY: ${SAIMON_SEARCH_API_KEY:-sk-test-search-key}
-      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+      DATABASE_URL: postgresql://search_mcp:${SEARCH_DB_PASSWORD:-saimon-search-dev}@postgres:5432/saimon
       SERPER_API_KEY: ${SERPER_API_KEY:-}
       SAIMON_S3_ENDPOINT: ${SAIMON_S3_ENDPOINT:-}
       SAIMON_S3_ACCESS_KEY: ${SAIMON_S3_ACCESS_KEY:-}
@@ -68,7 +78,7 @@ services:
     environment:
       PORT: "8002"
       SAIMON_API_KEY: ${SAIMON_GENERATE_API_KEY:-sk-test-generate-key}
-      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+      DATABASE_URL: postgresql://generate_mcp:${GENERATE_DB_PASSWORD:-saimon-generate-dev}@postgres:5432/saimon
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       EVALUATE_MCP_URL: ${EVALUATE_MCP_URL:-http://evaluate-mcp:8004}
@@ -97,7 +107,7 @@ services:
     environment:
       PORT: "8003"
       SAIMON_API_KEY: ${SAIMON_EXPORT_API_KEY:-sk-test-export-key}
-      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+      DATABASE_URL: postgresql://export_mcp:${EXPORT_DB_PASSWORD:-saimon-export-dev}@postgres:5432/saimon
     ports:
       - "8003:8003"
     depends_on:
@@ -121,7 +131,7 @@ services:
     environment:
       PORT: "8004"
       SAIMON_API_KEY: ${SAIMON_EVALUATE_API_KEY:-sk-test-evaluate-key}
-      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+      DATABASE_URL: postgresql://evaluate_mcp:${EVALUATE_DB_PASSWORD:-saimon-evaluate-dev}@postgres:5432/saimon
     ports:
       - "8004:8004"
     depends_on:
@@ -146,7 +156,7 @@ services:
       PORT: "8005"
       SAIMON_API_KEY: ${SAIMON_VERIFY_API_KEY:-sk-test-verify-key}
       SEARCH_API_KEY: ${SAIMON_SEARCH_API_KEY:-sk-test-search-key}
-      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+      DATABASE_URL: postgresql://verify_mcp:${VERIFY_DB_PASSWORD:-saimon-verify-dev}@postgres:5432/saimon
     ports:
       - "8005:8005"
     depends_on:
@@ -170,7 +180,7 @@ services:
     environment:
       PORT: "8006"
       SAIMON_API_KEY: ${SAIMON_EXPLORE_API_KEY:-sk-test-explore-key}
-      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+      DATABASE_URL: postgresql://explore_mcp:${EXPLORE_DB_PASSWORD:-saimon-explore-dev}@postgres:5432/saimon
     ports:
       - "8006:8006"
     depends_on:
@@ -193,7 +203,7 @@ services:
     command: api-mcp
     environment:
       PORT: "8007"
-      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+      DATABASE_URL: postgresql://api_mcp:${API_DB_PASSWORD:-saimon-api-dev}@postgres:5432/saimon
       SAIMON_JWT_SECRET: ${SAIMON_JWT_SECRET:-dev-jwt-secret-change-in-prod}
       SAIMON_S3_ENDPOINT: ${SAIMON_S3_ENDPOINT:-}
       SAIMON_S3_ACCESS_KEY: ${SAIMON_S3_ACCESS_KEY:-}
@@ -222,7 +232,7 @@ services:
     environment:
       PORT: "8008"
       SAIMON_API_KEY: ${SAIMON_DOMAIN_API_KEY:-sk-test-domain-key}
-      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+      DATABASE_URL: postgresql://domain_mcp:${DOMAIN_DB_PASSWORD:-saimon-domain-dev}@postgres:5432/saimon
       SAIMON_DOMAIN_PLUGIN_PATHS: ${SAIMON_DOMAIN_PLUGIN_PATHS:-}
     ports:
       - "8008:8008"
@@ -247,7 +257,7 @@ services:
     environment:
       PORT: "8009"
       SAIMON_API_KEY: ${SAIMON_CREW_API_KEY:-sk-test-crew-key}
-      DATABASE_URL: postgresql://saimon:${POSTGRES_PASSWORD:-saimon-dev}@postgres:5432/saimon
+      DATABASE_URL: postgresql://crew_mcp:${CREW_DB_PASSWORD:-saimon-crew-dev}@postgres:5432/saimon
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       SEARCH_MCP_URL: ${SEARCH_MCP_URL:-http://search-mcp:8001}

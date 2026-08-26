@@ -4,7 +4,7 @@
     "id": "saimon",
     "name": "Saimon Platform",
     "github_slug": "sv-copilot/saimon",
-    "integration_branch": "ai-dev"
+    "integration_branch": "dev"
   },
   "product": {
     "goal": "A self-extending platform of 6 atomic MCP services that share one knowledge graph and adapt to new content types via research-backed self-extension.",

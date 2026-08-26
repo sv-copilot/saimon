@@ -601,7 +601,7 @@ Rename to `get_source_index_detail` with same deprecation pattern.
 |---|---|
 | **Slice** | SHADOW-SEARCH-1 |
 | **Branch** | `slice/SHADOW-SEARCH-1` |
-| **Parent** | `ai-dev` (current HEAD: all 15 slices merged) |
+| **Parent** | `dev` (current HEAD: all 15 slices merged) |
 | **Depends on** | None (standalone addition to search-mcp + verify-mcp) |
 | **What** | Shadow library source integration: search tool, verify pipeline, terminology fix |
 
@@ -763,7 +763,7 @@ ruff check research_shared/ saimon_mcp/
    mirror of Anna's Archive / LibGen metadata, or live-scrape?
 3. **Start SHADOW-SEARCH-1** after approval:
    ```bash
-   git checkout ai-dev && git pull origin ai-dev
+   git checkout dev && git pull origin dev
    git checkout -b slice/SHADOW-SEARCH-1
    ```
 4. **Phase 1 first:** Models + Registry (no scraping yet) — get the

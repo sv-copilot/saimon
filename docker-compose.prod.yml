@@ -44,7 +44,7 @@ services:
     environment:
       PORT: "8001"
       SAIMON_API_KEY: ${SAIMON_SEARCH_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${SEARCH_DATABASE_URL}
       SAIMON_ENV: production
       SERPER_API_KEY: ${SERPER_API_KEY:-}
       SAIMON_S3_ENDPOINT: ${SAIMON_S3_ENDPOINT}
@@ -76,7 +76,7 @@ services:
     environment:
       PORT: "8002"
       SAIMON_API_KEY: ${SAIMON_GENERATE_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${GENERATE_DATABASE_URL}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -111,7 +111,7 @@ services:
     environment:
       PORT: "8003"
       SAIMON_API_KEY: ${SAIMON_EXPORT_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${EXPORT_DATABASE_URL}
       SAIMON_ENV: production
     ports: !override
       - "127.0.0.1:8103:8003"
@@ -138,7 +138,7 @@ services:
     environment:
       PORT: "8004"
       SAIMON_API_KEY: ${SAIMON_EVALUATE_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${EVALUATE_DATABASE_URL}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       SAIMON_ENV: production
@@ -168,7 +168,7 @@ services:
       PORT: "8005"
       SAIMON_API_KEY: ${SAIMON_VERIFY_API_KEY}
       SEARCH_API_KEY: ${SAIMON_SEARCH_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${VERIFY_DATABASE_URL}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -198,7 +198,7 @@ services:
     environment:
       PORT: "8006"
       SAIMON_API_KEY: ${SAIMON_EXPLORE_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${EXPLORE_DATABASE_URL}
       SAIMON_ENV: production
     ports: !override
       - "127.0.0.1:8106:8006"
@@ -228,7 +228,7 @@ services:
       SAIMON_S3_SECRET_KEY: ${SAIMON_S3_SECRET_KEY}
       SAIMON_S3_BUCKET: ${SAIMON_S3_BUCKET}
       PORT: "8007"
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${API_DATABASE_URL}
       SAIMON_JWT_SECRET: ${SAIMON_JWT_SECRET}
       SAIMON_ENV: production
     ports: !override
@@ -256,7 +256,7 @@ services:
     environment:
       PORT: "8008"
       SAIMON_API_KEY: ${SAIMON_DOMAIN_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${DOMAIN_DATABASE_URL}
       SAIMON_DOMAIN_PLUGIN_PATHS: ${SAIMON_DOMAIN_PLUGIN_PATHS}
       SAIMON_ENV: production
     ports: !override
@@ -284,7 +284,7 @@ services:
     environment:
       PORT: "8009"
       SAIMON_API_KEY: ${SAIMON_CREW_API_KEY}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${CREW_DATABASE_URL}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       SAIMON_ENV: production

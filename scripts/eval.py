@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from eval_harness.compare import compare_reports
+from eval_harness.gate import gate_suites
 from eval_harness.runner import run_suite, write_report
 
 
@@ -48,6 +49,13 @@ def cmd_compare(args: argparse.Namespace) -> int:
     return 1 if result["regressions"] else 0
 
 
+def cmd_gate(args: argparse.Namespace) -> int:
+    """Run every committed fixture suite offline; fail on any below threshold."""
+    passed, results = gate_suites(args.fixtures_root, threshold=args.threshold)
+    print(json.dumps({"passed": passed, "suites": results}, indent=2, ensure_ascii=False))
+    return 0 if passed else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="eval.py", description="Offline A/B eval harness"
@@ -72,6 +80,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="ignore task_success True->False drops",
     )
     cmp_p.set_defaults(func=cmd_compare)
+
+    gate_p = sub.add_parser("gate", help="run all fixture suites; fail below threshold")
+    gate_p.add_argument("--fixtures-root", default="fixtures", help="fixtures dir")
+    gate_p.add_argument(
+        "--threshold", type=float, default=0.5, help="task success rate threshold"
+    )
+    gate_p.set_defaults(func=cmd_gate)
 
     return parser
 

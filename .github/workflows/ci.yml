@@ -45,6 +45,24 @@ jobs:
       - name: Validate OpenAPI spec
         run: python scripts/validate_openapi_spec.py
 
+  # ── Offline eval gate (all branches) ──────────────────────────────
+  # SAIMON-EVAL-CI-GATE-1 (#27): the committed golden fixture suites must
+  # pass offline. Pure Python + stdlib — no network, no model keys.
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run offline eval gate
+        run: python3 scripts/eval.py gate --fixtures-root fixtures
+
   # ── Build & push Docker image (dev, rc, and main branches, pushes to GHCR) ─
   docker-push:
     runs-on: ubuntu-latest

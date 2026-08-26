@@ -15,19 +15,16 @@ new MCPs.
 ## Branch Policy
 
 - `main` — stable production branch.  Triggers CI (validate only).
-- `dev` — staging branch.  Push triggers CI validate → GHCR push → auto-deploy
-  to staging VPS (95.216.208.183).
-- `ai-dev` — agent integration branch for Drake-assisted development.  Triggers
-  CI (validate + Docker build, no push).
+- `dev` — agent integration branch.  Push triggers CI validate → GHCR push →
+  auto-deploy to staging VPS (95.216.208.183).
 - `slice/*` — feature branches for isolated slices.
 
 ### Branch flow
 
 ```
-slice/* ──PR──▶ ai-dev ──merge──▶ dev ──CI deploy──▶ staging ──PR──▶ main
+slice/* ──PR──▶ dev ──CI deploy──▶ staging ──PR──▶ main
 ```
 
-- `ai-dev` → `dev`: merge when ready for staging consumption.
 - `dev` → `main`: PR when staging is validated and ready for production.
 
 ## Validation before PR
@@ -66,7 +63,7 @@ pip-audit --requirement requirements.txt
 
 ## PR & Merge Workflow
 
-Every slice completes through four gates before merging to `ai-dev`:
+Every slice completes through four gates before merging to `dev`:
 
 ### 1. Pre-PR validation (run from repo root)
 
@@ -83,9 +80,9 @@ are missing, install them with
 
 ### 2. Create PR
 
-Push the `slice/*` branch, then create a PR targeting `ai-dev`:
+Push the `slice/*` branch, then create a PR targeting `dev`:
 
-- **Base**: `ai-dev`
+- **Base**: `dev`
 - **Compare**: `slice/<name>`
 - **Title**: slice name + one-line summary
 - **Body**: checklist of what was built, test count, validation results
@@ -100,7 +97,7 @@ Wait for GitHub Actions (or equivalent) to pass. If something fails:
 ### 4. Merge
 
 Once CI is green and the PR is approved:
-- Merge to `ai-dev` (squash-merge preferred for clean history)
+- Merge to `dev` (squash-merge preferred for clean history)
 - Delete the `slice/*` branch after merge
 
 ### Dependency order for slices
@@ -110,7 +107,7 @@ on an unmerged slice, merge the dependency branch into the new branch
 first:
 
 ```bash
-git checkout ai-dev && git pull origin ai-dev
+git checkout dev && git pull origin dev
 git checkout -b slice/NEXT
 git merge slice/PARENT   # bring in unmerged dependency
 ```
@@ -131,8 +128,8 @@ PLAN (simon-projects)  →  IMPLEMENT (saimon)  →  SYNC (simon-projects)
 1. **SHAPE** — Add slice to the planning tree, write detail doc in
    `simon-projects/.docs/planning/projects/saimon/slices/<SLICE-ID>.md`.
 2. **PROMOTE** — Move slice to `state: ready` when ready to implement.
-3. **IMPLEMENT** — Branch `slice/<SLICE-ID>` from `ai-dev`, build + test,
-   open PR to `ai-dev`, merge.
+3. **IMPLEMENT** — Branch `slice/<SLICE-ID>` from `dev`, build + test,
+   open PR to `dev`, merge.
 4. **TREE-SYNC** — Update the planning tree: set `state`, `last_known_pr`,
    `branch_posture`. Validate with:
    ```bash
@@ -172,7 +169,7 @@ tracked in
 ## Session Startup Protocol
 
 Every new session MUST start by consolidating work from prior sessions
-before starting any new slice.  This prevents drift and ensures `ai-dev`
+before starting any new slice.  This prevents drift and ensures `dev`
 always reflects merged, tested code.
 
 Follow these steps in order.  Stop at any step if you need the operator
@@ -181,16 +178,16 @@ to review or approve something (e.g., a PR).
 ### Step 0 — Pull latest
 
 ```bash
-git checkout ai-dev && git pull origin ai-dev
+git checkout dev && git pull origin dev
 ```
 
 ### Step 1 — Discover unmerged slice branches
 
 List all remote `slice/*` branches that have **not** been merged into
-`ai-dev`:
+`dev`:
 
 ```bash
-git branch -r --no-merged origin/ai-dev | grep 'slice/'
+git branch -r --no-merged origin/dev | grep 'slice/'
 ```
 
 For each found branch, inspect its state:
@@ -205,14 +202,14 @@ For each unmerged `slice/*` branch, use the GitHub CLI or API to check
 if a PR already exists:
 
 ```bash
-gh pr list --base ai-dev --head <branch> --json number,state,title
+gh pr list --base dev --head <branch> --json number,state,title
 ```
 
 If no PR exists, create one:
 
 ```bash
 gh pr create \
-  --base ai-dev \
+  --base dev \
   --head <branch> \
   --title "<slice-name>: <one-line summary>" \
   --body "## What was built
@@ -249,17 +246,17 @@ Once CI is green and the operator approves:
 gh pr merge <PR-number> --squash --delete-branch
 ```
 
-After merge, pull the updated `ai-dev`:
+After merge, pull the updated `dev`:
 
 ```bash
-git checkout ai-dev && git pull origin ai-dev
+git checkout dev && git pull origin dev
 ```
 
 ### Step 5 — Tree-sync the planning tree
 
 After merging, update the Slice Inventory table below:
 - Change the merged slice's status from `✅ built` to `✅ merged`
-- The table is the source of truth for what's in `ai-dev`
+- The table is the source of truth for what's in `dev`
 
 ### Step 6 — Start next slice
 
@@ -274,11 +271,11 @@ upcoming work.
 
 ```bash
 cd /Users/simon/projects
-git pull --rebase origin ai-dev
+git pull --rebase origin dev
 ```
 
 Update `.docs/planning/projects/saimon/slice_dependency_tree.json`:
-- Set `state`: `validated` (merged to `ai-dev`), `promoted` (merged to `dev`)
+- Set `state`: `validated` (merged to `dev`), `promoted` (merged to `rc`)
 - Set `branch_posture.merged_branch`, `branch_posture.promoted_branch`
 - Set `branch_posture.last_known_pr` to the PR number
 - Set `status: done`
@@ -290,8 +287,8 @@ python3 scripts/validate_slice_dependency_tree.py \
 python3 -m json.tool .docs/projects-registry.json >/dev/null
 git diff --check
 git add .docs/planning/projects/saimon/
-git commit -m "tree-sync: saimon — <SLICE-ID> validated (PR #<N> merged to ai-dev)"
-git push origin ai-dev
+git commit -m "tree-sync: saimon — <SLICE-ID> validated (PR #<N> merged to dev)"
+git push origin dev
 ```
 
 See `.github/skills/tree-sync-after-merge/SKILL.md` for the full procedure.
@@ -323,7 +320,7 @@ Then shape the next slice (add to tree + write detail doc) before implementing.
 
 ```bash
 cd /Users/simon/saimon
-git checkout ai-dev && git pull origin ai-dev
+git checkout dev && git pull origin dev
 git checkout -b slice/<SLICE-ID>
 ```
 
@@ -377,25 +374,25 @@ architecture) and .docs/project_intake.json.
 
 Follow the Session Startup Protocol in AGENTS.md:
 
-a. Pull latest ai-dev.
+a. Pull latest dev.
 b. Discover unmerged slice/* branches (git branch -r --no-merged).
-c. For each: create a PR targeting ai-dev if one doesn't exist.
-   Use `gh pr create` with base=ai-dev, head=<branch>.
+c. For each: create a PR targeting dev if one doesn't exist.
+   Use `gh pr create` with base=dev, head=<branch>.
 d. Check CI on each PR. If failing, fix on the branch and push.
 e. Merge ready PRs (squash-merge, delete branch).
 f. Tree-sync the planning tree in simon-projects after each merge
    (see Step 5 above).
-g. Pull ai-dev again.
+g. Pull dev again.
 
 Do NOT start a new slice until all prior slices are merged into
-ai-dev or the operator explicitly defers one.
+dev or the operator explicitly defers one.
 
 ## 3. Start the next slice
 
 Once consolidated, check the Slice Inventory for the first slice with
 status `📋 designed`.  Read its design doc under
 `.docs/planning/projects/saimon/<SLICE>-design.md` for the full spec
-and TDD outline.  Create a new branch from ai-dev, then follow TDD:
+and TDD outline.  Create a new branch from dev, then follow TDD:
 RED → GREEN → REFACTOR → PROVE.
 
 ## 4. Current state (auto-updated)
@@ -414,7 +411,7 @@ RED → GREEN → REFACTOR → PROVE.
 
 ## 5. Environment
 
-- Branch: ai-dev
+- Branch: dev
 - Python: python3.11 (via pyenv or system)
 - Validation: python3 -m pytest tests/ -q
 - Lint: ruff check research_shared/ saimon_mcp/
@@ -454,7 +451,7 @@ Follow the Session Startup Protocol in AGENTS.md: consolidate prior
 work, tree-sync after each merge, then start the next slice from the
 planning tree. Follow TDD (RED → GREEN → REFACTOR → PROVE).
 
-Branch: ai-dev
+Branch: dev
 Python: python3.11 (via pyenv or system)
 
 Begin by reading AGENTS.md, then tell me what you see and what

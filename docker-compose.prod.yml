@@ -304,6 +304,37 @@ services:
           cpus: "0.25"
           memory: "256M"
 
+  # -----------------------------------------------------------------------
+  # Metabase — read-only BI over the shared Postgres
+  # -----------------------------------------------------------------------
+  metabase:
+    image: metabase/metabase:v0.50.36
+    restart: always
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: postgres
+      MB_DB_PORT: "5432"
+      MB_DB_DBNAME: metabase
+      MB_DB_USER: metabase
+      MB_DB_PASS: ${METABASE_DB_PASSWORD}
+    ports: !override
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - postgres
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: "1G"
+        reservations:
+          cpus: "0.25"
+          memory: "512M"
+
 volumes:
   saimon_pgdata:
     external: true

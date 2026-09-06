@@ -318,7 +318,7 @@ services:
       MB_DB_USER: metabase
       MB_DB_PASS: ${METABASE_DB_PASSWORD}
     ports: !override
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3010:3000"
     depends_on:
       - postgres
     logging:

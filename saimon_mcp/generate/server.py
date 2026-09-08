@@ -975,7 +975,7 @@ async def _generate_embedding(text: str) -> list[float] | None:
 
     cfg = EmbeddingConfig.from_env()
     if cfg.backend == "local":
-        return embed_local(text, cfg.model, cfg.dimensions)
+        return embed_local(text, cfg.model, cfg.dimensions, cfg.model_path or None)
 
     _log = _logging.getLogger("saimon.embedding")
     _log.warning(

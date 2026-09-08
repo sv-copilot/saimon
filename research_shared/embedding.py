@@ -11,12 +11,17 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 # fastembed model identifier for nomic-embed-text (768-dim). The bare name
 # is not a valid fastembed id; the full repo-qualified id is required.
 DEFAULT_EMBEDDING_MODEL = "nomic-ai/nomic-embed-text-v1.5"
 DEFAULT_EMBEDDING_DIMENSIONS = 768
+# Bundled-model directory populated at Docker build time (SAIMON-EMBEDDING-
+# MODEL-BUNDLE-1). When set and present, fastembed loads from this directory
+# via ``specific_model_path`` and never hits HuggingFace at runtime.
+DEFAULT_EMBEDDING_MODEL_PATH = "/opt/saimon/models/nomic-embed-text-v1.5"
 
 
 @dataclass
@@ -28,6 +33,7 @@ class EmbeddingConfig:
     model: str = DEFAULT_EMBEDDING_MODEL
     dimensions: int = DEFAULT_EMBEDDING_DIMENSIONS
     api_key_env: str = ""
+    model_path: str = ""
 
     @classmethod
     def from_env(cls) -> EmbeddingConfig:
@@ -40,10 +46,11 @@ class EmbeddingConfig:
                 os.getenv("SAIMON_EMBEDDING_DIMENSIONS", str(DEFAULT_EMBEDDING_DIMENSIONS))
             ),
             api_key_env=os.getenv("SAIMON_EMBEDDING_API_KEY_ENV", ""),
+            model_path=os.getenv("SAIMON_EMBEDDING_MODEL_PATH", ""),
         )
 
 
-_EMBEDDING_MODEL_CACHE: dict[str, object] = {}
+_EMBEDDING_MODEL_CACHE: dict[tuple[str, str], object] = {}
 
 
 def reset_embedding_cache() -> None:
@@ -51,12 +58,32 @@ def reset_embedding_cache() -> None:
     _EMBEDDING_MODEL_CACHE.clear()
 
 
+def resolve_model_path(model_path: str | None) -> str | None:
+    """Return a usable bundled-model directory, or None.
+
+    A valid bundle is a directory containing the ONNX model file (either at
+    ``onnx/model.onnx`` or ``model.onnx``) alongside the tokenizer/config
+    files. Returns the directory path as a string when present, else None.
+    """
+    if not model_path:
+        return None
+    path = Path(model_path)
+    if (path / "onnx" / "model.onnx").is_file() or (path / "model.onnx").is_file():
+        return str(path)
+    return None
+
+
 def embed_local(
     text: str,
     model_name: str = DEFAULT_EMBEDDING_MODEL,
     dimensions: int = DEFAULT_EMBEDDING_DIMENSIONS,
+    model_path: str | None = None,
 ) -> list[float] | None:
     """Embed text with a local fastembed ONNX model (CPU).
+
+    When ``model_path`` is provided, the model is loaded from that bundled
+    directory via ``specific_model_path`` (offline). If the directory is
+    missing, this returns None rather than falling back to a runtime download.
 
     Returns None on any failure (fastembed not installed, model missing, or
     unexpected output), preserving the fail-closed contract.
@@ -67,10 +94,17 @@ def embed_local(
         return None
 
     try:
-        model = _EMBEDDING_MODEL_CACHE.get(model_name)
+        cache_key = (model_name, model_path or "")
+        model = _EMBEDDING_MODEL_CACHE.get(cache_key)
         if model is None:
-            model = TextEmbedding(model_name=model_name)
-            _EMBEDDING_MODEL_CACHE[model_name] = model
+            kwargs: dict[str, Any] = {}
+            if model_path:
+                resolved = resolve_model_path(model_path)
+                if resolved is None:
+                    return None
+                kwargs["specific_model_path"] = resolved
+            model = TextEmbedding(model_name=model_name, **kwargs)
+            _EMBEDDING_MODEL_CACHE[cache_key] = model
         embeddings = model.embed([text[:8000]])
         vector = next(iter(embeddings), None)
         if vector is None:
@@ -89,6 +123,7 @@ def embed_node_text(
     *,
     model_name: str = DEFAULT_EMBEDDING_MODEL,
     dimensions: int = DEFAULT_EMBEDDING_DIMENSIONS,
+    model_path: str | None = None,
 ) -> list[float] | None:
     """Embed a KG node's searchable text (title + body) into a vector.
 
@@ -97,6 +132,8 @@ def embed_node_text(
     text = f"{title or ''}\n{body or ''}".strip()
     if not text:
         return None
+    if model_path:
+        return embed_local(text, model_name, dimensions, model_path)
     return embed_local(text, model_name, dimensions)
 
 

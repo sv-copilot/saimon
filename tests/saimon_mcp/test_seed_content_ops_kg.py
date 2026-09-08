@@ -312,7 +312,7 @@ class TestRetrievalProbe:
         sys.modules.pop("saimon_mcp.explore.server", None)
         from fastapi.testclient import TestClient
 
-        from saimon_mcp.explore import server as explore_server
+        import saimon_mcp.explore.server as explore_server
 
         explore_server._db_pool = db
         client = TestClient(explore_server.app)

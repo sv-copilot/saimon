@@ -421,14 +421,22 @@ async def export_content(
     formatter = formatters[fmt]
     output = formatter(content, options)
 
+    export_data: dict[str, Any] = {
+        "format": fmt,
+        "content": output,
+        "original_length": len(content),
+        "output_length": len(output),
+    }
+
+    # Propagate the grounding level when downstream callers pass it through so
+    # exported artifacts retain the generate-mcp grounding classification.
+    grounding = payload.parameters.get("grounding")
+    if grounding:
+        export_data["grounding"] = grounding
+
     resp = _ok(
         trace_id=payload.trace_id,
-        data={
-            "format": fmt,
-            "content": output,
-            "original_length": len(content),
-            "output_length": len(output),
-        },
+        data=export_data,
         citations=citations,
     )
     logger.log_response(

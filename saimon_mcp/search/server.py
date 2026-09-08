@@ -342,6 +342,94 @@ async def _vector_search(
     return [dict(row) for row in rows]
 
 
+async def _keyword_search(
+    query: str, limit: int, user_id: str | None
+) -> list[dict[str, Any]]:
+    """Lexical search over title/body (parity with ``explore_content``).
+
+    Splits multi-word queries into per-word ILIKE conditions so
+    "Sprocket bartender" matches "Sprocket is a bartender".  Returns [] when
+    no DB pool is available.
+    """
+    if _db_pool is None:
+        return []
+
+    words = [w.strip() for w in query.split() if w.strip()]
+    if not words:
+        words = [query] if query else [""]
+
+    # Build user-scoping clause
+    # Default (no user_id): shared-only (user_id IS NULL)
+    # With user_id: user's content + shared (user_id = $n OR user_id IS NULL)
+    user_clause: str
+    user_params: list[Any] = []
+    if user_id:
+        user_clause = " AND (user_id = $1 OR user_id IS NULL)"
+        user_params = [user_id]
+    else:
+        user_clause = " AND user_id IS NULL"
+        user_params = []
+
+    if len(words) == 1:
+        params = user_params + [f"%{words[0]}%", limit]
+        offset = len(user_params)
+        rows = await _db_pool.fetch(
+            "SELECT id, title, content_type, "
+            "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
+            "FROM knowledge_graph_nodes "
+            "WHERE (title ILIKE $" + str(offset + 1) + " OR body ILIKE $" + str(offset + 1) + ")"
+            + user_clause + " "
+            "ORDER BY created_at DESC LIMIT $" + str(offset + 2),
+            *params,
+        )
+    else:
+        # Build per-word conditions: (title ILIKE $n OR body ILIKE $n) AND ...
+        conditions = []
+        params = list(user_params)
+        for w in words:
+            params.append(f"%{w}%")
+            conditions.append(f"(title ILIKE ${len(params)} OR body ILIKE ${len(params)})")
+        params.append(limit)
+        sql = (
+            "SELECT id, title, content_type, "
+            "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
+            "FROM knowledge_graph_nodes "
+            "WHERE " + " AND ".join(conditions) + user_clause + " "
+            "ORDER BY created_at DESC LIMIT $" + str(len(params))
+        )
+        rows = await _db_pool.fetch(sql, *params)
+    return [dict(row) for row in rows]
+
+
+def _merge_results(
+    vector: list[dict[str, Any]],
+    keyword: list[dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Merge vector + keyword results, deduplicating by id.
+
+    Vector (semantic) results lead; keyword (lexical) results fill the
+    remainder, catching no-embedding nodes the vector path cannot see.
+    """
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in vector:
+        rid = str(row.get("id"))
+        if rid not in seen:
+            merged.append(row)
+            seen.add(rid)
+            if len(merged) >= limit:
+                return merged
+    for row in keyword:
+        rid = str(row.get("id"))
+        if rid not in seen:
+            merged.append(row)
+            seen.add(rid)
+            if len(merged) >= limit:
+                return merged
+    return merged
+
+
 @app.post("/tools/search_knowledge_graph")
 async def search_knowledge_graph(
     payload: ResearchRequest, request: Request
@@ -362,67 +450,12 @@ async def search_knowledge_graph(
     # ── try DB backend ──
     if _db_pool is not None:
         try:
-            # Try vector similarity first (ranked neighbors); fall back to
-            # keyword ILIKE when the query cannot be embedded.
-            vector_results = await _vector_search(query, limit, user_id)
-            if vector_results:
-                resp = _ok(
-                    trace_id=payload.trace_id,
-                    data={"results": vector_results, "total": len(vector_results)},
-                    citations=[str(r["id"]) for r in vector_results],
-                )
-                logger.log_response(
-                    status=resp.status, citations_count=len(resp.citations or [])
-                )
-                return resp
-
-            # Split multi-word queries into per-word ILIKE conditions
-            # so "Sprocket bartender" matches "Sprocket is a bartender"
-            words = [w.strip() for w in query.split() if w.strip()]
-            if not words:
-                words = [query] if query else [""]
-
-            # Build user-scoping clause
-            # Default (no user_id): shared-only (user_id IS NULL)
-            # With user_id: user's content + shared (user_id = $n OR user_id IS NULL)
-            user_clause: str
-            user_params: list[Any] = []
-            if user_id:
-                user_clause = " AND (user_id = $1 OR user_id IS NULL)"
-                user_params = [user_id]
-            else:
-                user_clause = " AND user_id IS NULL"
-                user_params = []
-
-            if len(words) == 1:
-                params = user_params + [f"%{words[0]}%", limit]
-                offset = len(user_params)
-                rows = await _db_pool.fetch(
-                    "SELECT id, title, content_type, "
-                    "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
-                    "FROM knowledge_graph_nodes "
-                    "WHERE (title ILIKE $" + str(offset + 1) + " OR body ILIKE $" + str(offset + 1) + ")"
-                    + user_clause + " "
-                    "ORDER BY created_at DESC LIMIT $" + str(offset + 2),
-                    *params,
-                )
-            else:
-                # Build per-word conditions: (title ILIKE $n OR body ILIKE $n) AND ...
-                conditions = []
-                params = list(user_params)
-                for w in words:
-                    params.append(f"%{w}%")
-                    conditions.append(f"(title ILIKE ${len(params)} OR body ILIKE ${len(params)})")
-                params.append(limit)
-                sql = (
-                    "SELECT id, title, content_type, "
-                    "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
-                    "FROM knowledge_graph_nodes "
-                    "WHERE " + " AND ".join(conditions) + user_clause + " "
-                    "ORDER BY created_at DESC LIMIT $" + str(len(params))
-                )
-                rows = await _db_pool.fetch(sql, *params)
-            results: list[dict[str, Any]] = [dict(r) for r in rows]
+            # Run vector (semantic) + keyword (lexical) searches and merge.
+            # Keyword fills in no-embedding nodes the vector path cannot see,
+            # giving parity with explore_content instead of dropping them.
+            vector_results = await _vector_search(query, limit, user_id) or []
+            keyword_results = await _keyword_search(query, limit, user_id)
+            results = _merge_results(vector_results, keyword_results, limit)
             resp = _ok(
                 trace_id=payload.trace_id,
                 data={"results": results, "total": len(results)},

@@ -257,3 +257,15 @@ class DatabasePool:
         pool = await self._get_pool()
         async with pool.acquire() as conn, conn.transaction():
             yield conn
+
+    @asynccontextmanager
+    async def acquire(self) -> Any:
+        """Acquire a raw asyncpg connection from the pool.
+
+        Yields the connection for callers that need connection-level
+        operations (e.g. ``saimon_mcp.explore.gap_sweep.list_gaps``, which
+        uses ``conn.fetch`` / ``conn.fetchval`` directly).
+        """
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            yield conn

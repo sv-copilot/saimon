@@ -330,3 +330,16 @@ class TestStartupPluginLoading:
         assert response.status_code == 200
         domains = [p["domain"] for p in response.json()["data"]["plugins"]]
         assert "legal" in domains
+
+    def test_health_reports_plugins_loaded(self, monkeypatch):
+        """SAIMON-LONGFORM-PACKAGING-1: /health must report plugins > 0.
+
+        This is the production signal (defects #6/#7): once the image ships
+        ``plugins/`` and ``SAIMON_DOMAIN_PLUGIN_PATHS`` is wired, ``/health``
+        reports ``checks.plugins`` > 0 instead of the historic ``plugins: 0``.
+        """
+        srv = self._fresh_server_with_legal(monkeypatch)
+        client = TestClient(srv.app)
+        response = client.get("/health")
+        assert response.status_code == 200
+        assert response.json()["checks"]["plugins"] >= 1

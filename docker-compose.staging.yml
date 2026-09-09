@@ -112,6 +112,8 @@ services:
 
   domain-mcp:
     image: ghcr.io/sv-copilot/saimon:rc
+    environment:
+      SAIMON_DOMAIN_PLUGIN_PATHS: ${SAIMON_DOMAIN_PLUGIN_PATHS:-plugins.legal}
     logging:
       driver: json-file
       options:

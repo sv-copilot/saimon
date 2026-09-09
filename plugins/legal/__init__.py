@@ -28,6 +28,7 @@ from plugins.legal.tools.parse_citation import ParseCitationTool
 from plugins.legal.tools.procedural_history import ExtractProceduralHistoryTool
 from plugins.legal.tools.rank_authority import RankAuthorityTool
 from plugins.legal.tools.reconcile_citators import ReconcileCitatorsTool
+from plugins.legal.tools.scaffold_claim import ScaffoldClaimTool
 from plugins.legal.tools.split_of_authority import DetectSplitOfAuthorityTool
 from plugins.legal.tools.usage_layer import BuildUsageLayerTool
 from plugins.legal.weighting import persuasive_authority
@@ -75,6 +76,7 @@ class LegalPlugin(DomainPlugin):
             PredictErieGuessTool(),
             ExtractProceduralHistoryTool(),
             BuildUsageLayerTool(),
+            ScaffoldClaimTool(),
         ]
 
     def schema_migrations(self) -> list[str]:

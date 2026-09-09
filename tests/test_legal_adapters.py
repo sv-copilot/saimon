@@ -205,8 +205,8 @@ class TestRecordedResponseParsing:
 
 
 class TestContentTypes:
-    def test_five_content_types(self):
-        assert len(CONTENT_TYPES) == 5
+    def test_six_content_types(self):
+        assert len(CONTENT_TYPES) == 6
 
     def test_all_namespaced_legal(self):
         for ct in CONTENT_TYPES:
@@ -224,9 +224,9 @@ class TestPluginRegistration:
         adapters = LegalPlugin().adapters()
         assert len(adapters) == 4
 
-    def test_plugin_registers_five_content_types(self):
+    def test_plugin_registers_six_content_types(self):
         content_types = LegalPlugin().content_types()
-        assert len(content_types) == 5
+        assert len(content_types) == 6
 
     def test_adapters_package_exports(self):
         from plugins.legal import adapters as adapters_pkg

@@ -10,6 +10,7 @@ Without a DB, falls back to synthetic placeholder results.
 
 from __future__ import annotations
 
+import asyncio
 import os as _os
 from typing import Any
 
@@ -22,6 +23,7 @@ from research_shared.adapters.base import SourceSearchResult
 from research_shared.adapters.dedup import deduplicate
 from research_shared.adapters.internet_archive import InternetArchiveAdapter
 from research_shared.adapters.libgen import LibGenAdapter
+from research_shared.adapters.ranking import rank_shadow_results
 from research_shared.adapters.scihub import SciHubAdapter
 from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
@@ -37,46 +39,6 @@ from research_shared.source_discovery import SOURCE_DISCOVERY_MIN_CANDIDATES
 
 _SERPER_API_KEY = _os.environ.get("SERPER_API_KEY", "")
 _SERPER_URL = "https://google.serper.dev/search"
-
-# ---------------------------------------------------------------------------
-# application factory
-# ---------------------------------------------------------------------------
-
-_lifespan = build_lifespan("search-mcp", db_pool_ref=lambda: _db_pool)
-app = FastAPI(title="search-mcp", version="0.1.0", lifespan=_lifespan)
-
-# ---------------------------------------------------------------------------
-# shadow library registry
-# ---------------------------------------------------------------------------
-
-_shadow_registry = ShadowRegistry()
-
-# Register all Tier S + A adapters
-_shadow_registry.register(AnnasArchiveAdapter())
-_shadow_registry.register(LibGenAdapter())
-_shadow_registry.register(SciHubAdapter())
-_shadow_registry.register(InternetArchiveAdapter())
-_shadow_registry.register(AcademicTorrentsAdapter())
-
-_SHADOW_LABELS: dict[str, str] = {
-    "annas_archive": "Anna's Archive",
-    "libgen": "Library Genesis (LibGen)",
-    "scihub": "Sci-Hub / SciDB",
-    "internet_archive": "Internet Archive",
-    "academic_torrents": "Academic Torrents",
-}
-
-
-def _get_shadow_adapters(source_indexes: list[str] | None = None) -> list:
-    """Return adapters filtered by optional source_indexes list."""
-    if source_indexes:
-        return [
-            a for a in _shadow_registry.list_all()
-            if a.name in source_indexes
-        ]
-    # Default: all Tier S + A adapters
-    return _shadow_registry.filter(tier="S") + _shadow_registry.filter(tier="A")
-
 
 # ---------------------------------------------------------------------------
 # backend injection
@@ -143,6 +105,12 @@ _SHADOW_LABELS: dict[str, str] = {
     "academic_torrents": "Academic Torrents",
 }
 
+# Default source indexes queried by search_shadow_libraries.  Academic Torrents
+# is excluded because its API 404s on every query (SAIMON-SEARCH-RELIABILITY-1).
+_DEFAULT_SHADOW_INDEXES = frozenset(
+    {"annas_archive", "libgen", "scihub", "internet_archive"}
+)
+
 
 def _get_shadow_adapters(source_indexes: list[str] | None = None) -> list:
     """Return adapters filtered by optional source_indexes list."""
@@ -151,8 +119,13 @@ def _get_shadow_adapters(source_indexes: list[str] | None = None) -> list:
             a for a in _shadow_registry.list_all()
             if a.name in source_indexes
         ]
-    # Default: all Tier S + A adapters
-    return _shadow_registry.filter(tier="S") + _shadow_registry.filter(tier="A")
+    # Default: Tier S book/paper sources plus Internet Archive.  Academic
+    # Torrents is excluded because its API 404s on every query (burning a 15s
+    # timeout per query with no results) — SAIMON-SEARCH-RELIABILITY-1 (#201).
+    return [
+        a for a in _shadow_registry.list_all()
+        if a.name in _DEFAULT_SHADOW_INDEXES
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -675,7 +648,7 @@ async def search_shadow_libraries(
         source_indexes=requested_indexes,
     )
 
-    # Get adapters (filtered or all S+A tier)
+    # Get adapters (filtered or default book/paper + Internet Archive set)
     adapters = _get_shadow_adapters(requested_indexes)
 
     if not adapters:
@@ -686,28 +659,34 @@ async def search_shadow_libraries(
         logger.log_response(status=resp.status)
         return resp
 
-    # Query all selected adapters in parallel, gracefully handling failures
+    # Query all selected adapters concurrently, gracefully handling failures
     all_results: list[SourceSearchResult] = []
     degraded = False
 
-    for adapter in adapters:
+    async def _query(adapter):
         try:
-            results = await adapter.search(query, limit=limit, offset=offset)
-            all_results.extend(results)
+            return await adapter.search(query, limit=limit, offset=offset)
         except Exception:  # noqa: BLE001 — each adapter may fail independently
-            degraded = True
-            continue
+            return None
 
-    # Deduplicate across source indexes
+    gathered = await asyncio.gather(*[_query(a) for a in adapters])
+    for results in gathered:
+        if results is None:
+            degraded = True
+        else:
+            all_results.extend(results)
+
+    # Deduplicate across source indexes, then rank book sources above web noise
     deduped = deduplicate(all_results)
+    ranked = rank_shadow_results(deduped)
 
     # Apply limit
-    deduped = deduped[:limit]
+    ranked = ranked[:limit]
 
     # Serialize
     results_data = []
     citations: list[str] = []
-    for r in deduped:
+    for r in ranked:
         results_data.append(r.model_dump())
         if r.doi:
             citations.append(f"doi:{r.doi}")

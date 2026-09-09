@@ -29,6 +29,7 @@ from research_shared.db import DatabaseError, DatabasePool
 from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
+from research_shared.rerank import RerankConfig, reformulate_query, rerank
 from research_shared.shadow_registry import ShadowRegistry
 from research_shared.source_discovery import SOURCE_DISCOVERY_MIN_CANDIDATES
 
@@ -88,6 +89,30 @@ def set_db_pool(pool: DatabasePool | None) -> None:
     """Inject a DatabasePool for live knowledge-graph queries."""
     global _db_pool
     _db_pool = pool
+
+
+# ---------------------------------------------------------------------------
+# retrieval rerank configuration (SAIMON-RETRIEVAL-RERANK-1)
+# ---------------------------------------------------------------------------
+
+_rerank_config = RerankConfig.from_env()
+
+
+def _rerank_embed_fn() -> Any:
+    """Return a fail-closed embedding callable for the reranker.
+
+    Returns a callable that maps text -> vector (or None).  Uses the same local
+    embedding backend as the vector search path, so cosine similarity can be
+    computed for keyword-only passages that have no precomputed embedding.
+    """
+    from research_shared.embedding import EmbeddingConfig, embed_local
+
+    cfg = EmbeddingConfig.from_env()
+
+    def embed(text: str) -> list[float] | None:
+        return embed_local(text, cfg.model, cfg.dimensions)
+
+    return embed
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +344,7 @@ async def _vector_search(
         return None
 
     select = (
-        "SELECT id, title, content_type, "
+        "SELECT id, title, body, content_type, "
         "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
         "1 - (embedding <=> $1) as similarity "
         "FROM knowledge_graph_nodes "
@@ -374,7 +399,7 @@ async def _keyword_search(
         params = user_params + [f"%{words[0]}%", limit]
         offset = len(user_params)
         rows = await _db_pool.fetch(
-            "SELECT id, title, content_type, "
+            "SELECT id, title, body, content_type, "
             "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
             "FROM knowledge_graph_nodes "
             "WHERE (title ILIKE $" + str(offset + 1) + " OR body ILIKE $" + str(offset + 1) + ")"
@@ -391,7 +416,7 @@ async def _keyword_search(
             conditions.append(f"(title ILIKE ${len(params)} OR body ILIKE ${len(params)})")
         params.append(limit)
         sql = (
-            "SELECT id, title, content_type, "
+            "SELECT id, title, body, content_type, "
             "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
             "FROM knowledge_graph_nodes "
             "WHERE " + " AND ".join(conditions) + user_clause + " "
@@ -430,6 +455,67 @@ def _merge_results(
     return merged
 
 
+async def _search_candidates(
+    query: str, limit: int, user_id: str | None
+) -> list[dict[str, Any]]:
+    """Run vector + keyword retrieval and merge into a broad candidate pool."""
+    vector_results = await _vector_search(query, limit, user_id) or []
+    keyword_results = await _keyword_search(query, limit, user_id)
+    return _merge_results(vector_results, keyword_results, limit)
+
+
+async def _retrieve_and_rerank(
+    query: str,
+    limit: int,
+    user_id: str | None,
+    logger: Any,
+) -> dict[str, Any]:
+    """Retrieve candidates, rerank them, and apply the fail-safe no-answer gate.
+
+    Returns the response ``data`` dict: ``results`` (ranked top-K), ``total``,
+    ``no_strong_evidence`` and ``requery_count``.  Logs the ``retrieval.rerank``
+    audit event with candidate/kept/top-score/fail-safe metrics.
+    """
+    config = _rerank_config
+    embed_fn = _rerank_embed_fn()
+
+    # Retrieve a broader candidate pool than the final top-K so the reranker
+    # can narrow by relevance rather than by adapter order.
+    candidate_limit = max(limit * 2, config.top_k)
+
+    candidates = await _search_candidates(query, candidate_limit, user_id)
+    outcome = rerank(query, candidates, config, embed_fn=embed_fn, top_k=limit)
+
+    requery_count = 0
+    reformulated = query
+    if outcome.fail_safe_fired and config.max_requery > 0:
+        requery_count = 1
+        reformulated = reformulate_query(query)
+        requery_candidates = await _search_candidates(
+            reformulated, candidate_limit, user_id
+        )
+        outcome = rerank(
+            reformulated, requery_candidates, config, embed_fn=embed_fn, top_k=limit
+        )
+
+    logger.info(
+        "retrieval.rerank",
+        candidate_count=outcome.candidate_count,
+        kept_count=outcome.kept_count,
+        top_score=outcome.top_score,
+        fail_safe_fired=outcome.fail_safe_fired,
+        requery_count=requery_count,
+        reformulated_query=reformulated,
+    )
+
+    return {
+        "results": outcome.ranked,
+        "total": len(outcome.ranked),
+        "no_strong_evidence": outcome.fail_safe_fired,
+        "requery_count": requery_count,
+    }
+
+
 @app.post("/tools/search_knowledge_graph")
 async def search_knowledge_graph(
     payload: ResearchRequest, request: Request
@@ -450,15 +536,11 @@ async def search_knowledge_graph(
     # ── try DB backend ──
     if _db_pool is not None:
         try:
-            # Run vector (semantic) + keyword (lexical) searches and merge.
-            # Keyword fills in no-embedding nodes the vector path cannot see,
-            # giving parity with explore_content instead of dropping them.
-            vector_results = await _vector_search(query, limit, user_id) or []
-            keyword_results = await _keyword_search(query, limit, user_id)
-            results = _merge_results(vector_results, keyword_results, limit)
+            data = await _retrieve_and_rerank(query, limit, user_id, logger)
+            results = data["results"]
             resp = _ok(
                 trace_id=payload.trace_id,
-                data={"results": results, "total": len(results)},
+                data=data,
                 citations=[str(r["id"]) for r in results],
             )
             logger.log_response(

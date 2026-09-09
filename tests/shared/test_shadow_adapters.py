@@ -230,11 +230,11 @@ class TestSciHub:
         assert results == []
 
     def test_resolve_doi_pdf_available(self):
-        """HEAD request returns 200 with PDF content-type."""
+        """GET returns 200 with PDF content-type."""
         from research_shared.adapters.scihub import SciHubAdapter
 
         mock_client = MagicMock()
-        mock_client.head = AsyncMock(return_value=_mock_response(
+        mock_client.get = AsyncMock(return_value=_mock_response(
             status=200,
             headers={"content-type": "application/pdf"},
         ))
@@ -249,11 +249,11 @@ class TestSciHub:
         assert "sci-hub.ru/10.1000/test.1" in (result.download_url or "")
 
     def test_resolve_doi_not_available(self):
-        """HEAD request returns 404 → None."""
+        """GET returns 404 → None."""
         from research_shared.adapters.scihub import SciHubAdapter
 
         mock_client = MagicMock()
-        mock_client.head = AsyncMock(return_value=_mock_response(status=404))
+        mock_client.get = AsyncMock(return_value=_mock_response(status=404))
 
         adapter = SciHubAdapter(http_client=mock_client)
         result = asyncio.run(adapter.resolve_doi("10.1000/missing"))
@@ -265,7 +265,7 @@ class TestSciHub:
         from research_shared.adapters.scihub import SciHubAdapter
 
         mock_client = MagicMock()
-        mock_client.head = AsyncMock(side_effect=Exception("Timeout"))
+        mock_client.get = AsyncMock(side_effect=Exception("Timeout"))
 
         adapter = SciHubAdapter(http_client=mock_client)
         result = asyncio.run(adapter.resolve_doi("10.1000/timeout"))

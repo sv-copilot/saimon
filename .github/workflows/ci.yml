@@ -13,7 +13,7 @@ env:
 jobs:
   # ── Validate (all branches) ──────────────────────────────────────
   validate:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 10
 
     steps:
@@ -49,7 +49,7 @@ jobs:
   # SAIMON-EVAL-CI-GATE-1 (#27): the committed golden fixture suites must
   # pass offline. Pure Python + stdlib — no network, no model keys.
   eval:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 5
 
     steps:
@@ -65,7 +65,7 @@ jobs:
 
   # ── Build & push Docker image (dev, rc, and main branches, pushes to GHCR) ─
   docker-push:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 20
     if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/rc' || github.ref == 'refs/heads/main'
     permissions:
@@ -233,7 +233,7 @@ jobs:
 
   # ── Docker build only (rc branch, for verification) ──────
   docker-build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 15
     if: github.ref == 'refs/heads/rc'
 

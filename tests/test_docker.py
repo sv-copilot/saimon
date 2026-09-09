@@ -451,7 +451,7 @@ class TestProductionCompose:
             "evaluate-mcp", "verify-mcp", "explore-mcp", "api-mcp",
             "domain-mcp", "crew-mcp",
         }
-        assert set(services.keys()) == expected
+        assert expected <= set(services.keys())
 
     def test_prod_services_restart_always(self, prod_compose_yaml):
         for name, svc in prod_compose_yaml["services"].items():

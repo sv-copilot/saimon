@@ -15,6 +15,7 @@ Supports DB re-seeding via SeedLoader injection.
 
 from __future__ import annotations
 
+import asyncio as _asyncio
 import logging as _logging
 import os as _os
 from typing import Any
@@ -713,6 +714,61 @@ async def _generate_via_llm(
         return final
     except Exception:  # noqa: BLE001 — self-critique is best-effort
         return draft
+
+
+def _is_transport_error(exc: BaseException) -> bool:
+    """Return True for connect/disconnect/timeout transport failures.
+
+    ``LLMClient.generate`` wraps underlying client errors in ``LLMError``,
+    so unwrap one level before inspecting.  Handles both built-in
+    ConnectionError/TimeoutError and httpx/OpenAI-style transport errors.
+    """
+    cause: BaseException = (
+        exc.__cause__ if isinstance(exc, LLMError) and exc.__cause__ else exc
+    )
+    if isinstance(cause, (ConnectionError, TimeoutError, _asyncio.TimeoutError)):
+        return True
+
+    try:
+        import httpx
+
+        if isinstance(cause, httpx.TransportError):
+            return True
+    except ImportError:
+        pass
+
+    name = type(cause).__name__.lower()
+    return any(token in name for token in ("connect", "disconnect", "timeout", "remote"))
+
+
+async def _generate_verified_fast(
+    prompt: str,
+    content_type: str,
+    tone: str,
+    ct_schema: dict[str, Any] | None,
+    sources: list[Any] | None,
+) -> str:
+    """Run the self-critique verified-generation path with one retry.
+
+    Retries once on transport errors (connect/disconnect) only.  Non-transport
+    errors propagate immediately so callers can surface them honestly.
+    """
+    last_exc: Exception | None = None
+    for _ in range(2):
+        try:
+            return await _generate_via_llm(
+                prompt,
+                content_type,
+                tone,
+                ct_schema,
+                sources=sources,
+                skip_critique=False,
+            )
+        except Exception as exc:  # retry policy decides the next step
+            last_exc = exc
+            if not _is_transport_error(exc):
+                raise
+    raise last_exc  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
@@ -1450,6 +1506,7 @@ async def _extract_and_verify_claims(content: str) -> dict[str, Any]:
                 "claim_text": claim_text,
                 "cited": bool(evidence_sources),
                 "citation": evidence_sources[0] if evidence_sources else None,
+                "verdict": overall_verdict,
             }
         )
 
@@ -1503,6 +1560,105 @@ async def _extract_and_verify_claims(content: str) -> dict[str, Any]:
     }
 
 
+def _annotate_content(content: str, claim_bindings: list[dict[str, Any]]) -> str:
+    """Insert ``[VERIFIED ✓]`` / ``[UNVERIFIED ⚠ ...]`` markers before claims.
+
+    Mirrors the proxy's documented annotation format so the manual fallback
+    chain and the fast path emit identical markers.
+    """
+    annotated = content
+    for binding in claim_bindings:
+        claim_text = binding.get("claim_text", "")
+        if not claim_text:
+            continue
+
+        verdict = binding.get("verdict", "inconclusive")
+        if verdict == "supported":
+            marker = "[VERIFIED ✓]"
+        elif verdict == "refuted":
+            marker = "[UNVERIFIED ⚠ refuted]"
+        elif verdict == "inconclusive":
+            marker = "[UNVERIFIED ⚠ inconclusive]"
+        elif verdict == "error":
+            marker = "[UNVERIFIED ⚠ verification error]"
+        else:
+            marker = f"[UNVERIFIED ⚠ {verdict}]"
+
+        if claim_text in annotated:
+            annotated = annotated.replace(claim_text, f"{marker} {claim_text}", 1)
+
+    return annotated
+
+
+async def _generate_verified_manual_chain(
+    prompt: str,
+    content_type: str,
+    tone: str,
+    ct_schema: dict[str, Any] | None,
+    sources: list[Any] | None,
+) -> tuple[str, dict[str, Any]]:
+    """Dependency-free fallback: generate → extract → verify → annotate.
+
+    Uses the plain ``generate_content`` path (no self-critique) and then
+    deterministically annotates every extracted claim with the same
+    ``[VERIFIED ✓]`` / ``[UNVERIFIED ⚠]`` markers as the fast path.
+    """
+    content = await _generate_via_llm(
+        prompt,
+        content_type,
+        tone,
+        ct_schema,
+        sources=sources,
+        skip_critique=True,
+    )
+    verification = await _extract_and_verify_claims(content)
+    annotated = _annotate_content(
+        content, verification.get("claim_bindings") or []
+    )
+    return annotated, verification
+
+
+async def _generate_verified_resilient(
+    prompt: str,
+    content_type: str,
+    tone: str,
+    ct_schema: dict[str, Any] | None,
+    sources: list[Any] | None,
+    logger: Any,
+) -> tuple[str, dict[str, Any], dict[str, Any] | None]:
+    """Run the verified generation pipeline with retry + manual fallback.
+
+    Returns ``(content, verification, fallback_info)``.  ``fallback_info`` is
+    ``None`` on clean (or retried-clean) runs; on degradation it carries the
+    ``reason`` and ``attempt`` so degraded runs are distinguishable in audit.
+    """
+    try:
+        content = await _generate_verified_fast(
+            prompt, content_type, tone, ct_schema, sources
+        )
+    except Exception as exc:  # fallback decision lives here
+        if not _is_transport_error(exc):
+            _record_llm_failure()
+            raise
+
+        fallback_info: dict[str, Any] = {"reason": str(exc), "attempt": 2}
+        logger.warning(
+            "generate_verified_fallback",
+            reason=str(exc),
+            attempt=2,
+        )
+        content, verification = await _generate_verified_manual_chain(
+            prompt, content_type, tone, ct_schema, sources
+        )
+        return content, verification, fallback_info
+
+    verification = await _extract_and_verify_claims(content)
+    annotated = _annotate_content(
+        content, verification.get("claim_bindings") or []
+    )
+    return annotated, verification, None
+
+
 # ---------------------------------------------------------------------------
 # tool: generate_verified
 # ---------------------------------------------------------------------------
@@ -1539,12 +1695,10 @@ async def generate_verified(
     if _llm_client is None:
         return _error(payload.trace_id, "LLM backend not available — cannot verify.")
 
-    # ── Step 1: Generate content with self-critique enabled ──
+    # ── Step 1: verified generation (retry once, then manual fallback) ──
     try:
-        content = await _generate_via_llm(
-            prompt, content_type, tone, ct_schema,
-            sources=payload.sources,
-            skip_critique=False,  # enables self-critique + verification markers
+        content, verification, fallback_info = await _generate_verified_resilient(
+            prompt, content_type, tone, ct_schema, payload.sources, logger
         )
     except LLMError as exc:
         _record_llm_failure()
@@ -1560,8 +1714,7 @@ async def generate_verified(
     }
     node_id = await _persist_content_node(title, content_type, content, metadata)
 
-    # ── Step 3-4: Extract claims, verify each, persist ──
-    verification = await _extract_and_verify_claims(content)
+    # ── Step 3-4: Extract claims, verify each, persist (done above) ──
     claims_extracted = verification["claims_extracted"]
     claims_verified = verification["claims_verified"]
     cited_claims = verification["cited_claims"]
@@ -1591,11 +1744,15 @@ async def generate_verified(
         "observation_ids": observation_ids if observation_ids else None,
     }
 
+    if fallback_info is not None:
+        generated["generate_verified_fallback"] = fallback_info
+
     resp = _ok(trace_id=payload.trace_id, data=generated, citations=citations)
     logger.log_response(
         status=resp.status,
         citations_count=len(resp.citations or []),
         grounding=grounding,
+        generate_verified_fallback=fallback_info is not None,
     )
     return resp
 

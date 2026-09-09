@@ -314,7 +314,7 @@ async def _vector_search(
     from research_shared.embedding import EmbeddingConfig, embed_local
 
     cfg = EmbeddingConfig.from_env()
-    vector = embed_local(query, cfg.model, cfg.dimensions)
+    vector = embed_local(query, cfg.model, cfg.dimensions, cfg.model_path or None)
     if vector is None or _db_pool is None:
         return None
 

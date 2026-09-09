@@ -1,0 +1,467 @@
+{
+  "content_types": [
+    {
+      "description": "A verifiable public fact about the operator profile (resume/profile anchors used to ground brand claims).",
+      "name": "profile_fact",
+      "optional_params": [],
+      "required_params": [],
+      "voice_profile": null
+    },
+    {
+      "description": "A cited theory or reference (DOI or exact title) used as a verification anchor for theory claims.",
+      "name": "source",
+      "optional_params": [],
+      "required_params": [],
+      "voice_profile": null
+    },
+    {
+      "description": "A topical entity in the content-ops knowledge graph.",
+      "name": "topic",
+      "optional_params": [],
+      "required_params": [],
+      "voice_profile": null
+    },
+    {
+      "description": "A stage in the 11-step content-ops lifecycle spine.",
+      "name": "lifecycle_stage",
+      "optional_params": [],
+      "required_params": [],
+      "voice_profile": null
+    },
+    {
+      "description": "A content post produced by the content-ops pipeline.",
+      "name": "post",
+      "optional_params": [],
+      "required_params": [],
+      "voice_profile": null
+    }
+  ],
+  "edge_types": [
+    "cites",
+    "covers",
+    "stage_of",
+    "grounds",
+    "related_to"
+  ],
+  "edges": [
+    {
+      "metadata": {},
+      "relation_type": "covers",
+      "source_id": "b3ec22e3-d717-5370-8e6a-67de7f26a6c4",
+      "source_key": "topic/self-determination-theory",
+      "target_id": "f01e4cd1-fd94-558b-b1cc-e55f493875ca",
+      "target_key": "source/deci-ryan-1985",
+      "weight": 1.0
+    },
+    {
+      "metadata": {},
+      "relation_type": "covers",
+      "source_id": "bbccf285-7458-53b4-9c5b-cae7a5a0749b",
+      "source_key": "topic/job-demands-resources-model",
+      "target_id": "63466a75-587d-58be-94f1-890087eee802",
+      "target_key": "source/bakker-demerouti-2007",
+      "weight": 1.0
+    },
+    {
+      "metadata": {},
+      "relation_type": "grounds",
+      "source_id": "44660143-819c-5472-8309-e599fcc89415",
+      "source_key": "post/saimon-self-extending-platform",
+      "target_id": "12783f92-c079-5a0b-8413-16530fdf97a2",
+      "target_key": "profile_fact/spencer-varadi-name",
+      "weight": 1.0
+    },
+    {
+      "metadata": {},
+      "relation_type": "grounds",
+      "source_id": "44660143-819c-5472-8309-e599fcc89415",
+      "source_key": "post/saimon-self-extending-platform",
+      "target_id": "9fe004ea-fe61-58d7-8d1c-5f52693c39ac",
+      "target_key": "profile_fact/spencer-varadi-title",
+      "weight": 1.0
+    },
+    {
+      "metadata": {},
+      "relation_type": "cites",
+      "source_id": "70f4d0ee-a5d1-531c-adf1-5eadf2bcbd08",
+      "source_key": "post/sdt-content-operations",
+      "target_id": "f01e4cd1-fd94-558b-b1cc-e55f493875ca",
+      "target_key": "source/deci-ryan-1985",
+      "weight": 1.0
+    },
+    {
+      "metadata": {},
+      "relation_type": "cites",
+      "source_id": "70f4d0ee-a5d1-531c-adf1-5eadf2bcbd08",
+      "source_key": "post/sdt-content-operations",
+      "target_id": "63466a75-587d-58be-94f1-890087eee802",
+      "target_key": "source/bakker-demerouti-2007",
+      "weight": 1.0
+    },
+    {
+      "metadata": {},
+      "relation_type": "stage_of",
+      "source_id": "44660143-819c-5472-8309-e599fcc89415",
+      "source_key": "post/saimon-self-extending-platform",
+      "target_id": "ca00b5b5-0e76-5874-aa98-ff0b0b7e7dfb",
+      "target_key": "lifecycle_stage/7-graph",
+      "weight": 1.0
+    },
+    {
+      "metadata": {},
+      "relation_type": "stage_of",
+      "source_id": "70f4d0ee-a5d1-531c-adf1-5eadf2bcbd08",
+      "source_key": "post/sdt-content-operations",
+      "target_id": "15ec8722-b18e-50ce-a87b-af7fb5c13b65",
+      "target_key": "lifecycle_stage/4-draft",
+      "weight": 1.0
+    },
+    {
+      "metadata": {},
+      "relation_type": "related_to",
+      "source_id": "b3ec22e3-d717-5370-8e6a-67de7f26a6c4",
+      "source_key": "topic/self-determination-theory",
+      "target_id": "de63660e-6820-52f4-8019-b0d1f8b1d2ec",
+      "target_key": "topic/brand-verification",
+      "weight": 1.0
+    },
+    {
+      "metadata": {},
+      "relation_type": "related_to",
+      "source_id": "10ae41a4-18e6-56a8-918c-c8d97a249724",
+      "source_key": "topic/knowledge-graphs",
+      "target_id": "645bd55e-2fae-5de3-b80c-7cee49efb070",
+      "target_key": "topic/ai-assisted-content-operations",
+      "weight": 1.0
+    }
+  ],
+  "nodes": [
+    {
+      "body": "Spencer Varadi is the operator of the Saimon platform.",
+      "content_type": "profile_fact",
+      "id": "12783f92-c079-5a0b-8413-16530fdf97a2",
+      "key": "profile_fact/spencer-varadi-name",
+      "metadata": {
+        "fact_type": "name",
+        "public": true
+      },
+      "title": "Spencer Varadi"
+    },
+    {
+      "body": "Spencer Varadi is based in San Francisco, CA.",
+      "content_type": "profile_fact",
+      "id": "e5da2678-a604-5745-ab0f-ed947395822e",
+      "key": "profile_fact/spencer-varadi-location",
+      "metadata": {
+        "fact_type": "location",
+        "public": true
+      },
+      "title": "San Francisco, CA"
+    },
+    {
+      "body": "Spencer Varadi's public LinkedIn profile is https://linkedin.com/in/spencervaradi.",
+      "content_type": "profile_fact",
+      "id": "30772b46-404b-5cc5-b689-4771e1ad0d9a",
+      "key": "profile_fact/spencer-varadi-linkedin",
+      "metadata": {
+        "fact_type": "linkedin",
+        "public": true,
+        "url": "https://linkedin.com/in/spencervaradi"
+      },
+      "title": "linkedin.com/in/spencervaradi"
+    },
+    {
+      "body": "Spencer Varadi's functional title is Vice President of Digital Product.",
+      "content_type": "profile_fact",
+      "id": "9fe004ea-fe61-58d7-8d1c-5f52693c39ac",
+      "key": "profile_fact/spencer-varadi-title",
+      "metadata": {
+        "fact_type": "title",
+        "public": true
+      },
+      "title": "Vice President of Digital Product"
+    },
+    {
+      "body": "Deci, E. L., & Ryan, R. M. (1985). Intrinsic Motivation and Self-Determination in Human Behavior. Springer.",
+      "content_type": "source",
+      "id": "f01e4cd1-fd94-558b-b1cc-e55f493875ca",
+      "key": "source/deci-ryan-1985",
+      "metadata": {
+        "authors": [
+          "Edward L. Deci",
+          "Richard M. Ryan"
+        ],
+        "doi": "10.1007/978-1-4899-2271-7",
+        "theory": "self_determination_theory",
+        "year": 1985
+      },
+      "title": "Intrinsic Motivation and Self-Determination in Human Behavior"
+    },
+    {
+      "body": "Bakker, A. B., & Demerouti, E. (2007). The Job Demands-Resources model: state of the art. Journal of Managerial Psychology, 22(3), 309-328.",
+      "content_type": "source",
+      "id": "63466a75-587d-58be-94f1-890087eee802",
+      "key": "source/bakker-demerouti-2007",
+      "metadata": {
+        "authors": [
+          "Arnold B. Bakker",
+          "Evangelia Demerouti"
+        ],
+        "doi": "10.1108/02683940710733115",
+        "theory": "job_demands_resources",
+        "year": 2007
+      },
+      "title": "The Job Demands-Resources model: state of the art"
+    },
+    {
+      "body": "Luthans, F., Youssef, C. M., & Avolio, B. J. (2007). Psychological Capital: Developing the Human Competitive Edge. Oxford University Press.",
+      "content_type": "source",
+      "id": "a8486af4-f327-5abe-a5f4-bdf658f05426",
+      "key": "source/luthans-youssef-avolio-2007",
+      "metadata": {
+        "authors": [
+          "Fred Luthans",
+          "Carolyn M. Youssef",
+          "Bruce J. Avolio"
+        ],
+        "isbn": "978-0-19-518752-6",
+        "theory": "psychological_capital",
+        "year": 2007
+      },
+      "title": "Psychological Capital: Developing the Human Competitive Edge"
+    },
+    {
+      "body": "Organ, D. W. (1988). Organizational Citizenship Behavior: The Good Soldier Syndrome. Lexington Books.",
+      "content_type": "source",
+      "id": "5d14bce9-cf88-5b7c-9db5-4a91016ffa0a",
+      "key": "source/organ-1988",
+      "metadata": {
+        "authors": [
+          "Dennis W. Organ"
+        ],
+        "isbn": "978-0-669-11788-7",
+        "theory": "organizational_citizenship_behavior",
+        "year": 1988
+      },
+      "title": "Organizational Citizenship Behavior: The Good Soldier Syndrome"
+    },
+    {
+      "body": "Locke, E. A., & Latham, G. P. (1990). A Theory of Goal Setting & Task Performance. Prentice-Hall.",
+      "content_type": "source",
+      "id": "8d00b28c-7595-59a7-8298-94410d9c1f64",
+      "key": "source/locke-latham-1990",
+      "metadata": {
+        "authors": [
+          "Edwin A. Locke",
+          "Gary P. Latham"
+        ],
+        "isbn": "978-0-13-913138-2",
+        "theory": "goal_setting_theory",
+        "year": 1990
+      },
+      "title": "A Theory of Goal Setting & Task Performance"
+    },
+    {
+      "body": "Content-ops lifecycle stage 1: Intake.",
+      "content_type": "lifecycle_stage",
+      "id": "37478de0-d9d9-5786-81a4-ad84072a9fe7",
+      "key": "lifecycle_stage/1-intake",
+      "metadata": {
+        "slug": "intake",
+        "spine": "content-ops",
+        "stage_number": 1
+      },
+      "title": "1. Intake"
+    },
+    {
+      "body": "Content-ops lifecycle stage 2: Research.",
+      "content_type": "lifecycle_stage",
+      "id": "1cfdc2ef-9e93-5db8-9060-9ca6fb7139f3",
+      "key": "lifecycle_stage/2-research",
+      "metadata": {
+        "slug": "research",
+        "spine": "content-ops",
+        "stage_number": 2
+      },
+      "title": "2. Research"
+    },
+    {
+      "body": "Content-ops lifecycle stage 3: Outline.",
+      "content_type": "lifecycle_stage",
+      "id": "bb145cb3-ecdf-523a-a247-37b3040a0b35",
+      "key": "lifecycle_stage/3-outline",
+      "metadata": {
+        "slug": "outline",
+        "spine": "content-ops",
+        "stage_number": 3
+      },
+      "title": "3. Outline"
+    },
+    {
+      "body": "Content-ops lifecycle stage 4: Draft.",
+      "content_type": "lifecycle_stage",
+      "id": "15ec8722-b18e-50ce-a87b-af7fb5c13b65",
+      "key": "lifecycle_stage/4-draft",
+      "metadata": {
+        "slug": "draft",
+        "spine": "content-ops",
+        "stage_number": 4
+      },
+      "title": "4. Draft"
+    },
+    {
+      "body": "Content-ops lifecycle stage 5: Self Review.",
+      "content_type": "lifecycle_stage",
+      "id": "7b43616e-52c0-592c-bfc4-793ed23e8fe5",
+      "key": "lifecycle_stage/5-self_review",
+      "metadata": {
+        "slug": "self_review",
+        "spine": "content-ops",
+        "stage_number": 5
+      },
+      "title": "5. Self Review"
+    },
+    {
+      "body": "Content-ops lifecycle stage 6: Verify.",
+      "content_type": "lifecycle_stage",
+      "id": "7273ebd8-a6a1-5a09-ab0b-8fe0e80f2435",
+      "key": "lifecycle_stage/6-verify",
+      "metadata": {
+        "slug": "verify",
+        "spine": "content-ops",
+        "stage_number": 6
+      },
+      "title": "6. Verify"
+    },
+    {
+      "body": "Content-ops lifecycle stage 7: Graph.",
+      "content_type": "lifecycle_stage",
+      "id": "ca00b5b5-0e76-5874-aa98-ff0b0b7e7dfb",
+      "key": "lifecycle_stage/7-graph",
+      "metadata": {
+        "slug": "graph",
+        "spine": "content-ops",
+        "stage_number": 7
+      },
+      "title": "7. Graph"
+    },
+    {
+      "body": "Content-ops lifecycle stage 8: Gate.",
+      "content_type": "lifecycle_stage",
+      "id": "00109365-f3d6-5b43-b763-874044c2f209",
+      "key": "lifecycle_stage/8-gate",
+      "metadata": {
+        "slug": "gate",
+        "spine": "content-ops",
+        "stage_number": 8
+      },
+      "title": "8. Gate"
+    },
+    {
+      "body": "Content-ops lifecycle stage 9: Edit.",
+      "content_type": "lifecycle_stage",
+      "id": "42afd988-d36e-59c3-8f16-0cb2047d1c8d",
+      "key": "lifecycle_stage/9-edit",
+      "metadata": {
+        "slug": "edit",
+        "spine": "content-ops",
+        "stage_number": 9
+      },
+      "title": "9. Edit"
+    },
+    {
+      "body": "Content-ops lifecycle stage 10: Publish.",
+      "content_type": "lifecycle_stage",
+      "id": "122c5945-75fc-5dd2-9724-f48c9b2bc2ce",
+      "key": "lifecycle_stage/10-publish",
+      "metadata": {
+        "slug": "publish",
+        "spine": "content-ops",
+        "stage_number": 10
+      },
+      "title": "10. Publish"
+    },
+    {
+      "body": "Content-ops lifecycle stage 11: Measure.",
+      "content_type": "lifecycle_stage",
+      "id": "f640625c-517b-5f6b-b67c-1739759dd6a9",
+      "key": "lifecycle_stage/11-measure",
+      "metadata": {
+        "slug": "measure",
+        "spine": "content-ops",
+        "stage_number": 11
+      },
+      "title": "11. Measure"
+    },
+    {
+      "body": "Self-Determination Theory (Deci & Ryan) distinguishes intrinsic and extrinsic motivation and identifies autonomy, competence, and relatedness as basic psychological needs.",
+      "content_type": "topic",
+      "id": "b3ec22e3-d717-5370-8e6a-67de7f26a6c4",
+      "key": "topic/self-determination-theory",
+      "metadata": {
+        "topic_type": "theory"
+      },
+      "title": "Self-Determination Theory"
+    },
+    {
+      "body": "The Job Demands-Resources model (Bakker & Demerouti) explains burnout and engagement as a function of job demands and job resources.",
+      "content_type": "topic",
+      "id": "bbccf285-7458-53b4-9c5b-cae7a5a0749b",
+      "key": "topic/job-demands-resources-model",
+      "metadata": {
+        "topic_type": "theory"
+      },
+      "title": "Job Demands-Resources Model"
+    },
+    {
+      "body": "Content operations augmented by AI agents for research, drafting, verification, and publication.",
+      "content_type": "topic",
+      "id": "645bd55e-2fae-5de3-b80c-7cee49efb070",
+      "key": "topic/ai-assisted-content-operations",
+      "metadata": {
+        "topic_type": "domain"
+      },
+      "title": "AI-Assisted Content Operations"
+    },
+    {
+      "body": "Knowledge graphs represent entities and relationships as nodes and edges for grounded retrieval.",
+      "content_type": "topic",
+      "id": "10ae41a4-18e6-56a8-918c-c8d97a249724",
+      "key": "topic/knowledge-graphs",
+      "metadata": {
+        "topic_type": "domain"
+      },
+      "title": "Knowledge Graphs"
+    },
+    {
+      "body": "Verification of brand claims against seeded profile facts and cited sources.",
+      "content_type": "topic",
+      "id": "de63660e-6820-52f4-8019-b0d1f8b1d2ec",
+      "key": "topic/brand-verification",
+      "metadata": {
+        "topic_type": "domain"
+      },
+      "title": "Brand Verification"
+    },
+    {
+      "body": "Saimon is a self-extending platform of six atomic MCP services that share one knowledge graph.",
+      "content_type": "post",
+      "id": "44660143-819c-5472-8309-e599fcc89415",
+      "key": "post/saimon-self-extending-platform",
+      "metadata": {
+        "stage": "graph"
+      },
+      "title": "Saimon: a self-extending content platform"
+    },
+    {
+      "body": "Self-Determination Theory frames content operations around autonomy, competence, and relatedness.",
+      "content_type": "post",
+      "id": "70f4d0ee-a5d1-531c-adf1-5eadf2bcbd08",
+      "key": "post/sdt-content-operations",
+      "metadata": {
+        "stage": "draft"
+      },
+      "title": "How Self-Determination Theory Shapes Content Operations"
+    }
+  ]
+}

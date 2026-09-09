@@ -36,6 +36,19 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# ---------------------------------------------------------------------------
+# bundle the local embedding model at build time (SAIMON-EMBEDDING-MODEL-BUNDLE-1)
+#
+# fastembed otherwise downloads nomic-embed-text-v1.5 from HuggingFace lazily
+# on first use. Bundling it here makes runtime deterministic + offline.
+# ---------------------------------------------------------------------------
+
+COPY scripts/bundle_embedding_model.py /tmp/bundle_embedding_model.py
+RUN mkdir -p /opt/saimon/models \
+    && python /tmp/bundle_embedding_model.py \
+        --output /opt/saimon/models/nomic-embed-text-v1.5 \
+    && rm /tmp/bundle_embedding_model.py
+
 COPY research_shared/ research_shared/
 COPY saimon_mcp/ saimon_mcp/
 COPY plugins/ plugins/
@@ -44,7 +57,7 @@ COPY plugins/ plugins/
 # set ownership to non-root user
 # ---------------------------------------------------------------------------
 
-RUN chown -R saimon:saimon /app
+RUN chown -R saimon:saimon /app /opt/saimon
 
 # ---------------------------------------------------------------------------
 # entrypoint — maps MCP name to uvicorn invocation
@@ -59,6 +72,10 @@ STOPSIGNAL SIGTERM
 
 HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
+
+# Load the bundled embedding model offline; never download at runtime.
+ENV SAIMON_EMBEDDING_MODEL_PATH=/opt/saimon/models/nomic-embed-text-v1.5
+ENV HF_HUB_OFFLINE=1
 
 # Run as non-root
 USER saimon

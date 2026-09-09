@@ -355,6 +355,48 @@ def _error(trace_id: str, message: str) -> ResearchResponse:
 
 
 # ---------------------------------------------------------------------------
+# grounding classification (#224)
+# ---------------------------------------------------------------------------
+
+_GROUNDING_LEVELS = ("fully_cited", "synthesis_informed", "ungrounded")
+
+
+def classify_grounding(
+    citations: list[str] | None,
+    *,
+    total_claims: int | None = None,
+    cited_claims: int | None = None,
+) -> str:
+    """Classify a generated document's grounding level.
+
+    ``grounding`` is the ratio of factual claims carrying a source pointer:
+
+    - ``ungrounded`` — no claim carries a source pointer (ratio 0), including
+      when no claims were extracted or no sources were available.
+    - ``fully_cited`` — every extracted claim carries a source pointer (ratio 1).
+    - ``synthesis_informed`` — some, but not all, claims carry a source pointer
+      (0 < ratio < 1), or claims were not extracted but sources informed the
+      synthesis (we cannot prove every claim is bound).
+    """
+    citations = citations or []
+    if total_claims is None:
+        # Claim-level extraction was not performed.  Sources may have informed
+        # the synthesis, but we cannot prove every claim is bound, so the
+        # document is never silently marked fully_cited.
+        return "synthesis_informed" if citations else "ungrounded"
+
+    if total_claims <= 0:
+        return "ungrounded"
+
+    cited = int(cited_claims or 0)
+    if cited >= total_claims:
+        return "fully_cited"
+    if cited > 0:
+        return "synthesis_informed"
+    return "ungrounded"
+
+
+# ---------------------------------------------------------------------------
 # LLM generation helper
 # ---------------------------------------------------------------------------
 
@@ -975,7 +1017,7 @@ async def _generate_embedding(text: str) -> list[float] | None:
 
     cfg = EmbeddingConfig.from_env()
     if cfg.backend == "local":
-        return embed_local(text, cfg.model, cfg.dimensions)
+        return embed_local(text, cfg.model, cfg.dimensions, cfg.model_path or None)
 
     _log = _logging.getLogger("saimon.embedding")
     _log.warning(
@@ -1239,6 +1281,8 @@ async def generate_content(
         except Exception:  # noqa: BLE001, S110 — best-effort
             pass
 
+    grounding = classify_grounding(citations)
+
     # ── append optional controls (audience/max_length/depth/format) ──
     if extra_lines:
         prompt = f"{prompt}\n\n{extra_lines}"
@@ -1280,6 +1324,7 @@ async def generate_content(
                 "word_count": len(content.split()),
                 "backend": "llm",
                 "iteration_log": iteration_log,
+                "grounding": grounding,
             }
             resp = _ok(
                 trace_id=payload.trace_id,
@@ -1287,7 +1332,9 @@ async def generate_content(
                 citations=citations,
             )
             logger.log_response(
-                status=resp.status, citations_count=len(resp.citations or [])
+                status=resp.status,
+                citations_count=len(resp.citations or []),
+                grounding=grounding,
             )
             return resp
         except LLMError as exc:
@@ -1310,6 +1357,7 @@ async def generate_content(
         "tone": tone,
         "word_count": len(fallback_content.split()),
         "backend": "fallback",
+        "grounding": grounding,
     }
 
     resp = _degraded(
@@ -1317,7 +1365,11 @@ async def generate_content(
         data=generated,
         citations=citations,
     )
-    logger.log_response(status=resp.status, citations_count=len(resp.citations or []))
+    logger.log_response(
+        status=resp.status,
+        citations_count=len(resp.citations or []),
+        grounding=grounding,
+    )
     return resp
 
 
@@ -1385,6 +1437,8 @@ async def generate_verified(
 
     # ── Step 4: Verify each claim and persist ──
     claims_verified = 0
+    cited_claims = 0
+    claim_bindings: list[dict[str, Any]] = []
     observation_ids: list[str] = []
 
     for claim in claims:
@@ -1427,6 +1481,24 @@ async def generate_verified(
         verifications = verify_resp.get("data", {}).get("verifications", [])
         overall_verdict = verify_resp.get("data", {}).get("overall_verdict", "inconclusive")
         overall_confidence = verify_resp.get("data", {}).get("overall_confidence", 0.5)  # noqa: F841
+
+        # A claim "carries a source pointer" when at least one verification
+        # returned evidence tying it back to a source.
+        evidence_sources = [
+            v.get("evidence_source")
+            for v in verifications
+            if v.get("evidence_source")
+        ]
+        if evidence_sources:
+            cited_claims += 1
+
+        claim_bindings.append(
+            {
+                "claim_text": claim_text,
+                "cited": bool(evidence_sources),
+                "citation": evidence_sources[0] if evidence_sources else None,
+            }
+        )
 
         # 4c: Persist verifications and evidence links
         if _db_pool is not None and obs_id:
@@ -1475,6 +1547,10 @@ async def generate_verified(
     # ── Step 5: Return consolidated response ──
     _record_generation_metrics(content_type)
 
+    grounding = classify_grounding(
+        citations, total_claims=claims_verified, cited_claims=cited_claims
+    )
+
     generated: dict[str, Any] = {
         "content": content,
         "content_type": content_type,
@@ -1485,11 +1561,18 @@ async def generate_verified(
         "node_id": node_id,
         "claims_extracted": claims_extracted,
         "claims_verified": claims_verified,
+        "cited_claims": cited_claims,
+        "grounding": grounding,
+        "claims": claim_bindings if claim_bindings else None,
         "observation_ids": observation_ids if observation_ids else None,
     }
 
     resp = _ok(trace_id=payload.trace_id, data=generated, citations=citations)
-    logger.log_response(status=resp.status, citations_count=len(resp.citations or []))
+    logger.log_response(
+        status=resp.status,
+        citations_count=len(resp.citations or []),
+        grounding=grounding,
+    )
     return resp
 
 
@@ -1856,6 +1939,7 @@ async def generate_job_hunt_content(
 
     citations = [s.identifier for s in payload.sources] if payload.sources else []
     tone = payload.parameters.get("tone", "neutral")
+    grounding = classify_grounding(citations)
 
     # ── try LLM backend ──
     if _llm_client is not None:
@@ -1871,6 +1955,7 @@ async def generate_job_hunt_content(
                 "word_count": len(content.split()),
                 "backend": "llm",
                 "domain": "job_hunt",
+                "grounding": grounding,
             }
             resp = _ok(
                 trace_id=payload.trace_id,
@@ -1878,7 +1963,9 @@ async def generate_job_hunt_content(
                 citations=citations,
             )
             logger.log_response(
-                status=resp.status, citations_count=len(resp.citations or [])
+                status=resp.status,
+                citations_count=len(resp.citations or []),
+                grounding=grounding,
             )
             return resp
         except LLMError as exc:
@@ -1901,6 +1988,7 @@ async def generate_job_hunt_content(
         "word_count": len(fallback_content.split()),
         "backend": "fallback",
         "domain": "job_hunt",
+        "grounding": grounding,
     }
 
     resp = _degraded(
@@ -1908,5 +1996,9 @@ async def generate_job_hunt_content(
         data=generated,
         citations=citations,
     )
-    logger.log_response(status=resp.status, citations_count=len(resp.citations or []))
+    logger.log_response(
+        status=resp.status,
+        citations_count=len(resp.citations or []),
+        grounding=grounding,
+    )
     return resp

@@ -350,6 +350,97 @@ def _search_queries(claim: str) -> list[str]:
     return queries
 
 
+_VERIFY_SEARCH_TIMEOUT = 30.0  # matches search's worst-case source fan-out
+_VERIFY_SEARCH_RETRIES = 1
+_VERIFY_TRANSPORT_ERRORS = (httpx.ReadTimeout, httpx.ConnectError)
+
+
+def _search_payload(query: str, limit: int) -> dict[str, Any]:
+    """Build the ``search_shadow_libraries`` request envelope for *query*."""
+    return {
+        "trace_id": "00000000-0000-0000-0000-000000000000",
+        "content_type": "search",
+        "parameters": {"query": query, "limit": limit},
+    }
+
+
+async def _search_sources_with_status(
+    claim: str, limit: int = 5,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Search shadow libraries, returning ``(results, degraded)``.
+
+    Retries each query once on transport errors (timeout/connect) and logs
+    ``verify_search_degraded`` with reason and attempt, so the ledger can
+    distinguish a search outage from a genuine empty result.  Auth failures
+    (401/403) are NOT retried.
+    """
+    key = _search_api_key()
+    if not key:
+        _log.error(
+            "verify_search_auth_failed: SEARCH_API_KEY not configured — "
+            "cannot authenticate to search-mcp (fail-closed)"
+        )
+        return [], False
+
+    degraded = False
+    try:
+        async with httpx.AsyncClient(timeout=_VERIFY_SEARCH_TIMEOUT) as client:
+            for query in _search_queries(claim):
+                resp = None
+                for attempt in range(_VERIFY_SEARCH_RETRIES + 1):
+                    try:
+                        resp = await client.post(
+                            f"{_SEARCH_MCP_URL}/tools/search_shadow_libraries",
+                            json=_search_payload(query, limit),
+                            headers={"X-Saimon-API-Key": key},
+                        )
+                        break
+                    except _VERIFY_TRANSPORT_ERRORS as exc:
+                        degraded = True
+                        if attempt < _VERIFY_SEARCH_RETRIES:
+                            _log.warning(
+                                "verify_search_degraded: %s on attempt %d of %d "
+                                "for query %r; retrying once",
+                                exc.__class__.__name__,
+                                attempt + 1,
+                                _VERIFY_SEARCH_RETRIES + 1,
+                                query,
+                            )
+                        else:
+                            _log.error(
+                                "verify_search_degraded: %s exhausted retries "
+                                "for query %r",
+                                exc.__class__.__name__,
+                                query,
+                            )
+
+                if resp is None:
+                    continue
+
+                if resp.status_code in (401, 403):
+                    _log.error(
+                        "verify_search_auth_failed: search-mcp rejected the "
+                        "verify cross-service key (HTTP %d)",
+                        resp.status_code,
+                    )
+                    return [], degraded
+
+                if resp.status_code == 200:
+                    data = resp.json()
+                    results = data.get("data", {}).get("results", [])
+                    if results:
+                        return results, degraded
+    except Exception as exc:  # noqa: BLE001
+        degraded = True
+        _log.error(
+            "verify_search_degraded: unexpected error during shadow search "
+            "(%s: %s)",
+            exc.__class__.__name__,
+            exc,
+        )
+    return [], degraded
+
+
 async def _search_sources(
     claim: str, limit: int = 5,
 ) -> list[dict[str, Any]]:
@@ -358,44 +449,11 @@ async def _search_sources(
     Queries are keyword-shaped (see ``_search_queries``) with a progressive
     fallback when a formulation returns zero results.
 
-    Fail-closed on auth: a missing or rejected cross-service key returns an
-    empty source list (never fabricated sources) and logs
-    ``verify_search_auth_failed``.
+    Backward-compatible wrapper around :func:`_search_sources_with_status`.
+    Fail-closed: never fabricates sources.
     """
-    key = _search_api_key()
-    if not key:
-        _log.error(
-            "verify_search_auth_failed: SEARCH_API_KEY not configured — "
-            "cannot authenticate to search-mcp (fail-closed)"
-        )
-        return []
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            for query in _search_queries(claim):
-                resp = await client.post(
-                    f"{_SEARCH_MCP_URL}/tools/search_shadow_libraries",
-                    json={
-                        "trace_id": "00000000-0000-0000-0000-000000000000",
-                        "content_type": "search",
-                        "parameters": {"query": query, "limit": limit},
-                    },
-                    headers={"X-Saimon-API-Key": key},
-                )
-                if resp.status_code in (401, 403):
-                    _log.error(
-                        "verify_search_auth_failed: search-mcp rejected the "
-                        "verify cross-service key (HTTP %d)",
-                        resp.status_code,
-                    )
-                    return []
-                if resp.status_code == 200:
-                    data = resp.json()
-                    results = data.get("data", {}).get("results", [])
-                    if results:
-                        return results
-    except Exception:  # noqa: BLE001, S110
-        pass
-    return []
+    results, _ = await _search_sources_with_status(claim, limit=limit)
+    return results
 
 
 def _format_sources(sources: list[dict[str, Any]]) -> str:
@@ -1128,11 +1186,17 @@ async def verify_claim(
     # ── shadow source search ─────────────────────────────────
     use_shadow = payload.parameters.get("use_shadow_sources", False)
     shadow_results: list[dict[str, Any]] = []
+    shadow_search_degraded = False
     if use_shadow:
         try:
-            shadow_results = await _search_sources(claim, limit=5)
-        except Exception:  # noqa: BLE001, S110
-            pass  # degraded — continue without shadow sources
+            shadow_results, shadow_search_degraded = await _search_sources_with_status(
+                claim, limit=5
+            )
+        except Exception:  # noqa: BLE001
+            shadow_search_degraded = True
+            _log.exception(
+                "verify_search_degraded: unexpected error during shadow search"
+            )
 
     logger = build_audit_logger(payload, request, _auth, "verify-mcp")
     logger.log_request(
@@ -1141,6 +1205,7 @@ async def verify_claim(
         claim_length=len(claim),
         methods_count=len(method_names),
         shadow_sources_found=len(shadow_results),
+        shadow_search_degraded=shadow_search_degraded,
     )
 
     # ── risk profile: detect items for boosted checking ─────

@@ -58,7 +58,7 @@ class TestDBBackendInjection:
             headers={"X-Saimon-API-Key": api_key},
         )
         assert response.status_code == 200
-        mock_db.fetch.assert_called_once()
+        mock_db.fetch.assert_called()
         call_sql = mock_db.fetch.call_args[0][0]
         assert "SELECT" in call_sql or "select" in call_sql.lower()
 
@@ -185,7 +185,7 @@ class TestSearchUserScoping:
         )
         assert response.status_code == 200
         # Verify SQL includes "user_id IS NULL" clause
-        mock_db.fetch.assert_called_once()
+        mock_db.fetch.assert_called()
         sql = mock_db.fetch.call_args[0][0]
         assert "user_id IS NULL" in sql, (
             f"Default search should filter to shared-only: {sql}"
@@ -228,7 +228,7 @@ class TestSearchUserScoping:
             headers={"X-Saimon-API-Key": api_key},
         )
         assert response.status_code == 200
-        mock_db.fetch.assert_called_once()
+        mock_db.fetch.assert_called()
         sql = mock_db.fetch.call_args[0][0]
         assert "user_id = $" in sql or "user_id = $1" in sql, (
             f"Search with user_id should include user_id = param: {sql}"

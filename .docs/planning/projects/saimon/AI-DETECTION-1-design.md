@@ -3,7 +3,7 @@
 - **Slice**: AI-DETECTION-1
 - **Branch**: `slice/AI-DETECTION-1`
 - **Status**: 📋 designed
-- **Parent**: ai-dev
+- **Parent**: dev
 
 ## Problem Statement
 

@@ -10,6 +10,7 @@ Without a DB, falls back to synthetic placeholder results.
 
 from __future__ import annotations
 
+import asyncio
 import os as _os
 from typing import Any
 
@@ -22,6 +23,7 @@ from research_shared.adapters.base import SourceSearchResult
 from research_shared.adapters.dedup import deduplicate
 from research_shared.adapters.internet_archive import InternetArchiveAdapter
 from research_shared.adapters.libgen import LibGenAdapter
+from research_shared.adapters.ranking import rank_shadow_results
 from research_shared.adapters.scihub import SciHubAdapter
 from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
@@ -29,6 +31,7 @@ from research_shared.db import DatabaseError, DatabasePool
 from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
+from research_shared.rerank import RerankConfig, reformulate_query, rerank
 from research_shared.shadow_registry import ShadowRegistry
 from research_shared.source_discovery import SOURCE_DISCOVERY_MIN_CANDIDATES
 
@@ -36,46 +39,6 @@ from research_shared.source_discovery import SOURCE_DISCOVERY_MIN_CANDIDATES
 
 _SERPER_API_KEY = _os.environ.get("SERPER_API_KEY", "")
 _SERPER_URL = "https://google.serper.dev/search"
-
-# ---------------------------------------------------------------------------
-# application factory
-# ---------------------------------------------------------------------------
-
-_lifespan = build_lifespan("search-mcp", db_pool_ref=lambda: _db_pool)
-app = FastAPI(title="search-mcp", version="0.1.0", lifespan=_lifespan)
-
-# ---------------------------------------------------------------------------
-# shadow library registry
-# ---------------------------------------------------------------------------
-
-_shadow_registry = ShadowRegistry()
-
-# Register all Tier S + A adapters
-_shadow_registry.register(AnnasArchiveAdapter())
-_shadow_registry.register(LibGenAdapter())
-_shadow_registry.register(SciHubAdapter())
-_shadow_registry.register(InternetArchiveAdapter())
-_shadow_registry.register(AcademicTorrentsAdapter())
-
-_SHADOW_LABELS: dict[str, str] = {
-    "annas_archive": "Anna's Archive",
-    "libgen": "Library Genesis (LibGen)",
-    "scihub": "Sci-Hub / SciDB",
-    "internet_archive": "Internet Archive",
-    "academic_torrents": "Academic Torrents",
-}
-
-
-def _get_shadow_adapters(source_indexes: list[str] | None = None) -> list:
-    """Return adapters filtered by optional source_indexes list."""
-    if source_indexes:
-        return [
-            a for a in _shadow_registry.list_all()
-            if a.name in source_indexes
-        ]
-    # Default: all Tier S + A adapters
-    return _shadow_registry.filter(tier="S") + _shadow_registry.filter(tier="A")
-
 
 # ---------------------------------------------------------------------------
 # backend injection
@@ -88,6 +51,30 @@ def set_db_pool(pool: DatabasePool | None) -> None:
     """Inject a DatabasePool for live knowledge-graph queries."""
     global _db_pool
     _db_pool = pool
+
+
+# ---------------------------------------------------------------------------
+# retrieval rerank configuration (SAIMON-RETRIEVAL-RERANK-1)
+# ---------------------------------------------------------------------------
+
+_rerank_config = RerankConfig.from_env()
+
+
+def _rerank_embed_fn() -> Any:
+    """Return a fail-closed embedding callable for the reranker.
+
+    Returns a callable that maps text -> vector (or None).  Uses the same local
+    embedding backend as the vector search path, so cosine similarity can be
+    computed for keyword-only passages that have no precomputed embedding.
+    """
+    from research_shared.embedding import EmbeddingConfig, embed_local
+
+    cfg = EmbeddingConfig.from_env()
+
+    def embed(text: str) -> list[float] | None:
+        return embed_local(text, cfg.model, cfg.dimensions)
+
+    return embed
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +105,12 @@ _SHADOW_LABELS: dict[str, str] = {
     "academic_torrents": "Academic Torrents",
 }
 
+# Default source indexes queried by search_shadow_libraries.  Academic Torrents
+# is excluded because its API 404s on every query (SAIMON-SEARCH-RELIABILITY-1).
+_DEFAULT_SHADOW_INDEXES = frozenset(
+    {"annas_archive", "libgen", "scihub", "internet_archive"}
+)
+
 
 def _get_shadow_adapters(source_indexes: list[str] | None = None) -> list:
     """Return adapters filtered by optional source_indexes list."""
@@ -126,8 +119,13 @@ def _get_shadow_adapters(source_indexes: list[str] | None = None) -> list:
             a for a in _shadow_registry.list_all()
             if a.name in source_indexes
         ]
-    # Default: all Tier S + A adapters
-    return _shadow_registry.filter(tier="S") + _shadow_registry.filter(tier="A")
+    # Default: Tier S book/paper sources plus Internet Archive.  Academic
+    # Torrents is excluded because its API 404s on every query (burning a 15s
+    # timeout per query with no results) — SAIMON-SEARCH-RELIABILITY-1 (#201).
+    return [
+        a for a in _shadow_registry.list_all()
+        if a.name in _DEFAULT_SHADOW_INDEXES
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -314,12 +312,12 @@ async def _vector_search(
     from research_shared.embedding import EmbeddingConfig, embed_local
 
     cfg = EmbeddingConfig.from_env()
-    vector = embed_local(query, cfg.model, cfg.dimensions)
+    vector = embed_local(query, cfg.model, cfg.dimensions, cfg.model_path or None)
     if vector is None or _db_pool is None:
         return None
 
     select = (
-        "SELECT id, title, content_type, "
+        "SELECT id, title, body, content_type, "
         "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
         "1 - (embedding <=> $1) as similarity "
         "FROM knowledge_graph_nodes "
@@ -342,6 +340,155 @@ async def _vector_search(
     return [dict(row) for row in rows]
 
 
+async def _keyword_search(
+    query: str, limit: int, user_id: str | None
+) -> list[dict[str, Any]]:
+    """Lexical search over title/body (parity with ``explore_content``).
+
+    Splits multi-word queries into per-word ILIKE conditions so
+    "Sprocket bartender" matches "Sprocket is a bartender".  Returns [] when
+    no DB pool is available.
+    """
+    if _db_pool is None:
+        return []
+
+    words = [w.strip() for w in query.split() if w.strip()]
+    if not words:
+        words = [query] if query else [""]
+
+    # Build user-scoping clause
+    # Default (no user_id): shared-only (user_id IS NULL)
+    # With user_id: user's content + shared (user_id = $n OR user_id IS NULL)
+    user_clause: str
+    user_params: list[Any] = []
+    if user_id:
+        user_clause = " AND (user_id = $1 OR user_id IS NULL)"
+        user_params = [user_id]
+    else:
+        user_clause = " AND user_id IS NULL"
+        user_params = []
+
+    if len(words) == 1:
+        params = user_params + [f"%{words[0]}%", limit]
+        offset = len(user_params)
+        rows = await _db_pool.fetch(
+            "SELECT id, title, body, content_type, "
+            "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
+            "FROM knowledge_graph_nodes "
+            "WHERE (title ILIKE $" + str(offset + 1) + " OR body ILIKE $" + str(offset + 1) + ")"
+            + user_clause + " "
+            "ORDER BY created_at DESC LIMIT $" + str(offset + 2),
+            *params,
+        )
+    else:
+        # Build per-word conditions: (title ILIKE $n OR body ILIKE $n) AND ...
+        conditions = []
+        params = list(user_params)
+        for w in words:
+            params.append(f"%{w}%")
+            conditions.append(f"(title ILIKE ${len(params)} OR body ILIKE ${len(params)})")
+        params.append(limit)
+        sql = (
+            "SELECT id, title, body, content_type, "
+            "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
+            "FROM knowledge_graph_nodes "
+            "WHERE " + " AND ".join(conditions) + user_clause + " "
+            "ORDER BY created_at DESC LIMIT $" + str(len(params))
+        )
+        rows = await _db_pool.fetch(sql, *params)
+    return [dict(row) for row in rows]
+
+
+def _merge_results(
+    vector: list[dict[str, Any]],
+    keyword: list[dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Merge vector + keyword results, deduplicating by id.
+
+    Vector (semantic) results lead; keyword (lexical) results fill the
+    remainder, catching no-embedding nodes the vector path cannot see.
+    """
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in vector:
+        rid = str(row.get("id"))
+        if rid not in seen:
+            merged.append(row)
+            seen.add(rid)
+            if len(merged) >= limit:
+                return merged
+    for row in keyword:
+        rid = str(row.get("id"))
+        if rid not in seen:
+            merged.append(row)
+            seen.add(rid)
+            if len(merged) >= limit:
+                return merged
+    return merged
+
+
+async def _search_candidates(
+    query: str, limit: int, user_id: str | None
+) -> list[dict[str, Any]]:
+    """Run vector + keyword retrieval and merge into a broad candidate pool."""
+    vector_results = await _vector_search(query, limit, user_id) or []
+    keyword_results = await _keyword_search(query, limit, user_id)
+    return _merge_results(vector_results, keyword_results, limit)
+
+
+async def _retrieve_and_rerank(
+    query: str,
+    limit: int,
+    user_id: str | None,
+    logger: Any,
+) -> dict[str, Any]:
+    """Retrieve candidates, rerank them, and apply the fail-safe no-answer gate.
+
+    Returns the response ``data`` dict: ``results`` (ranked top-K), ``total``,
+    ``no_strong_evidence`` and ``requery_count``.  Logs the ``retrieval.rerank``
+    audit event with candidate/kept/top-score/fail-safe metrics.
+    """
+    config = _rerank_config
+    embed_fn = _rerank_embed_fn()
+
+    # Retrieve a broader candidate pool than the final top-K so the reranker
+    # can narrow by relevance rather than by adapter order.
+    candidate_limit = max(limit * 2, config.top_k)
+
+    candidates = await _search_candidates(query, candidate_limit, user_id)
+    outcome = rerank(query, candidates, config, embed_fn=embed_fn, top_k=limit)
+
+    requery_count = 0
+    reformulated = query
+    if outcome.fail_safe_fired and config.max_requery > 0:
+        requery_count = 1
+        reformulated = reformulate_query(query)
+        requery_candidates = await _search_candidates(
+            reformulated, candidate_limit, user_id
+        )
+        outcome = rerank(
+            reformulated, requery_candidates, config, embed_fn=embed_fn, top_k=limit
+        )
+
+    logger.info(
+        "retrieval.rerank",
+        candidate_count=outcome.candidate_count,
+        kept_count=outcome.kept_count,
+        top_score=outcome.top_score,
+        fail_safe_fired=outcome.fail_safe_fired,
+        requery_count=requery_count,
+        reformulated_query=reformulated,
+    )
+
+    return {
+        "results": outcome.ranked,
+        "total": len(outcome.ranked),
+        "no_strong_evidence": outcome.fail_safe_fired,
+        "requery_count": requery_count,
+    }
+
+
 @app.post("/tools/search_knowledge_graph")
 async def search_knowledge_graph(
     payload: ResearchRequest, request: Request
@@ -362,70 +509,11 @@ async def search_knowledge_graph(
     # ── try DB backend ──
     if _db_pool is not None:
         try:
-            # Try vector similarity first (ranked neighbors); fall back to
-            # keyword ILIKE when the query cannot be embedded.
-            vector_results = await _vector_search(query, limit, user_id)
-            if vector_results:
-                resp = _ok(
-                    trace_id=payload.trace_id,
-                    data={"results": vector_results, "total": len(vector_results)},
-                    citations=[str(r["id"]) for r in vector_results],
-                )
-                logger.log_response(
-                    status=resp.status, citations_count=len(resp.citations or [])
-                )
-                return resp
-
-            # Split multi-word queries into per-word ILIKE conditions
-            # so "Sprocket bartender" matches "Sprocket is a bartender"
-            words = [w.strip() for w in query.split() if w.strip()]
-            if not words:
-                words = [query] if query else [""]
-
-            # Build user-scoping clause
-            # Default (no user_id): shared-only (user_id IS NULL)
-            # With user_id: user's content + shared (user_id = $n OR user_id IS NULL)
-            user_clause: str
-            user_params: list[Any] = []
-            if user_id:
-                user_clause = " AND (user_id = $1 OR user_id IS NULL)"
-                user_params = [user_id]
-            else:
-                user_clause = " AND user_id IS NULL"
-                user_params = []
-
-            if len(words) == 1:
-                params = user_params + [f"%{words[0]}%", limit]
-                offset = len(user_params)
-                rows = await _db_pool.fetch(
-                    "SELECT id, title, content_type, "
-                    "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
-                    "FROM knowledge_graph_nodes "
-                    "WHERE (title ILIKE $" + str(offset + 1) + " OR body ILIKE $" + str(offset + 1) + ")"
-                    + user_clause + " "
-                    "ORDER BY created_at DESC LIMIT $" + str(offset + 2),
-                    *params,
-                )
-            else:
-                # Build per-word conditions: (title ILIKE $n OR body ILIKE $n) AND ...
-                conditions = []
-                params = list(user_params)
-                for w in words:
-                    params.append(f"%{w}%")
-                    conditions.append(f"(title ILIKE ${len(params)} OR body ILIKE ${len(params)})")
-                params.append(limit)
-                sql = (
-                    "SELECT id, title, content_type, "
-                    "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
-                    "FROM knowledge_graph_nodes "
-                    "WHERE " + " AND ".join(conditions) + user_clause + " "
-                    "ORDER BY created_at DESC LIMIT $" + str(len(params))
-                )
-                rows = await _db_pool.fetch(sql, *params)
-            results: list[dict[str, Any]] = [dict(r) for r in rows]
+            data = await _retrieve_and_rerank(query, limit, user_id, logger)
+            results = data["results"]
             resp = _ok(
                 trace_id=payload.trace_id,
-                data={"results": results, "total": len(results)},
+                data=data,
                 citations=[str(r["id"]) for r in results],
             )
             logger.log_response(
@@ -560,7 +648,7 @@ async def search_shadow_libraries(
         source_indexes=requested_indexes,
     )
 
-    # Get adapters (filtered or all S+A tier)
+    # Get adapters (filtered or default book/paper + Internet Archive set)
     adapters = _get_shadow_adapters(requested_indexes)
 
     if not adapters:
@@ -571,28 +659,34 @@ async def search_shadow_libraries(
         logger.log_response(status=resp.status)
         return resp
 
-    # Query all selected adapters in parallel, gracefully handling failures
+    # Query all selected adapters concurrently, gracefully handling failures
     all_results: list[SourceSearchResult] = []
     degraded = False
 
-    for adapter in adapters:
+    async def _query(adapter):
         try:
-            results = await adapter.search(query, limit=limit, offset=offset)
-            all_results.extend(results)
+            return await adapter.search(query, limit=limit, offset=offset)
         except Exception:  # noqa: BLE001 — each adapter may fail independently
-            degraded = True
-            continue
+            return None
 
-    # Deduplicate across source indexes
+    gathered = await asyncio.gather(*[_query(a) for a in adapters])
+    for results in gathered:
+        if results is None:
+            degraded = True
+        else:
+            all_results.extend(results)
+
+    # Deduplicate across source indexes, then rank book sources above web noise
     deduped = deduplicate(all_results)
+    ranked = rank_shadow_results(deduped)
 
     # Apply limit
-    deduped = deduped[:limit]
+    ranked = ranked[:limit]
 
     # Serialize
     results_data = []
     citations: list[str] = []
-    for r in deduped:
+    for r in ranked:
         results_data.append(r.model_dump())
         if r.doi:
             citations.append(f"doi:{r.doi}")

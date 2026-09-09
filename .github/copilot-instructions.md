@@ -15,10 +15,10 @@ When asked to research, verify, or find sources, use the Researcher agent
 ## Development
 
 Follow the AGENTS.md contract for slice-based development:
-- Branch from `ai-dev` as `slice/NAME`
+- Branch from `dev` as `slice/NAME`
 - TDD: RED → GREEN → REFACTOR → PROVE
 - Pre-PR: `python3 -m pytest tests/ -q && ruff check research_shared/ saimon_mcp/`
-- Squash-merge to `ai-dev`
+- Squash-merge to `dev`
 
 ## Architecture
 

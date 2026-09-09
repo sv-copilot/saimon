@@ -1,12 +1,15 @@
 {
-  "version": 1,
-  "peak_hours_utc": [[1, 4], [6, 10]],
+  "version": 2,
+  "peak_hours_utc": {
+    "days": [0, 1, 2, 3, 4],
+    "windows": [[1, 4], [6, 10]]
+  },
   "tiers": {
     "implementation": {
       "provider": "deepseek",
       "model": "deepseek-v4-pro",
       "temperature": 0.2,
-      "max_tokens": 16000,
+      "max_tokens": 12000,
       "peak_policy": "off_peak_only",
       "notes": "Quality-critical coding: multi-file edits, architecture, TDD green iterations. Keep on pro; off-peak only."
     },
@@ -14,7 +17,7 @@
       "provider": "deepseek",
       "model": "deepseek-v4-pro",
       "temperature": 0.2,
-      "max_tokens": 16000,
+      "max_tokens": 12000,
       "peak_policy": "off_peak_only",
       "notes": "Architecture and decision-quality reasoning. Same cost profile as implementation."
     },
@@ -22,7 +25,8 @@
       "provider": "deepseek",
       "model": "deepseek-v4-flash",
       "temperature": 0.1,
-      "max_tokens": 8000,
+      "max_tokens": 4000,
+      "thinking": {"type": "disabled"},
       "peak_policy": "any",
       "notes": "Mechanical edits: tree-sync messages, doc-format sweeps, deterministic rewrites. Safe at any hour."
     },
@@ -31,6 +35,7 @@
       "model": "deepseek-v4-flash",
       "temperature": 0.0,
       "max_tokens": 1024,
+      "thinking": {"type": "disabled"},
       "peak_policy": "any",
       "notes": "Selection/triage: next-slice selection, audit triage. Breadth, not depth."
     },
@@ -39,6 +44,7 @@
       "model": "deepseek-v4-flash",
       "temperature": 0.2,
       "max_tokens": 4096,
+      "thinking": {"type": "disabled"},
       "peak_policy": "any",
       "notes": "Summaries and condensation of docs, logs, and reports."
     }

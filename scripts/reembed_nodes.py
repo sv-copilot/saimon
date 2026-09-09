@@ -39,7 +39,9 @@ async def reembed_nodes(pool, *, all_nodes: bool = False) -> int:
     rows = await pool.fetch(f"SELECT id, body FROM knowledge_graph_nodes {where}")
     updated = 0
     for row in rows:
-        vector = embed_local(row["body"] or "", cfg.model, cfg.dimensions)
+        vector = embed_local(
+            row["body"] or "", cfg.model, cfg.dimensions, cfg.model_path or None
+        )
         if vector is None:
             continue
         await pool.execute(

@@ -105,3 +105,20 @@ class TestVendoredParity:
         vendored_cfg = json.loads(vendored.read_text(encoding="utf-8"))
         assert vendored_cfg["tiers"] == canonical_cfg["tiers"]
         assert set(vendored_cfg["routes"]) == set(canonical_cfg["routes"])
+
+    def test_vendored_copy_has_canonical_v2_shape(self) -> None:
+        # SAIMON-MODEL-ROUTING-SYNC-1 (#26): the vendored copy must carry the
+        # canonical v2 cost controls — object-form peak_hours_utc, tightened
+        # max_tokens, thinking disabled on flash tiers, no reasoning_effort.
+        vendored = Path(model_routing.__file__).resolve().parent / "model_routing.json"
+        cfg = json.loads(vendored.read_text(encoding="utf-8"))
+        assert cfg["version"] == 2
+        assert set(cfg["peak_hours_utc"].keys()) == {"days", "windows"}
+        for tier_name in ("implementation", "reasoning"):
+            assert "reasoning_effort" not in cfg["tiers"][tier_name]
+            assert cfg["tiers"][tier_name]["max_tokens"] == 12000
+        for tier_name in ("mechanical", "classification", "summarization"):
+            assert cfg["tiers"][tier_name]["thinking"] == {"type": "disabled"}
+        assert cfg["tiers"]["mechanical"]["max_tokens"] == 4000
+        assert cfg["tiers"]["classification"]["max_tokens"] == 1024
+        assert cfg["tiers"]["summarization"]["max_tokens"] == 4096

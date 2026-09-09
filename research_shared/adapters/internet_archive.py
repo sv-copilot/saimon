@@ -8,6 +8,7 @@ Tier: A — strong source index with a real API and good metadata.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 from urllib.parse import quote
@@ -25,7 +26,41 @@ logger = logging.getLogger("saimon.adapters.internet_archive")
 IA_SEARCH_URL = "https://archive.org/advancedsearch.php"
 IA_DOWNLOAD_URL = "https://archive.org/download"
 DEFAULT_ROWS = 10
-DEFAULT_TIMEOUT = 15.0  # seconds
+DEFAULT_TIMEOUT = 25.0  # seconds
+
+# Transport errors worth one retry (SAIMON-SEARCH-RELIABILITY-1, #201).
+RETRIABLE_EXCEPTIONS = (httpx.ReadTimeout, httpx.ConnectError)
+
+
+async def _get_with_retry(
+    client: Any,
+    url: str,
+    timeout: float = DEFAULT_TIMEOUT,
+    retries: int = 1,
+) -> httpx.Response:
+    """GET *url* via *client*, retrying transient transport errors with backoff.
+
+    Retries once by default on ``httpx.ReadTimeout`` / ``httpx.ConnectError``.
+    Non-retriable exceptions propagate immediately.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            return await client.get(url, timeout=timeout)
+        except RETRIABLE_EXCEPTIONS as exc:
+            last_exc = exc
+            if attempt < retries:
+                delay = 0.5 * (2 ** attempt)
+                logger.warning(
+                    "Internet Archive transport error on attempt %d (%s); "
+                    "retrying in %.1fs",
+                    attempt + 1,
+                    exc.__class__.__name__,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
 
 
 class InternetArchiveAdapter:
@@ -72,9 +107,9 @@ class InternetArchiveAdapter:
             client = self._http or httpx
             # httpx.AsyncClient.get returns a Response; httpx.get is sync
             if self._http is not None:
-                resp = await client.get(url, timeout=DEFAULT_TIMEOUT)
+                resp = await _get_with_retry(client, url)
             else:
-                # Fallback to synchronous httpx.get when no client injected
+                # Fallback to a self-provisioned async client when none injected
                 resp = await _async_get(url)
         except Exception:
             logger.exception("Internet Archive search failed for %r", query)
@@ -124,7 +159,7 @@ class InternetArchiveAdapter:
         try:
             client = self._http or httpx
             if self._http is not None:
-                resp = await client.get(url, timeout=DEFAULT_TIMEOUT)
+                resp = await _get_with_retry(client, url)
             else:
                 resp = await _async_get(url)
         except Exception:
@@ -209,10 +244,12 @@ class InternetArchiveAdapter:
 # ---------------------------------------------------------------------------
 
 
-async def _async_get(url: str, timeout: float = DEFAULT_TIMEOUT) -> httpx.Response:
-    """Make an async GET request using httpx.AsyncClient."""
+async def _async_get(
+    url: str, timeout: float = DEFAULT_TIMEOUT, retries: int = 1
+) -> httpx.Response:
+    """Make an async GET request, retrying transient transport errors."""
     async with httpx.AsyncClient(timeout=timeout) as client:
-        return await client.get(url)
+        return await _get_with_retry(client, url, timeout=timeout, retries=retries)
 
 
 def _ia_text_url(result: SourceSearchResult) -> str | None:

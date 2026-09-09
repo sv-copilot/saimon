@@ -77,4 +77,37 @@ CONTENT_TYPES: list[dict[str, Any]] = [
         "optional_params": [],
         "voice_profile": "spencer-default",
     },
+    {
+        "name": "legal:claim_scaffold",
+        "description": (
+            "An element-by-element scaffold of a legal claim with ranked "
+            "authority, circuit-split flags, and factual-weakness flags."
+        ),
+        "required_params": [
+            {
+                "name": "claim_type",
+                "type": "str",
+                "description": (
+                    "Claim type key (e.g. 'dtsa_misappropriation', "
+                    "'state_trade_secret', 'cfaa', 'tortious_interference')."
+                ),
+            },
+            {
+                "name": "jurisdiction",
+                "type": "str",
+                "description": "Target jurisdiction for authority ranking.",
+            },
+        ],
+        "optional_params": [
+            {
+                "name": "client_facts",
+                "type": "dict",
+                "description": (
+                    "Structured element checklist ('facts') plus an optional "
+                    "'free_text' fallback field."
+                ),
+            }
+        ],
+        "voice_profile": "spencer-default",
+    },
 ]

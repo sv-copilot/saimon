@@ -49,24 +49,26 @@ class SciHubAdapter:
     # ── DOI resolution ────────────────────────────────────────────
 
     async def resolve_doi(self, doi: str) -> SourceSearchResult | None:
-        """Resolve a DOI via Sci-Hub.
+        """Resolve a DOI via Sci-Hub by scraping the wrapper page.
 
-        Sci-Hub is the canonical DOI resolver for paywalled papers.
-        Given a DOI, it returns the full PDF.  Issues a HEAD request
-        to `sci-hub.ru/DOI_HERE` and confirms the PDF is available;
-        returns None on any error or non-PDF response.
+        Sci-Hub is the canonical DOI resolver for paywalled papers: given
+        a DOI it serves an HTML wrapper page embedding the PDF.  This GETs
+        that page and extracts the embedded PDF URL.  Returns None on any
+        error, non-200 response, or when no PDF can be found — it never
+        fabricates a result.
+
+        When no HTTP client is configured the canonical Sci-Hub URL for a
+        DOI is deterministic, so callers still get an *unverified*
+        resolution URL (``full_text_available=False``).
         """
         if not doi.strip():
             return None
 
+        doi = doi.strip()
+        download_url = f"https://sci-hub.ru/{doi}"
         logger.debug("Sci-Hub DOI resolve: %r", doi)
 
-        download_url = f"https://sci-hub.ru/{doi}"
-
         if self._http is None:
-            # No HTTP client — cannot verify availability, but the canonical
-            # Sci-Hub URL for a DOI is deterministic. Return an unverified
-            # result so callers still get the resolution URL.
             return SourceSearchResult(
                 type="academic_paper",
                 identifier=f"doi:{doi}",
@@ -82,9 +84,7 @@ class SciHubAdapter:
             )
 
         try:
-            resp = await self._http.head(
-                f"https://sci-hub.ru/{doi}", timeout=DEFAULT_TIMEOUT
-            )
+            resp = await self._http.get(download_url, timeout=DEFAULT_TIMEOUT)
         except Exception:
             logger.exception("Sci-Hub DOI resolve failed for %r", doi)
             return None
@@ -96,7 +96,14 @@ class SciHubAdapter:
         content_type = (
             headers.get("content-type", "") if isinstance(headers, dict) else ""
         )
-        if "pdf" not in content_type.lower():
+
+        if "pdf" in content_type.lower():
+            pdf_url = download_url
+        else:
+            text = getattr(resp, "text", "") or ""
+            pdf_url = _extract_pdf_url_from_text(text)
+
+        if not pdf_url:
             return None
 
         return SourceSearchResult(
@@ -110,7 +117,7 @@ class SciHubAdapter:
             relevance_score=None,
             full_text_available=True,
             file_type="pdf",
-            download_url=f"https://sci-hub.ru/{doi}",
+            download_url=pdf_url,
         )
 
     # ── full-text download ────────────────────────────────────────
@@ -152,13 +159,36 @@ class SciHubAdapter:
         return None
 
 
+_PDF_URL_RE = re.compile(
+    r'(?:src|href)=["\']([^"\']+\.pdf(?:[?#][^"\']*)?)["\']',
+    re.IGNORECASE,
+)
+
+_SCI_HUB_BASE_URL = "https://sci-hub.ru/"
+
+
+def _extract_pdf_url_from_text(text: str) -> str | None:
+    """Extract the first embedded PDF URL (``src``/``href``) from HTML text.
+
+    Resolves relative and protocol-relative URLs against the Sci-Hub base.
+    """
+    match = _PDF_URL_RE.search(text)
+    if not match:
+        return None
+    url = match.group(1)
+    if url.startswith("//"):
+        return "https:" + url
+    if url.startswith("/"):
+        return _SCI_HUB_BASE_URL.rstrip("/") + url
+    if url.startswith("http"):
+        return url
+    return _SCI_HUB_BASE_URL.rstrip("/") + "/" + url
+
+
 def _extract_pdf_url(html: bytes) -> str | None:
     """Extract the first PDF href from a Sci-Hub HTML wrapper page."""
     try:
         text = html.decode("utf-8", errors="ignore")
     except Exception:  # noqa: BLE001 — best-effort decode
         return None
-    match = re.search(r'href=["\']([^"\']+\.pdf(?:\?[^"\']*)?)["\']', text, re.IGNORECASE)
-    if match:
-        return match.group(1)
-    return None
+    return _extract_pdf_url_from_text(text)

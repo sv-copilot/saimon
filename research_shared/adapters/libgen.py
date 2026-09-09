@@ -33,6 +33,45 @@ def _parse_year(value: Any) -> int | None:
         return None
 
 
+def _split_author_names(text: str) -> list[str]:
+    """Split an author list on ``;`` (LibGen/AA style) or ``,`` (legacy)."""
+    if ";" in text:
+        return [part.strip() for part in text.split(";") if part.strip()]
+    return [part.strip() for part in text.split(",") if part.strip()]
+
+
+def _column_index_map(headers: list[str]) -> dict[str, int]:
+    """Map LibGen column header names to cell indices.
+
+    The real LibGen results table inserts a *Publisher* column before
+    *Year*: ``ID, Authors, Title, Publisher, Year, Pages, Language,
+    Size, Extension``.  Mapping by header name (instead of fixed
+    positions) keeps parsing correct across mirrors that add/remove
+    trailing columns (``Mirrors``, ``Edit``, ...).
+    """
+    mapping: dict[str, int] = {}
+    for idx, header in enumerate(headers):
+        h = header.strip().lower()
+        if h in ("id", "libgen id") and "id" not in mapping:
+            mapping["id"] = idx
+        elif h in ("author", "authors", "author(s)") and "authors" not in mapping:
+            mapping["authors"] = idx
+        elif h == "title" and "title" not in mapping:
+            mapping["title"] = idx
+        elif h == "year" and "year" not in mapping:
+            mapping["year"] = idx
+        elif h in ("extension", "ext", "ext.", "format") and "extension" not in mapping:
+            mapping["extension"] = idx
+    return mapping
+
+
+def _cell(cells: list[str], index: int | None, default: str = "") -> str:
+    """Return ``cells[index]`` (or *default* when out of range / unknown)."""
+    if index is None or index < 0 or index >= len(cells):
+        return default
+    return cells[index]
+
+
 def _parse_libgen_results(html: str, limit: int) -> list[SourceSearchResult]:
     """Parse LibGen's HTML results table into SourceSearchResult items."""
     if not html:
@@ -41,23 +80,37 @@ def _parse_libgen_results(html: str, limit: int) -> list[SourceSearchResult]:
     table = soup.find("table", class_="c")
     if table is None:
         return []
+    rows = table.find_all("tr")
+    if len(rows) < 2:
+        return []
+
+    header_cells = [c.get_text(strip=True) for c in rows[0].find_all(["th", "td"])]
+    col = _column_index_map(header_cells)
+    if "title" not in col:
+        # Legacy positional fallback: ID, Authors, Title, Year, Pages,
+        # Language, Size, Extension (no Publisher column).
+        col = {"id": 0, "authors": 1, "title": 2, "year": 3, "extension": 7}
+
     results: list[SourceSearchResult] = []
-    for row in table.find_all("tr")[1:]:
+    for row in rows[1:]:
         cells = [td.get_text(strip=True) for td in row.find_all("td")]
-        if len(cells) < 8:
+        if not cells:
             continue
-        authors = [a.strip() for a in cells[1].split(",") if a.strip()]
+        title = _cell(cells, col.get("title"))
+        if not title:
+            continue
+        authors = _split_author_names(_cell(cells, col.get("authors")))
         results.append(
             SourceSearchResult(
                 type="book",
-                identifier=f"md5:{cells[0]}",
-                title=cells[2],
+                identifier=f"md5:{_cell(cells, col.get('id'), cells[0] if cells else '')}",
+                title=title,
                 authors=authors,
-                year=_parse_year(cells[3]),
+                year=_parse_year(_cell(cells, col.get("year"))),
                 source_index="libgen",
                 source_index_label="Library Genesis (LibGen)",
                 relevance_score=None,
-                file_type=cells[7] or None,
+                file_type=_cell(cells, col.get("extension")) or None,
             )
         )
         if len(results) >= limit:

@@ -11,6 +11,7 @@ Tier: S — core source index with high metadata quality.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -22,6 +23,9 @@ logger = logging.getLogger("saimon.adapters.annas_archive")
 ANNAS_ARCHIVE_SEARCH_URL = "https://annas-archive.gl/search"
 DEFAULT_TIMEOUT = 15.0
 
+_ANNAS_YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
+_ANNAS_FILE_TYPE_RE = re.compile(r"\b(pdf|epub|djvu|mobi|azw3|txt|cbz|cbr)\b", re.IGNORECASE)
+
 
 def _parse_year(value: Any) -> int | None:
     if not value:
@@ -32,13 +36,42 @@ def _parse_year(value: Any) -> int | None:
         return None
 
 
-def _parse_annas_results(html: str, limit: int) -> list[SourceSearchResult]:
-    """Parse Anna's Archive search-result blocks into SourceSearchResult."""
-    if not html:
+def _md5_from_href(href: str) -> str:
+    """Extract the MD5 hash from an ``/md5/<hash>`` Anna's Archive link."""
+    if "/md5/" not in href:
+        return ""
+    return href.split("/md5/", 1)[1].split("/")[0]
+
+
+def _split_author_names(text: str) -> list[str]:
+    """Split an author list on ``;`` (AA/LibGen style) or ``,`` (legacy)."""
+    if ";" in text:
+        return [part.strip() for part in text.split(";") if part.strip()]
+    return [part.strip() for part in text.split(",") if part.strip()]
+
+
+def _extract_annas_authors(container: Any, title: str) -> list[str]:
+    """Extract author names from an Anna's Archive result container."""
+    if container is None:
         return []
-    soup = BeautifulSoup(html, "html.parser")
+    for line in container.get_text("\n", strip=True).split("\n"):
+        line = line.strip()
+        if not line or line == title:
+            continue
+        if _ANNAS_YEAR_RE.search(line) or _ANNAS_FILE_TYPE_RE.search(line):
+            # File-info line (e.g. "2017 · pdf · English · 2.1MB") — skip.
+            continue
+        authors = _split_author_names(line)
+        authors = [a for a in authors if not _ANNAS_YEAR_RE.fullmatch(a)]
+        if authors:
+            return authors
+    return []
+
+
+def _parse_legacy_annas_blocks(blocks: list[Any], limit: int) -> list[SourceSearchResult]:
+    """Parse the legacy ``div.search-result`` DOM (kept for backwards compat)."""
     results: list[SourceSearchResult] = []
-    for div in soup.find_all("div", class_="search-result"):
+    for div in blocks:
         h3 = div.find("h3")
         title = h3.find("a").get_text(strip=True) if h3 and h3.find("a") else None
         if not title:
@@ -67,6 +100,46 @@ def _parse_annas_results(html: str, limit: int) -> list[SourceSearchResult]:
                 source_index="annas_archive",
                 source_index_label="Anna's Archive",
                 relevance_score=None,
+                file_type=file_type,
+            )
+        )
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _parse_annas_results(html: str, limit: int) -> list[SourceSearchResult]:
+    """Parse Anna's Archive search-result blocks into SourceSearchResult."""
+    if not html:
+        return []
+    soup = BeautifulSoup(html, "html.parser")
+    legacy_blocks = soup.find_all("div", class_="search-result")
+    if legacy_blocks:
+        return _parse_legacy_annas_blocks(legacy_blocks, limit)
+
+    results: list[SourceSearchResult] = []
+    for link in soup.select('a[href^="/md5/"]'):
+        title = link.get_text(" ", strip=True)
+        if not title:
+            continue
+        md5 = _md5_from_href(link.get("href", ""))
+        container = link.find_parent("div")
+        metadata = container.get_text(" ", strip=True) if container is not None else title
+        year_match = _ANNAS_YEAR_RE.search(metadata)
+        year = _parse_year(year_match.group(0)) if year_match else None
+        file_type_match = _ANNAS_FILE_TYPE_RE.search(metadata)
+        file_type = file_type_match.group(1).lower() if file_type_match else None
+        results.append(
+            SourceSearchResult(
+                type="academic_paper",
+                identifier=f"md5:{md5}" if md5 else f"aa:{title}",
+                title=title,
+                authors=_extract_annas_authors(container, title),
+                year=year,
+                source_index="annas_archive",
+                source_index_label="Anna's Archive",
+                relevance_score=None,
+                full_text_available=True,
                 file_type=file_type,
             )
         )

@@ -335,6 +335,21 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "path": "/tools/self_seed",
         "body_template": {"content_type": "seed"},
     },
+    "saimon_fill_gaps": {
+        "description": (
+            "Auto-fill knowledge gaps: for each gap, create a pending "
+            "seed_request (idempotently), seed content via self_seed, and "
+            "re-verify the produced node. Reports filled/failed/skipped "
+            "per gap."
+        ),
+        "service": "generate",
+        "method": "POST",
+        "path": "/tools/fill_gaps",
+        "body_template": {
+            "content_type": "fill_gaps",
+            "parameters": {"gaps": "{gaps}"},
+        },
+    },
     "saimon_store_content": {
         "description": (
             "Persist arbitrary text content to the knowledge graph without "

@@ -30,6 +30,13 @@ EMBED_CHAR_CAP = 8000  # embed_local truncates to this many chars
 CONTENT_TYPE_FULLTEXT_DOCUMENT = "fulltext_document"
 CONTENT_TYPE_FULLTEXT_CHUNK = "fulltext_chunk"
 
+# The canonical fulltext store is the knowledge graph, NOT the api-mcp's
+# per-user ``documents`` table.  ``download_fulltext`` → ``persist_fulltext_document``
+# writes ``fulltext_document`` + ``fulltext_chunk`` nodes here, and fulltext
+# retrieval (search_knowledge_graph) reads from here too.
+# See SAIMON-FULLTEXT-DOCUMENTS-1 (#216) for the diagnosis.
+FULLTEXT_STORE_TABLE = "knowledge_graph_nodes"
+
 _EMPTY_JSONB_ARRAY = "[]"
 
 
@@ -252,7 +259,7 @@ async def persist_fulltext_document(
     }
 
     existing_id = await db.fetchval(
-        "SELECT id FROM knowledge_graph_nodes "
+        f"SELECT id FROM {FULLTEXT_STORE_TABLE} "
         "WHERE content_type = $1 AND metadata->>'doi' = $2 "
         "ORDER BY created_at LIMIT 1",
         CONTENT_TYPE_FULLTEXT_DOCUMENT,
@@ -264,19 +271,19 @@ async def persist_fulltext_document(
         # Refresh: drop stale chunks + their part_of edges, then update the doc.
         await db.execute(
             "DELETE FROM knowledge_graph_edges WHERE source_id IN "
-            "(SELECT id FROM knowledge_graph_nodes "
+            f"(SELECT id FROM {FULLTEXT_STORE_TABLE} "
             " WHERE content_type = $1 AND metadata->>'doi' = $2)",
             CONTENT_TYPE_FULLTEXT_CHUNK,
             doi,
         )
         await db.execute(
-            "DELETE FROM knowledge_graph_nodes "
+            f"DELETE FROM {FULLTEXT_STORE_TABLE} "
             "WHERE content_type = $1 AND metadata->>'doi' = $2",
             CONTENT_TYPE_FULLTEXT_CHUNK,
             doi,
         )
         await db.execute(
-            "UPDATE knowledge_graph_nodes "
+            f"UPDATE {FULLTEXT_STORE_TABLE} "
             "SET title = $1, body = $2, metadata = $3, updated_at = now() "
             "WHERE id = $4",
             title,
@@ -286,7 +293,7 @@ async def persist_fulltext_document(
         )
     else:
         await db.execute(
-            "INSERT INTO knowledge_graph_nodes "
+            f"INSERT INTO {FULLTEXT_STORE_TABLE} "
             "(id, title, content_type, body, metadata) "
             "VALUES ($1, $2, $3, $4, $5)",
             document_node_id,
@@ -310,7 +317,7 @@ async def persist_fulltext_document(
             "part_of": document_node_id,
         }
         await db.execute(
-            "INSERT INTO knowledge_graph_nodes "
+            f"INSERT INTO {FULLTEXT_STORE_TABLE} "
             "(id, title, content_type, body, metadata, embedding) "
             "VALUES ($1, $2, $3, $4, $5, $6::vector)",
             chunk_id,

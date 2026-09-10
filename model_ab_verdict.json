@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "incumbents": {
+    "saimon.generate": "deepseek-v4-pro",
+    "saimon.verify": "deepseek-v4-pro",
+    "saimon.evaluate": "deepseek-v4-flash",
+    "saimon.extract_claims": "deepseek-v4-flash"
+  },
+  "verdicts": []
+}

@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -18,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from eval_harness.compare import compare_reports
 from eval_harness.gate import gate_suites
 from eval_harness.runner import run_suite, write_report
+from research_shared.model_ab_gate import ROUTE_TIERS, gate_current_routing
 
 
 def _load_json(path: str) -> dict:
@@ -56,6 +58,96 @@ def cmd_gate(args: argparse.Namespace) -> int:
     return 0 if passed else 1
 
 
+def cmd_ab(args: argparse.Namespace) -> int:
+    """Run an offline A/B for a route/tier and record the verdict.
+
+    Scores the incumbent and candidate fixture outputs for the affected tier,
+    diffs them with the same engine as ``eval.py compare``, and records the
+    result in ``model_ab_verdict.json``. A green (``OK``) result promotes the
+    candidate to the route's incumbent; a regression is recorded but does not.
+    """
+    tier = args.tier or ROUTE_TIERS.get(args.route)
+    if not tier:
+        print(
+            f"unknown route {args.route!r}; pass --tier explicitly", file=sys.stderr
+        )
+        return 2
+
+    incumbent_report = run_suite(
+        args.fixtures_root, tier, {"candidate_key": args.incumbent_key}
+    )
+    candidate_report = run_suite(
+        args.fixtures_root, tier, {"candidate_key": args.candidate_key}
+    )
+    result = compare_reports(
+        incumbent_report,
+        candidate_report,
+        quality_threshold=args.threshold,
+    )
+
+    verdict_path = Path(args.output)
+    if verdict_path.exists():
+        doc = _load_json(str(verdict_path))
+    else:
+        doc = {"version": 1, "incumbents": {}, "verdicts": []}
+    doc.setdefault("incumbents", {})
+    doc.setdefault("verdicts", [])
+
+    entry = {
+        "route": args.route,
+        "tier": tier,
+        "incumbent": args.incumbent_model,
+        "candidate": args.candidate_model,
+        "verdict": result["verdict"],
+        "method": "eval.py compare",
+        "compare": {
+            "verdict": result["verdict"],
+            "regressions": result["regressions"],
+        },
+        "compare_command": (
+            f"python3 scripts/eval.py ab --route {args.route} "
+            f"--incumbent-model {args.incumbent_model} "
+            f"--candidate-model {args.candidate_model}"
+        ),
+        "committed_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # Replace any prior verdict for the same route/incumbent/candidate.
+    doc["verdicts"] = [
+        v
+        for v in doc["verdicts"]
+        if not (
+            v.get("route") == args.route
+            and v.get("incumbent") == args.incumbent_model
+            and v.get("candidate") == args.candidate_model
+        )
+    ]
+    doc["verdicts"].append(entry)
+
+    if result["verdict"] == "OK":
+        doc["incumbents"][args.route] = args.candidate_model
+
+    verdict_path.parent.mkdir(parents=True, exist_ok=True)
+    verdict_path.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n")
+
+    print(json.dumps(entry, indent=2, ensure_ascii=False))
+    print(f"verdict recorded to {verdict_path}")
+    return 1 if result["regressions"] else 0
+
+
+def cmd_gate_model(args: argparse.Namespace) -> int:
+    """Enforce the model-routing A/B gate against the committed verdict doc."""
+    decision = gate_current_routing(args.verdict)
+    print(
+        json.dumps(
+            {"allowed": decision.allowed, "reasons": decision.reasons},
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    return 0 if decision.allowed else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="eval.py", description="Offline A/B eval harness"
@@ -87,6 +179,34 @@ def build_parser() -> argparse.ArgumentParser:
         "--threshold", type=float, default=0.5, help="task success rate threshold"
     )
     gate_p.set_defaults(func=cmd_gate)
+
+    ab_p = sub.add_parser(
+        "ab", help="run offline A/B for a route/tier and record a verdict"
+    )
+    ab_p.add_argument("--route", required=True, help="route key, e.g. saimon.generate")
+    ab_p.add_argument("--tier", help="fixture suite name (defaults from route)")
+    ab_p.add_argument("--incumbent-model", required=True, help="incumbent model slug")
+    ab_p.add_argument("--candidate-model", required=True, help="candidate model slug")
+    ab_p.add_argument(
+        "--incumbent-key", default="incumbent", help="fixture field for incumbent output"
+    )
+    ab_p.add_argument(
+        "--candidate-key", default="candidate", help="fixture field for candidate output"
+    )
+    ab_p.add_argument("--fixtures-root", default="fixtures", help="fixtures dir")
+    ab_p.add_argument("--threshold", type=float, default=0.05, help="quality drop threshold")
+    ab_p.add_argument(
+        "--output", default="model_ab_verdict.json", help="verdict document path"
+    )
+    ab_p.set_defaults(func=cmd_ab)
+
+    gate_model_p = sub.add_parser(
+        "gate-model", help="enforce the model-routing A/B gate"
+    )
+    gate_model_p.add_argument(
+        "--verdict", default="model_ab_verdict.json", help="verdict document path"
+    )
+    gate_model_p.set_defaults(func=cmd_gate_model)
 
     return parser
 

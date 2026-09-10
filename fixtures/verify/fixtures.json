@@ -1,0 +1,22 @@
+{
+  "fixtures": [
+    {
+      "id": "verify-1",
+      "input": "Claim: Paris is the capital of France.",
+      "expected": "SUPPORTED",
+      "incumbent": "SUPPORTED",
+      "candidate": "SUPPORTED",
+      "token_usage": 5,
+      "latency_ms": 40.0
+    },
+    {
+      "id": "verify-2",
+      "input": "Claim: The moon is made of green cheese.",
+      "expected": "REFUTED",
+      "incumbent": "REFUTED",
+      "candidate": "REFUTED",
+      "token_usage": 5,
+      "latency_ms": 38.0
+    }
+  ]
+}

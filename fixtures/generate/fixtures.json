@@ -1,0 +1,31 @@
+{
+  "fixtures": [
+    {
+      "id": "gen-1",
+      "input": "Summarize the sprint review meeting.",
+      "expected": "The team agreed to ship the eval harness this week and cut the release on Friday.",
+      "incumbent": "The team agreed to ship the eval harness this week and cut the release on Friday.",
+      "candidate": "The team agreed to ship the eval harness this week and cut the release on Friday.",
+      "token_usage": 22,
+      "latency_ms": 120.0
+    },
+    {
+      "id": "gen-2",
+      "input": "Draft a subject line for the quarterly planning email.",
+      "expected": "Q3 planning update",
+      "incumbent": "Q3 planning update",
+      "candidate": "Q3 planning update",
+      "token_usage": 8,
+      "latency_ms": 60.0
+    },
+    {
+      "id": "gen-3",
+      "input": "Write a one-line project status.",
+      "expected": "On track, no blockers.",
+      "incumbent": "On track, no blockers.",
+      "candidate": "On track, no blockers.",
+      "token_usage": 6,
+      "latency_ms": 45.0
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "fixtures": [
+    {
+      "id": "eval-1",
+      "input": "Assess whether this draft is publishable: 'On track, no blockers.'",
+      "expected": "PASS",
+      "incumbent": "PASS",
+      "candidate": "PASS",
+      "token_usage": 4,
+      "latency_ms": 20.0
+    },
+    {
+      "id": "eval-2",
+      "input": "Assess whether this draft is publishable: 'TODO fill this in later.'",
+      "expected": "FAIL",
+      "incumbent": "FAIL",
+      "candidate": "FAIL",
+      "token_usage": 4,
+      "latency_ms": 18.0
+    }
+  ]
+}

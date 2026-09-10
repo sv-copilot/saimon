@@ -63,6 +63,9 @@ jobs:
       - name: Run offline eval gate
         run: python3 scripts/eval.py gate --fixtures-root fixtures
 
+      - name: Enforce model-routing A/B gate
+        run: python3 scripts/eval.py gate-model
+
   # ── Build & push Docker image (dev, rc, and main branches, pushes to GHCR) ─
   docker-push:
     runs-on: [self-hosted, Linux, X64]

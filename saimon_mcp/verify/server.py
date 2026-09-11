@@ -1307,18 +1307,7 @@ async def verify_claim(
     use_shadow = payload.parameters.get("use_shadow_sources", False)
     shadow_results: list[dict[str, Any]] = []
     shadow_search_degraded = False
-    if theory_anchor["anchor"] == "shadow_doi":
-        # Precise DOI passthrough — never a keyword-shaped full-text query.
-        try:
-            shadow_results, shadow_search_degraded = await _search_sources_with_status(
-                f"doi:{theory_anchor['doi']}", limit=5
-            )
-        except Exception:  # noqa: BLE001
-            shadow_search_degraded = True
-            _log.exception(
-                "verify_search_degraded: unexpected error during shadow search"
-            )
-    elif use_shadow and theory_anchor["anchor"] == "full_text":
+    if use_shadow:
         try:
             shadow_results, shadow_search_degraded = await _search_sources_with_status(
                 claim, limit=5
@@ -1337,7 +1326,6 @@ async def verify_claim(
         methods_count=len(method_names),
         shadow_sources_found=len(shadow_results),
         shadow_search_degraded=shadow_search_degraded,
-        theory_anchor=theory_anchor["anchor"],
     )
 
     # ── risk profile: detect items for boosted checking ─────

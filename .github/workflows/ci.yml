@@ -49,7 +49,7 @@ jobs:
   # SAIMON-EVAL-CI-GATE-1 (#27): the committed golden fixture suites must
   # pass offline. Pure Python + stdlib — no network, no model keys.
   eval:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
 
     steps:

@@ -1560,13 +1560,119 @@ async def generate_verified(
     }
     node_id = await _persist_content_node(title, content_type, content, metadata)
 
-    # ── Step 3-4: Extract claims, verify each, persist ──
-    verification = await _extract_and_verify_claims(content)
-    claims_extracted = verification["claims_extracted"]
-    claims_verified = verification["claims_verified"]
-    cited_claims = verification["cited_claims"]
-    claim_bindings = verification["claim_bindings"]
-    observation_ids = verification["observation_ids"]
+    # ── Step 3: Extract claims from generated content ──
+    extract_resp = await _call_verify_extract(content)
+    claims = extract_resp.get("data", {}).get("claims", [])
+    claims_extracted = len(claims)
+
+    # ── Step 4: Verify each claim and persist ──
+    claims_verified = 0
+    cited_claims = 0
+    claim_bindings: list[dict[str, Any]] = []
+    observation_ids: list[str] = []
+
+    for claim in claims:
+        claim_text = claim.get("claim_text", "")
+        if not claim_text:
+            continue
+
+        # 4a: Persist observation as "unverified" initially
+        if _db_pool is not None:
+            try:
+                import hashlib as _hashlib
+                import uuid as _uuid
+
+                obs_id = str(_uuid.uuid4())
+                source_hash = _hashlib.sha256(content.encode()).hexdigest()[:16]
+
+                await _db_pool.execute(
+                    """INSERT INTO observations
+                       (id, claim_text, topic, summary, confidence_0_1, rationale,
+                        verification_status, source_text_hash)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                       ON CONFLICT DO NOTHING""",
+                    obs_id,
+                    claim_text,
+                    claim.get("topic"),
+                    claim_text[:200],
+                    float(claim.get("confidence_0_1", 0.5)),
+                    claim.get("rationale"),
+                    "unverified",
+                    source_hash,
+                )
+                observation_ids.append(obs_id)
+            except Exception:  # noqa: BLE001
+                obs_id = ""
+        else:
+            obs_id = ""
+
+        # 4b: Call verify_claim for this claim
+        verify_resp = await _call_verify_claim(claim_text)
+        verifications = verify_resp.get("data", {}).get("verifications", [])
+        overall_verdict = verify_resp.get("data", {}).get("overall_verdict", "inconclusive")
+        overall_confidence = verify_resp.get("data", {}).get("overall_confidence", 0.5)  # noqa: F841
+
+        # A claim "carries a source pointer" when at least one verification
+        # returned evidence tying it back to a source.
+        evidence_sources = [
+            v.get("evidence_source")
+            for v in verifications
+            if v.get("evidence_source")
+        ]
+        if evidence_sources:
+            cited_claims += 1
+
+        claim_bindings.append(
+            {
+                "claim_text": claim_text,
+                "cited": bool(evidence_sources),
+                "citation": evidence_sources[0] if evidence_sources else None,
+            }
+        )
+
+        # 4c: Persist verifications and evidence links
+        if _db_pool is not None and obs_id:
+            for v in verifications:
+                try:
+                    ver_id = str(_uuid.uuid4())
+                    method = v.get("method", "unknown")
+                    verdict = v.get("verdict", "inconclusive")
+                    confidence = float(v.get("confidence", 0.5))
+                    explanation = v.get("explanation", "")
+
+                    await _db_pool.execute(
+                        """INSERT INTO observation_verifications
+                           (id, observation_id, method, verdict, confidence, explanation)
+                           VALUES ($1, $2, $3, $4, $5, $6)""",
+                        ver_id, obs_id, method, verdict, confidence, explanation,
+                    )
+
+                    # Build evidence links for this verification
+                    evidence_source = v.get("evidence_source", "")
+                    if evidence_source:
+                        evidence_type = "citation" if evidence_source.startswith("doi:") else "shadow_source"
+                        ev_id = str(_uuid.uuid4())
+                        await _db_pool.execute(
+                            """INSERT INTO observation_verification_evidence
+                               (id, verification_id, evidence_type, evidence_identifier, relevance_score)
+                               VALUES ($1, $2, $3, $4, $5)""",
+                            ev_id, ver_id, evidence_type, evidence_source, confidence,
+                        )
+                except Exception:  # noqa: BLE001, S110
+                    pass
+
+            # 4d: Update observation verification status
+            try:
+                await _db_pool.execute(
+                    "UPDATE observations SET verification_status = $1, "
+                    "updated_at = now() WHERE id = $2",
+                    "verified" if overall_verdict != "inconclusive" else "unverified",
+                    obs_id,
+                )
+            except Exception:  # noqa: BLE001, S110
+                pass
+
+        claims_verified += 1
 
     # ── Step 5: Return consolidated response ──
     _record_generation_metrics(content_type)

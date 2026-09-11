@@ -257,7 +257,7 @@ services:
       PORT: "8008"
       SAIMON_API_KEY: ${SAIMON_DOMAIN_API_KEY}
       DATABASE_URL: ${DOMAIN_DATABASE_URL}
-      SAIMON_DOMAIN_PLUGIN_PATHS: ${SAIMON_DOMAIN_PLUGIN_PATHS:-plugins.legal}
+      SAIMON_DOMAIN_PLUGIN_PATHS: ${SAIMON_DOMAIN_PLUGIN_PATHS}
       SAIMON_ENV: production
     ports: !override
       - "127.0.0.1:8108:8008"
@@ -303,6 +303,37 @@ services:
         reservations:
           cpus: "0.25"
           memory: "256M"
+
+  # -----------------------------------------------------------------------
+  # Metabase — read-only BI over the shared Postgres
+  # -----------------------------------------------------------------------
+  metabase:
+    image: metabase/metabase:v0.50.36
+    restart: always
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: postgres
+      MB_DB_PORT: "5432"
+      MB_DB_DBNAME: metabase
+      MB_DB_USER: metabase
+      MB_DB_PASS: ${METABASE_DB_PASSWORD}
+    ports: !override
+      - "127.0.0.1:3010:3000"
+    depends_on:
+      - postgres
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: "1G"
+        reservations:
+          cpus: "0.25"
+          memory: "512M"
 
 volumes:
   saimon_pgdata:

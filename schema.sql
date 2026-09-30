@@ -54,6 +54,13 @@ ON CONFLICT (identifier) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
 -- knowledge_graph_nodes — the core graph entity
+--
+-- This is the canonical fulltext store: downloaded documents are persisted
+-- here as ``fulltext_document`` + ``fulltext_chunk`` nodes (see
+-- research_shared/fulltext.py).  There is intentionally NO ``documents`` table
+-- in this schema — the api-mcp creates its own per-user ``documents`` table at
+-- runtime for user-uploaded documents (SAIMON-DOCUMENTS-1), which is unrelated
+-- to fulltext.  See SAIMON-FULLTEXT-DOCUMENTS-1 (#216).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS knowledge_graph_nodes (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),

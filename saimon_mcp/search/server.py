@@ -128,6 +128,29 @@ def _get_shadow_adapters(source_indexes: list[str] | None = None) -> list:
     ]
 
 
+def _shadow_index_entry(adapter: Any) -> dict[str, Any]:
+    """Serialize a shadow registry adapter for list_source_indexes.
+
+    Disabled adapters (e.g. Academic Torrents, whose search endpoint was
+    removed upstream) are surfaced with ``status: "disabled"`` and a
+    ``disabled_reason`` instead of the default ``"available"``.
+    """
+    disabled = bool(getattr(adapter, "disabled", False))
+    entry: dict[str, Any] = {
+        "type": "shadow_library",
+        "identifier": adapter.name,
+        "label": _SHADOW_LABELS.get(adapter.name, adapter.name),
+        "tier": adapter.tier,
+        "trust_model": adapter.trust_model,
+        "status": "disabled" if disabled else "available",
+    }
+    if disabled:
+        entry["disabled_reason"] = getattr(
+            adapter, "disabled_reason", "source index disabled"
+        )
+    return entry
+
+
 # ---------------------------------------------------------------------------
 # auth (fail-closed)
 # ---------------------------------------------------------------------------
@@ -764,14 +787,7 @@ async def list_source_indexes(
                 {"type": "web_page", "identifier": "web-index", "label": "Web index"},
             ]
             for adapter in _shadow_registry.list_all():
-                source_indexes_db.append({
-                    "type": "shadow_library",
-                    "identifier": adapter.name,
-                    "label": _SHADOW_LABELS.get(adapter.name, adapter.name),
-                    "tier": adapter.tier,
-                    "trust_model": adapter.trust_model,
-                    "status": "available",
-                })
+                source_indexes_db.append(_shadow_index_entry(adapter))
             # Dedupe by (type, identifier) — registry entries (appended last) win
             deduped: dict[tuple[str, str], dict[str, Any]] = {}
             for entry in source_indexes_db:
@@ -792,14 +808,7 @@ async def list_source_indexes(
 
     # Add shadow library adapters
     for adapter in _shadow_registry.list_all():
-        source_indexes.append({
-            "type": "shadow_library",
-            "identifier": adapter.name,
-            "label": _SHADOW_LABELS.get(adapter.name, adapter.name),
-            "tier": adapter.tier,
-            "trust_model": adapter.trust_model,
-            "status": "available",
-        })
+        source_indexes.append(_shadow_index_entry(adapter))
 
     resp = _ok(trace_id=payload.trace_id, data={"source_indexes": source_indexes})
     logger.log_response(status=resp.status)

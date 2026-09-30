@@ -1,10 +1,14 @@
 """academic_torrents.py — Academic Torrents source index adapter.
 
-Academic Torrents (academictorrents.com) provides a REST API for
-searching dataset and paper torrents.  It's particularly useful
-for large datasets and paper collections.
+Academic Torrents (academictorrents.com) historically provided a REST API
+for searching dataset and paper torrents.
 
-Tier: A — strong source index with a clean REST API.
+Status (SAIMON-ACADEMIC-TORRENTS-404-1): the ``/apiv2/search`` endpoint has
+been **removed** from the upstream API.  The ``/apiv2/`` root is still live
+and now lists only entry/collection/test routes — there is no query-based
+search endpoint.  This adapter is therefore marked ``disabled`` so callers
+stop expecting results from a dead source.  ``search()``/``resolve_doi()``
+return ``[]``/``None`` immediately (fail-closed) instead of timing out.
 """
 
 from __future__ import annotations
@@ -20,13 +24,22 @@ logger = logging.getLogger("saimon.adapters.academic_torrents")
 class AcademicTorrentsAdapter:
     """Adapter for Academic Torrents (academictorrents.com).
 
-    REST API at academictorrents.com/apiv2/ returns JSON.
-    Search: GET /apiv2/search?q=QUERY&field=title&field=description
+    The query-based search endpoint (``GET /apiv2/search``) was removed from
+    the upstream API, so this adapter is disabled and never performs network
+    calls.  ``search()`` returns ``[]`` and ``resolve_doi()`` returns ``None``
+    immediately (fail-closed).
     """
 
     name: str = "academic_torrents"
     tier: str = "A"
     trust_model: str = "community"
+
+    # SAIMON-ACADEMIC-TORRENTS-404-1 — the apiv2/search endpoint is gone.
+    disabled: bool = True
+    disabled_reason: str = (
+        "academictorrents.com/apiv2/search was removed from the API; "
+        "no query-based search endpoint exists"
+    )
 
     def __init__(self, http_client: Any = None) -> None:
         self._http = http_client
@@ -45,6 +58,12 @@ class AcademicTorrentsAdapter:
         Returns up to *limit* results mapped to SourceSearchResult.
         Returns empty list on any error (timeout, non-200, parse failure).
         """
+        if self.disabled:
+            logger.debug(
+                "Academic Torrents search disabled (%s); returning []",
+                self.disabled_reason,
+            )
+            return []
         if not query.strip():
             return []
 
@@ -127,6 +146,12 @@ class AcademicTorrentsAdapter:
         Academic Torrents indexes DOIs for some paper collections.
         Searches by DOI and returns the first match, or None.
         """
+        if self.disabled:
+            logger.debug(
+                "Academic Torrents DOI resolve disabled (%s); returning None",
+                self.disabled_reason,
+            )
+            return None
         if not doi.strip():
             return None
 

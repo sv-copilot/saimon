@@ -29,7 +29,9 @@ from research_shared.lifespan import build_lifespan
 from research_shared.rerank import RerankConfig, reformulate_query, rerank
 from research_shared.source_registry import get_registry
 from research_shared.sources import (
+    default_doi_source,
     default_source_indexes,
+    fulltext_consent_default,
     legacy_tool_aliases,
     sources_enabled_env_vars,
 )
@@ -1042,13 +1044,9 @@ async def source_discovery(
 # tool: download_fulltext
 # ---------------------------------------------------------------------------
 
-_DEFAULT_FULLTEXT_CONSENT = {
-    "annas_archive",
-    "libgen",
-    "scihub",
-    "internet_archive",
-    "academic_torrents",
-}
+# Which sources full text may be fetched from is a deployment decision, taken at
+# the composition point, not a list in this service.
+_DEFAULT_FULLTEXT_CONSENT = set(fulltext_consent_default())
 
 
 def _resolve_fulltext_consent() -> set[str]:
@@ -1166,7 +1164,7 @@ async def _download_fulltext_flow(
 
     # ── determine source index when only a DOI was supplied ──
     if resolved_source_index is None:
-        # Prefer a cached metadata row, else default to Sci-Hub for DOIs.
+        # Prefer a cached metadata row, else this deployment's DOI source.
         if db is not None:
             row = await db.fetchrow(
                 f"SELECT source_index, title, file_type FROM {fulltext_cache_table()} WHERE doi = $1",
@@ -1177,7 +1175,7 @@ async def _download_fulltext_flow(
                 title = title or row.get("title") or ""
                 file_type = file_type or row.get("file_type")
         if resolved_source_index is None:
-            resolved_source_index = "scihub"
+            resolved_source_index = default_doi_source()
 
     # ── consent check after source_index resolution ──
     if resolved_source_index not in consent:

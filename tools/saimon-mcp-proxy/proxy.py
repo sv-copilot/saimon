@@ -69,7 +69,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     # ── Search Tools ────────────────────────────────────────────
     "saimon_search_scholarly": {
         "description": (
-            "Search shadow library sources (Anna's Archive, LibGen, Sci-Hub, "
+            "Search the registered source indexes for papers, books and datasets. "
             "Internet Archive, Academic Torrents) for academic papers, books, "
             "and datasets. Returns ranked results with DOIs, titles, authors, "
             "years, and source attribution."
@@ -98,7 +98,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "saimon_list_sources": {
         "description": (
             "List all available source indexes including knowledge graph "
-            "and shadow library sources. Shows tier (S/A/B) and status."
+            "and registered source indexes. Shows tier (S/A/B) and status."
         ),
         "service": "search",
         "method": "POST",
@@ -110,7 +110,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "saimon_verify_claim": {
         "description": (
             "Verify a factual claim using 5 corroboration methods. "
-            "Searches shadow libraries for evidence, then uses DeepSeek "
+            "Searches the registered source indexes for evidence, then uses DeepSeek "
             "LLM to analyze the claim. Returns supported/refuted/inconclusive "
             "with confidence scores and evidence citations."
         ),
@@ -132,7 +132,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "description": (
             "List all verification methods with descriptions and reliability "
             "scores. Includes source_corroboration, logical_consistency, "
-            "authority_check, temporal_validity, shadow_source_corroboration."
+            "authority_check, temporal_validity, source_corroboration."
         ),
         "service": "verify",
         "method": "POST",

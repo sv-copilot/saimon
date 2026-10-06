@@ -5,8 +5,8 @@ falling back to a vendored copy, then built-in defaults) and resolves saimon
 routes to tier parameters. Pure — no network and no import-time side effects
 beyond a JSON read.
 
-Saimon-side counterpart to `tools/headless_runner/model_routing.py` in
-drake-governance (DRAKE-MODEL-ROUTING-1).
+Saimon-side counterpart to the same routing logic used by the planning
+workspace this platform was built in (DRAKE-MODEL-ROUTING-1).
 """
 
 from __future__ import annotations

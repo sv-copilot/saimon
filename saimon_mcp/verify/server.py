@@ -30,6 +30,7 @@ from research_shared.sources import (
     evidence_type_source_index,
     method_aliases,
     param_aliases,
+    source_tier_indexes,
     sources_enabled_env_vars,
 )
 from saimon_mcp.verify.writing_continuity import (
@@ -920,22 +921,26 @@ def _compute_source_quality_tier(source: dict[str, Any]) -> str:
     year = source.get("year")
     citations = source.get("citation_count", source.get("citations", 0))
 
+    # Source tiers are this deployment's judgement, declared at the composition
+    # point; citation counts above stand on their own when it declares none.
+    _tiers = source_tier_indexes()
+
     # Tier A indicators
-    tier_a_indexes = {"scihub", "pubmed", "crossref", "scopus", "wos"}
+    tier_a_indexes = _tiers.get("A", frozenset())
     if source_index in tier_a_indexes:
         return "A"
     if isinstance(citations, (int, float)) and citations > 50:
         return "A"
 
     # Tier B indicators
-    tier_b_indexes = {"libgen", "semantic_scholar", "dblp", "ieee"}
+    tier_b_indexes = _tiers.get("B", frozenset())
     if source_index in tier_b_indexes:
         return "B"
     if isinstance(year, (int, float)) and isinstance(citations, (int, float)) and citations > 10:
         return "B"
 
     # Tier C indicators
-    tier_c_indexes = {"arxiv", "ssrn", "researchgate", "preprint"}
+    tier_c_indexes = _tiers.get("C", frozenset())
     if source_index in tier_c_indexes:
         return "C"
     if source.get("is_preprint") or source.get("preprint"):

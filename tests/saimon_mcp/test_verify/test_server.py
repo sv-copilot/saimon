@@ -672,7 +672,7 @@ class TestSourceQualityTier:
         from saimon_mcp.verify.server import _compute_source_quality_tier
 
         assert _compute_source_quality_tier(
-            {"source_index_label": "scihub", "citation_count": 100}
+            {"source_index_label": "tier_a_index", "citation_count": 100}
         ) == "A"
         assert _compute_source_quality_tier(
             {"source_index": "crossref", "citations": 75}

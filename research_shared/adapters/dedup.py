@@ -1,9 +1,8 @@
 """dedup.py — cross-index deduplication engine.
 
-When the same paper appears across multiple source indexes (Anna's
-Archive, LibGen, Sci-Hub), the dedup engine merges them into a single
-canonical result using DOI as the primary key, falling back to
-title+first-author normalization.
+When the same work appears in more than one source index, the dedup engine
+merges the records into a single canonical result using DOI as the primary key,
+falling back to title plus first-author normalization.
 """
 
 from __future__ import annotations

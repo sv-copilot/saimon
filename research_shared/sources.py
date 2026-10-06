@@ -131,3 +131,48 @@ def method_aliases() -> dict[str, str]:
 def evidence_type_source_index() -> str:
     """``evidence_type`` stored for source-index evidence."""
     return EVIDENCE_TYPE_SOURCE_INDEX
+
+
+#: Sources this deployment consents to fetching full text from, unless the
+#: FULLTEXT_DOWNLOAD_CONSENT environment variable narrows it. This is a
+#: deployment decision with consequences, which is why it is declared here and
+#: not defaulted in the service: fetching from a source you have no right to was
+#: never a thing this platform should do quietly.
+FULLTEXT_CONSENT_DEFAULT = frozenset(
+    {
+        "annas_archive",
+        "libgen",
+        "scihub",
+        "internet_archive",
+        "academic_torrents",
+    }
+)
+
+#: Source a DOI-only request resolves against when nothing else identifies one.
+DEFAULT_DOI_SOURCE = "scihub"
+
+
+def fulltext_consent_default() -> frozenset[str]:
+    """Sources this deployment consents to fetch full text from."""
+    return FULLTEXT_CONSENT_DEFAULT
+
+
+def default_doi_source() -> str:
+    """Source used to resolve a bare DOI."""
+    return DEFAULT_DOI_SOURCE
+
+
+#: Which sources this deployment counts as tier A / B / C when scoring how much
+#: weight a piece of evidence deserves. A judgement about sources, so it is
+#: declared here: a deployment with different sources declares different tiers,
+#: or none, and then citation counts alone decide.
+SOURCE_TIER_INDEXES = {
+    "A": frozenset({"scihub", "pubmed", "crossref", "scopus", "wos"}),
+    "B": frozenset({"libgen", "semantic_scholar", "dblp", "ieee"}),
+    "C": frozenset({"arxiv", "ssrn", "researchgate", "preprint"}),
+}
+
+
+def source_tier_indexes() -> dict[str, frozenset[str]]:
+    """This deployment's tier classification of sources."""
+    return SOURCE_TIER_INDEXES

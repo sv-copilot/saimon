@@ -139,7 +139,7 @@ def mock_search_results() -> dict[str, object]:
                     "authors": ["Bell, John"],
                     "year": 2024,
                     "relevance_score": 0.95,
-                    "source_index": "annas_archive",
+                    "source_index": "alpha_index",
                 },
                 {
                     "type": "academic_paper",
@@ -149,7 +149,7 @@ def mock_search_results() -> dict[str, object]:
                     "authors": ["Preskill, John"],
                     "year": 2023,
                     "relevance_score": 0.88,
-                    "source_index": "libgen",
+                    "source_index": "beta_index",
                 },
             ],
         },

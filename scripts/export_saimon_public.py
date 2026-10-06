@@ -382,6 +382,7 @@ To write your own adapter:
 
 See docs/adapters.md for the full contract, including the `access` field an
 adapter must declare so callers can tell whether it needs credentials.
+"""
 '''
 
 PUBLIC_ENV_EXAMPLE = """\
@@ -578,6 +579,30 @@ def scan(plan: list[PlannedPath]) -> list[tuple[str, int, str, str]]:
     return violations
 
 
+def syntax_check(plan: list[PlannedPath]) -> list[tuple[str, str]]:
+    """Compile every Python file that would ship, and report what will not parse.
+
+    The marker gate proves the absence of private data. It says nothing about
+    whether the artifact *works*, and a generated file is exactly where a
+    delimiter mistake hides: the gate scans it happily while Python cannot import
+    it. Found by running the generated tree, not by reading it.
+    """
+    failures: list[tuple[str, str]] = []
+    for item in plan:
+        if not item.destination.endswith(".py"):
+            continue
+        try:
+            if item.generated is not None:
+                compile(item.generated, item.destination, "exec")
+            elif item.source is not None:
+                compile(item.source.read_text(encoding="utf-8"), item.destination, "exec")
+        except SyntaxError as exc:
+            failures.append((item.destination, f"line {exc.lineno}: {exc.msg}"))
+        except UnicodeDecodeError:
+            continue
+    return failures
+
+
 def explain(needle: str) -> int:
     plan, withheld = plan_export()
     shipped = [p.destination for p in plan if needle in p.destination]
@@ -629,6 +654,14 @@ def main(argv: list[str] | None = None) -> int:
         for line in pending:
             print(f"  - {line}")
 
+    syntax_failures = syntax_check(plan)
+    if syntax_failures:
+        print(f"\nPYTHON THAT WOULD NOT IMPORT -- {len(syntax_failures)} file(s):")
+        for dest, why in syntax_failures:
+            print(f"  {dest}: {why}")
+    else:
+        print("\nsyntax: every planned Python file compiles.")
+
     if violations:
         print(f"\nSCRUB GATE FAILED -- {len(violations)} forbidden marker(s) in files planned for export:")
         by_file: dict[str, list] = {}
@@ -651,6 +684,9 @@ def main(argv: list[str] | None = None) -> int:
         if violations:
             print("\nrefusing to write: the scrub gate failed.")
             return 3
+        if syntax_failures:
+            print("\nrefusing to write: the tree would contain Python that cannot import.")
+            return 4
         for item in plan:
             dest = args.output / item.destination
             dest.parent.mkdir(parents=True, exist_ok=True)

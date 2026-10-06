@@ -144,6 +144,199 @@ EXCLUDE_NAME_PARTS = ("shadow", "_seed_", "seed_", "job_hunt")
 # Generated in the public tree. Never copied: these differ by design.
 # ---------------------------------------------------------------------------
 
+PUBLIC_SOURCES = '''"""sources.py — the composition point: which source adapters this deployment searches.
+
+Every decision about *which* sources exist lives here and nowhere else. Services
+ask the registry for adapters; they never name one, so changing the source set is
+a change to this file rather than a change scattered across the services.
+
+The adapters registered here are sources any adopter can lawfully reach: a
+scholarly index, an open-access resolver, a public digital library, and the
+offline stub that needs nothing at all. A source behind a paywall or an
+access-controlled library is *your* entitlement, not something this project
+distributes: implement it against the adapter contract in
+:mod:`research_shared.adapters.base`, register it here in your own tree, and keep
+it out of anything you publish.
+"""
+
+from __future__ import annotations
+
+from research_shared.adapters.internet_archive import InternetArchiveAdapter
+from research_shared.adapters.openalex import OpenAlexAdapter
+from research_shared.adapters.ranking import RankingPolicy
+from research_shared.adapters.stub import StubAdapter
+from research_shared.adapters.unpaywall import UnpaywallAdapter
+
+#: Sources a query searches when it does not name any.
+#:
+#: Unpaywall is deliberately absent: its search endpoint was retired on
+#: 18 September 2026 (it answers 410 Gone), and its own documentation points
+#: callers at OpenAlex, which carries the same open-access data. The adapter
+#: remains registered as a DOI resolver. The stub is registered but not searched
+#: by default: it is for proving an installation, not for research.
+DEFAULT_SOURCE_INDEXES = frozenset({"openalex", "internet_archive"})
+
+#: Which sources this deployment trusts most when ranking aggregated results.
+RANKING_POLICY = RankingPolicy(
+    preferred_sources=frozenset({"openalex"}),
+    deprioritised_sources=frozenset({"stub"}),
+)
+
+#: Environment variables checked, first one set wins, to decide whether source
+#: retrieval happens at all.
+SOURCES_ENABLED_ENV_VARS = ("RESEARCH_SOURCES_ENABLED",)
+
+#: Sources full text may be fetched from unless FULLTEXT_DOWNLOAD_CONSENT narrows
+#: it. Open access and public archive only.
+FULLTEXT_CONSENT_DEFAULT = frozenset({"openalex", "unpaywall", "internet_archive", "stub"})
+
+#: Source used to resolve a bare DOI. Unpaywall answers exactly this question and
+#: needs only the caller's own email address, which is why it is the resolver
+#: rather than a search source.
+DEFAULT_DOI_SOURCE = "unpaywall"
+
+#: Name of the full-text cache table. Override with SAIMON_FULLTEXT_CACHE_TABLE.
+FULLTEXT_CACHE_TABLE_DEFAULT = "source_fulltext_cache"
+
+#: ``evidence_type`` stored for evidence backed by a source index.
+EVIDENCE_TYPE_SOURCE_INDEX = "source_index"
+
+#: Which sources count as tier A / B / C when scoring how much weight a piece of
+#: evidence deserves. Edit for your sources, or empty the dict and citation
+#: counts will decide alone.
+SOURCE_TIER_INDEXES = {
+    "A": frozenset({"pubmed", "crossref", "openalex", "unpaywall"}),
+    "B": frozenset({"semantic_scholar", "internet_archive", "dblp"}),
+    "C": frozenset({"arxiv", "ssrn", "preprint", "stub"}),
+}
+
+#: Retired names still accepted, for callers that predate a rename. Empty in a
+#: fresh deployment; see docs/adapters.md for how a deployment adds its own.
+PARAM_ALIASES: dict[str, tuple[str, ...]] = {}
+METHOD_ALIASES: dict[str, str] = {}
+LEGACY_TOOL_ALIASES: dict[str, tuple[str, ...]] = {}
+
+
+def compose_registry(registry) -> None:
+    """Register this deployment's adapters into *registry*."""
+    registry.register_all(
+        [
+            OpenAlexAdapter(),
+            UnpaywallAdapter(),
+            InternetArchiveAdapter(),
+            StubAdapter(),
+        ]
+    )
+
+
+def default_source_indexes() -> frozenset[str]:
+    """Sources searched when the caller names none."""
+    return DEFAULT_SOURCE_INDEXES
+
+
+def ranking_policy() -> RankingPolicy:
+    """How this deployment weights sources when ranking results."""
+    return RANKING_POLICY
+
+
+def fulltext_consent_default() -> frozenset[str]:
+    """Sources this deployment consents to fetch full text from."""
+    return FULLTEXT_CONSENT_DEFAULT
+
+
+def default_doi_source() -> str:
+    """Source used to resolve a bare DOI."""
+    return DEFAULT_DOI_SOURCE
+
+
+def source_tier_indexes() -> dict[str, frozenset[str]]:
+    """This deployment's tier classification of sources."""
+    return SOURCE_TIER_INDEXES
+
+
+def sources_enabled_env_vars() -> tuple[str, ...]:
+    """Environment variables that switch source retrieval on or off."""
+    return SOURCES_ENABLED_ENV_VARS
+
+
+def fulltext_cache_table() -> str:
+    """Name of the full-text cache table for this deployment."""
+    import os
+
+    return os.environ.get("SAIMON_FULLTEXT_CACHE_TABLE", FULLTEXT_CACHE_TABLE_DEFAULT)
+
+
+def param_aliases() -> dict[str, tuple[str, ...]]:
+    """Retired request parameter names this deployment still accepts."""
+    return PARAM_ALIASES
+
+
+def method_aliases() -> dict[str, str]:
+    """Retired verification method ids this deployment still serves."""
+    return METHOD_ALIASES
+
+
+def legacy_tool_aliases() -> dict[str, tuple[str, ...]]:
+    """Retired tool names this deployment still answers to."""
+    return LEGACY_TOOL_ALIASES
+
+
+def evidence_type_source_index() -> str:
+    """``evidence_type`` stored for source-index evidence."""
+    return EVIDENCE_TYPE_SOURCE_INDEX
+'''
+
+
+def public_schema_sql() -> str:
+    """The public schema: same DDL, generic names, lawful seed rows.
+
+    Transformed rather than hand-written so the two trees stay structurally
+    identical: the renames come from REWRITES, and only the seeded source rows
+    are replaced -- with sources an adopter can lawfully reach.
+    """
+    text = apply_rewrites((REPO_ROOT / "schema.sql").read_text(encoding="utf-8"))
+    lawful_rows = (
+        "    ('source_index',  'openalex',         'OpenAlex',         'A', 'Open scholarly index of works, authors and institutions'),\n"
+        "    ('source_index',  'unpaywall',        'Unpaywall',        'A', 'Locates lawful open-access copies of paywalled articles'),\n"
+        "    ('source_index',  'internet_archive', 'Internet Archive', 'A', 'Public digital library of books, papers and media'),\n"
+        "    ('source_index',  'stub',             'Stub (offline)',   'C', 'Deterministic synthetic source: proves an installation works')\n"
+    )
+    # Two strings the generic rewrites cannot decide on their own: a comment
+    # whose examples name sources, and a tool description inside a JSON literal.
+    # The gate scans generated files too, which is how these were found.
+    text = text.replace(
+        "-- e.g. 'annas_archive', 'libgen', 'scihub'", "-- e.g. 'openalex', 'unpaywall'"
+    )
+    text = text.replace(
+        "Shadow library source indexes to search.", "Source indexes to search."
+    )
+    start = text.index("    ('source_index',")
+    end = text.index(";", start)
+    return text[:start] + lawful_rows + text[end:]
+
+
+def public_compose() -> str:
+    """The public compose file: this deployment\'s images parameterised, private
+    environment references removed, everything else byte-identical.
+
+    Transformed rather than hand-written so services, ports and dependencies
+    cannot drift between the two trees.
+    """
+    text = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    text = re.sub(
+        r"image: ghcr\.io/sv-copilot/saimon:[a-z0-9._-]+",
+        "image: ${SAIMON_IMAGE:-saimon:local}",
+        text,
+    )
+    text = re.sub(
+        r"^\s*PLANNING_CHECKOUT_PATH:.*$\n",
+        "",
+        text,
+        flags=re.M,
+    )
+    return text
+
+
 PUBLIC_LICENSE = """\
                                  Apache License
                            Version 2.0, January 2004
@@ -227,7 +420,6 @@ CROSSREF_MAILTO=
 # refuses to produce a tree while any of these is pending: a release with a
 # placeholder README is worse than no release.
 PENDING_GENERATED = {
-    "research_shared/adapters/stub.py": "the stub adapter: the whole path runnable with no network and no key",
     "research_shared/adapters/openalex.py": "lawful source, no credential required",
     "research_shared/adapters/unpaywall.py": "lawful source, needs only an email",
     "README.md": "the public front door (docs workstream)",
@@ -238,6 +430,9 @@ PENDING_GENERATED = {
 
 GENERATED = {
     "LICENSE": lambda: PUBLIC_LICENSE,
+    "research_shared/sources.py": lambda: PUBLIC_SOURCES,
+    "schema.sql": public_schema_sql,
+    "docker-compose.yml": public_compose,
     "research_shared/adapters/__init__.py": lambda: PUBLIC_ADAPTER_REGISTRY,
     ".env.example": lambda: PUBLIC_ENV_EXAMPLE,
 }

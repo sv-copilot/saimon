@@ -27,6 +27,7 @@ from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
 from research_shared.rerank import RerankConfig, reformulate_query, rerank
+from research_shared.source_discovery import SOURCE_DISCOVERY_MIN_CANDIDATES
 from research_shared.source_registry import get_registry
 from research_shared.sources import (
     default_doi_source,
@@ -35,7 +36,6 @@ from research_shared.sources import (
     legacy_tool_aliases,
     sources_enabled_env_vars,
 )
-from research_shared.source_discovery import SOURCE_DISCOVERY_MIN_CANDIDATES
 
 # ── Serper.dev Tier B config ──────────────────────────────────────
 

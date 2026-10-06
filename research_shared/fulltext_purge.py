@@ -14,11 +14,10 @@ identity) and is re-runnable: a second run finds nothing and is a no-op.
 
 from __future__ import annotations
 
-from research_shared.sources import fulltext_cache_table
-
 import json
 from typing import Any
 
+from research_shared.sources import fulltext_cache_table
 from research_shared.text_quality import text_quality_ok
 
 CONTENT_TYPE_FULLTEXT_DOCUMENT = "fulltext_document"

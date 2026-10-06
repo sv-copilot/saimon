@@ -5,6 +5,9 @@ break a deployment's existing callers, and it must not change what a *default*
 request does. Both halves of that promise are pinned here.
 """
 
+import pathlib
+import re
+
 import pytest
 
 from research_shared.sources import (
@@ -54,6 +57,34 @@ class TestMethodAliases:
             assert verify_server._METHODS[retired]["name"] == retired
             # the retired entry tells a reader which id replaced it
             assert canonical in verify_server._METHODS[retired]["description"]
+
+
+class TestTheRenameDidNotCollide:
+    """The renamed method must not have taken over an existing method id.
+
+    The first attempt at this rename chose `source_corroboration` as the new id,
+    which already belonged to a different method (corroboration against sources
+    the caller supplies). Registering over it changed that method's description
+    and reliability, and the duplicate key in the stub table silently dropped its
+    entry. Nothing failed, because nothing asserted the old method still existed.
+    """
+
+    def test_the_pre_existing_method_is_untouched(self):
+        entry = verify_server._METHODS["source_corroboration"]
+        assert entry["description"] == "Cross-reference the claim against known sources."
+        assert entry["reliability"] == 0.85
+
+    def test_the_renamed_method_is_a_distinct_id(self):
+        mine = verify_server._METHODS["source_index_corroboration"]
+        assert mine["name"] == "source_index_corroboration"
+        assert mine is not verify_server._METHODS["source_corroboration"]
+
+    def test_every_method_id_is_unique(self):
+        """A repeated key in the method table silently drops an entry."""
+        source = pathlib.Path(verify_server.__file__).read_text(encoding="utf-8")
+        keys = re.findall(r'^\s{8}"([a-z_]+)": \{$', source, re.M)
+        duplicates = {k for k in keys if keys.count(k) > 1}
+        assert not duplicates, f"duplicate method keys in the stub table: {sorted(duplicates)}"
 
 
 class TestStoredValues:

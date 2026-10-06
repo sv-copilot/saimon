@@ -23,8 +23,6 @@ from uuid import uuid4
 
 from research_shared.sources import fulltext_cache_table
 
-from research_shared.sources import fulltext_cache_table
-
 logger = logging.getLogger("saimon.s3")
 
 _ENV_ENDPOINT = "SAIMON_S3_ENDPOINT"

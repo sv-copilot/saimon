@@ -152,9 +152,14 @@ def _sources_enabled() -> bool:
 
 
 def _source_corroboration_method() -> dict[str, Any]:
-    """The method entry for corroboration against a source index."""
+    """The method entry for corroboration against a registered source index.
+
+    Named ``source_index_corroboration`` on purpose: this platform already has a
+    ``source_corroboration`` method (corroboration against sources the caller
+    supplies), and the two must stay distinct ids.
+    """
     return {
-        "name": "source_corroboration",
+        "name": "source_index_corroboration",
         "description": (
             "Cross-reference the claim against the works a registered source "
             "index can supply, and record where an independent copy exists."
@@ -164,7 +169,7 @@ def _source_corroboration_method() -> dict[str, Any]:
 
 
 if _sources_enabled():
-    _METHODS["source_corroboration"] = _source_corroboration_method()
+    _METHODS["source_index_corroboration"] = _source_corroboration_method()
     # The retired method id stays served while this deployment still has callers
     # that select methods by name; a fresh deployment declares no alias.
     for _canonical, _retired in method_aliases().items():
@@ -1126,7 +1131,7 @@ def _verify_method(
                 "real temporal validation."
             ),
         },
-        "source_corroboration": lambda: {
+        "source_index_corroboration": lambda: {
             "verdict": "inconclusive",
             "confidence": 0.25,
             "explanation": (

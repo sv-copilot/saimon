@@ -118,7 +118,7 @@ def main() -> int:
 def _collect_refs(obj, refs: list[str]) -> None:
     """Recursively collect all $ref values."""
     if isinstance(obj, dict):
-        if "$ref" in obj:
+        if "$re" in obj:
             refs.append(obj["$ref"])
         for v in obj.values():
             _collect_refs(v, refs)
@@ -138,7 +138,7 @@ def _report(errors: list[str], warnings: list[str]) -> int:
     if warnings:
         print(f"\n⚠  Validation passed with {len(warnings)} warning(s)")
     else:
-        print(f"\n✅ Validation passed")
+        print("\n✅ Validation passed")
     return 0
 
 

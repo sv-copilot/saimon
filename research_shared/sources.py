@@ -15,8 +15,8 @@ here, in its own tree, with its own credentials. This module is the seam.
 
 from __future__ import annotations
 
-from research_shared.adapters.annas_archive import AnnasArchiveAdapter
 from research_shared.adapters.academic_torrents import AcademicTorrentsAdapter
+from research_shared.adapters.annas_archive import AnnasArchiveAdapter
 from research_shared.adapters.internet_archive import InternetArchiveAdapter
 from research_shared.adapters.libgen import LibGenAdapter
 from research_shared.adapters.ranking import RankingPolicy
@@ -111,7 +111,7 @@ PARAM_ALIASES = {"use_source_search": ("use_shadow_sources",)}
 
 #: Verification method ids: canonical -> retired. Both are registered while the
 #: retired id is still in use.
-METHOD_ALIASES = {"source_corroboration": "shadow_source_corroboration"}
+METHOD_ALIASES = {"source_index_corroboration": "shadow_source_corroboration"}
 
 #: ``evidence_type`` written for evidence backed by a source index. This is a
 #: stored value, so a deployment with existing rows keeps its own.

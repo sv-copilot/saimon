@@ -19,6 +19,7 @@ from research_shared.adapters.annas_archive import AnnasArchiveAdapter
 from research_shared.adapters.academic_torrents import AcademicTorrentsAdapter
 from research_shared.adapters.internet_archive import InternetArchiveAdapter
 from research_shared.adapters.libgen import LibGenAdapter
+from research_shared.adapters.ranking import RankingPolicy
 from research_shared.adapters.scihub import SciHubAdapter
 
 #: Sources a query searches when it does not name any. Academic Torrents is
@@ -53,3 +54,52 @@ def compose_registry(registry) -> None:
 def default_source_indexes() -> frozenset[str]:
     """Sources searched when the caller names none."""
     return DEFAULT_SOURCE_INDEXES
+
+
+#: Which sources this deployment trusts most when ranking aggregated results.
+#: Whole-work indexes rank above the broad digital library, whose title-match
+#: noise is real (SAIMON-SEARCH-RELIABILITY-1, #201): news items, archive dumps
+#: and repository pages that a citation cannot be verified against.
+RANKING_POLICY = RankingPolicy(
+    preferred_sources=frozenset({"annas_archive", "libgen", "scihub"}),
+    deprioritised_sources=frozenset({"internet_archive"}),
+)
+
+
+def ranking_policy() -> RankingPolicy:
+    """How this deployment weights sources when ranking results."""
+    return RANKING_POLICY
+
+
+#: Environment variables checked, first one set wins, to decide whether source
+#: retrieval happens at all. The generic name comes first so a deployment can
+#: move to it without a flag day.
+SOURCES_ENABLED_ENV_VARS = ("RESEARCH_SOURCES_ENABLED", "SHADOW_SOURCES_ENABLED")
+
+
+def sources_enabled_env_vars() -> tuple[str, ...]:
+    """Environment variables that switch source retrieval on or off."""
+    return SOURCES_ENABLED_ENV_VARS
+
+
+#: Table holding fetched full text keyed by DOI. A deployment migrating from an
+#: earlier table name sets SAIMON_FULLTEXT_CACHE_TABLE, or changes this default
+#: in its own composition.
+FULLTEXT_CACHE_TABLE_DEFAULT = "shadow_sources_cache"
+
+
+def fulltext_cache_table() -> str:
+    """Name of the full-text cache table for this deployment."""
+    import os
+
+    return os.environ.get("SAIMON_FULLTEXT_CACHE_TABLE", FULLTEXT_CACHE_TABLE_DEFAULT)
+
+
+#: Tool names kept working for clients that predate a rename. Keyed by the
+#: current name, valued by the retired names this deployment still answers to.
+LEGACY_TOOL_ALIASES = {"search_sources": ("search_shadow_libraries",)}
+
+
+def legacy_tool_aliases() -> dict[str, tuple[str, ...]]:
+    """Retired tool names this deployment still answers to."""
+    return LEGACY_TOOL_ALIASES

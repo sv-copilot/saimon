@@ -57,7 +57,7 @@ class TestSQLInjectionSearch:
         """Injection attempts via shadow library search don't break anything."""
         client = TestClient(search_app)
         resp = client.post(
-            "/tools/search_shadow_libraries",
+            "/tools/search_sources",
             json={
                 "trace_id": "00000000-0000-0000-0000-000000000002",
                 "content_type": "research_note",

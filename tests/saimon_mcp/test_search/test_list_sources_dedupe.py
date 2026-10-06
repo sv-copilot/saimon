@@ -33,8 +33,8 @@ def client(api_key, monkeypatch):
     db_pool.fetch = AsyncMock(
         return_value=[
             {"type": "knowledge_graph", "identifier": "kg-root", "label": "Root node"},
-            {"type": "shadow_library", "identifier": "annas_archive", "label": "[Tier S] Anna's Archive"},
-            {"type": "shadow_library", "identifier": "libgen", "label": "[Tier S] LibGen"},
+            {"type": "source_index", "identifier": "annas_archive", "label": "[Tier S] Anna's Archive"},
+            {"type": "source_index", "identifier": "libgen", "label": "[Tier S] LibGen"},
         ]
     )
     search_server._db_pool = db_pool
@@ -57,5 +57,5 @@ def test_no_duplicate_source_identifiers(client, api_key):
     keys = [(s.get("type"), s.get("identifier")) for s in indexes]
     assert len(keys) == len(set(keys)), f"duplicate source indexes: {keys}"
     # Shadow libraries come from the registry (with tier info), not the DB rows
-    shadow = [s for s in indexes if s.get("type") == "shadow_library"]
+    shadow = [s for s in indexes if s.get("type") == "source_index"]
     assert all("tier" in s for s in shadow)

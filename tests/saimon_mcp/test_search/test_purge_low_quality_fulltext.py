@@ -15,6 +15,10 @@ from __future__ import annotations
 
 from research_shared.fulltext_purge import purge_low_quality_fulltext
 
+from research_shared.sources import fulltext_cache_table
+
+FULLTEXT_CACHE_TABLE = fulltext_cache_table()
+
 GARBLED_BODY = "\ufffd" * 300 + "\x00" * 300 + "x" * 500
 CLEAN_BODY = (
     "The quick brown fox jumps over the lazy dog and then it runs away "
@@ -53,7 +57,7 @@ class FakeDB:
             node_id = args[0]
             self.chunks = [c for c in self.chunks if c["id"] != node_id]
             self.docs = [d for d in self.docs if d["id"] != node_id]
-        elif "DELETE FROM shadow_sources_cache" in query:
+        elif f"DELETE FROM {FULLTEXT_CACHE_TABLE}" in query:
             self.cache.pop(args[0], None)
         return "OK"
 
@@ -63,7 +67,7 @@ class FakeDB:
         return []
 
     async def fetchrow(self, query: str, *args):
-        if "shadow_sources_cache" in query:
+        if f"{FULLTEXT_CACHE_TABLE}" in query:
             doi = args[0]
             path = self.cache.get(doi)
             return {"full_text_path": path} if path is not None else None

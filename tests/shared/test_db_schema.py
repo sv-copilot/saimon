@@ -12,6 +12,10 @@ from typing import Any
 
 import pytest
 
+from research_shared.sources import fulltext_cache_table
+
+FULLTEXT_CACHE_TABLE = fulltext_cache_table()
+
 # ---------------------------------------------------------------------------
 # Constants — must match schema.sql
 # ---------------------------------------------------------------------------
@@ -23,7 +27,7 @@ EXPECTED_TABLES = {
     "seed_requests",
     "voice_profiles",
     "audit_log",
-    "shadow_sources_cache",
+    f"{FULLTEXT_CACHE_TABLE}",
 }
 
 EXPECTED_INDEXES = {
@@ -207,13 +211,13 @@ class TestShadowCacheWritable:
     async def test_insert_cache_entry(self, db_pool):
         """A DOI cache entry can be written."""
         await db_pool.execute(
-            "INSERT INTO shadow_sources_cache (doi, title, source_index) "
+            f"INSERT INTO {FULLTEXT_CACHE_TABLE} (doi, title, source_index) "
             "VALUES ($1, $2, $3) "
             "ON CONFLICT (doi) DO NOTHING",
             "10.1038/test-cache", "Test Paper", "annas_archive",
         )
         row = await db_pool.fetchrow(
-            "SELECT doi, title FROM shadow_sources_cache WHERE doi = $1",
+            f"SELECT doi, title FROM {FULLTEXT_CACHE_TABLE} WHERE doi = $1",
             "10.1038/test-cache",
         )
         assert row is not None

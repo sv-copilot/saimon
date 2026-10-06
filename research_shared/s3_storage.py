@@ -1,16 +1,16 @@
-"""s3_storage.py — Hetzner S3-compatible object storage for discovered files.
+"""s3_storage.py — S3-compatible object storage for fetched files.
 
-Backing store for downloaded full-text files (books, papers, articles)
-discovered via the shadow library adapters.  Credentials are read from
-environment variables only — never hardcoded — and the client fails
-closed when any required variable is missing.
+Backing store for fetched full-text files (books, papers, articles) discovered
+through the configured source adapters.  Credentials are read from environment
+variables only — never hardcoded — and the client fails closed when any required
+variable is missing.
 
 Environment variables (all required for a configured store):
 
-- ``SAIMON_S3_ENDPOINT``  e.g. ``nbg1.your-objectstorage.com`` (scheme optional)
+- ``SAIMON_S3_ENDPOINT``  e.g. ``s3.example.com`` (scheme optional)
 - ``SAIMON_S3_ACCESS_KEY``
 - ``SAIMON_S3_SECRET_KEY``
-- ``SAIMON_S3_BUCKET``    e.g. ``myveryspecificallyuniquestoragename``
+- ``SAIMON_S3_BUCKET``    e.g. ``my-research-bucket``
 """
 
 from __future__ import annotations
@@ -20,6 +20,10 @@ import logging
 import os
 from typing import Any
 from uuid import uuid4
+
+from research_shared.sources import fulltext_cache_table
+
+from research_shared.sources import fulltext_cache_table
 
 logger = logging.getLogger("saimon.s3")
 
@@ -195,11 +199,11 @@ def build_fulltext_object_key(doi: str | None, ext: str) -> str:
 
 
 def _normalize_doi(doi: str) -> str:
-    """Canonical DOI form used by ``shadow_sources_cache`` (lowercased, stripped)."""
+    """Canonical DOI form used by ``{fulltext_cache_table()}`` (lowercased, stripped)."""
     return (doi or "").strip().lower()
 
 
-async def store_shadow_fulltext(
+async def store_fulltext(
     db: Any,
     storage: S3Storage,
     *,
@@ -212,7 +216,7 @@ async def store_shadow_fulltext(
     """Upload full-text bytes to S3 and persist the object key in the cache.
 
     Uploads to ``fulltext/{doi-hash}/{uuid}.{ext}`` and upserts the object
-    key into ``shadow_sources_cache.full_text_path`` (plus ``file_type``).
+    key into ``{fulltext_cache_table()}.full_text_path`` (plus ``file_type``).
     Returns the S3 object key.
     """
     if not storage.configured:
@@ -237,10 +241,10 @@ async def _persist_fulltext_path(
     """Upsert ``full_text_path`` + ``file_type`` for *doi* in the cache table."""
     canonical_doi = _normalize_doi(doi)
     await db.execute(
-        """
-        INSERT INTO shadow_sources_cache
+        f"""
+        INSERT INTO {fulltext_cache_table()}
             (doi, title, authors, source_index, file_type, full_text_path, metadata, last_accessed)
-        VALUES ($1, $2, '[]'::jsonb, $3, $4, $5, '{}'::jsonb, now())
+        VALUES ($1, $2, '[]'::jsonb, $3, $4, $5, '{{}}'::jsonb, now())
         ON CONFLICT (doi) DO UPDATE SET
             full_text_path = EXCLUDED.full_text_path,
             file_type      = EXCLUDED.file_type,
@@ -266,7 +270,7 @@ def reset_ingested_column_guard() -> None:
 
 
 async def ensure_ingested_column(db: Any) -> None:
-    """Idempotently add ``shadow_sources_cache.ingested_at`` (once per process).
+    """Idempotently add ``{fulltext_cache_table()}.ingested_at`` (once per process).
 
     Existing databases created before SAIMON-FULLTEXT-DEDUP-FIX-1 do not have
     the column, so this self-heals the schema at the point of first use.
@@ -282,7 +286,7 @@ async def ensure_ingested_column(db: Any) -> None:
         if _ingested_column_ensured:
             return
         await db.execute(
-            "ALTER TABLE shadow_sources_cache "
+            f"ALTER TABLE {fulltext_cache_table()} "
             "ADD COLUMN IF NOT EXISTS ingested_at TIMESTAMPTZ"
         )
         _ingested_column_ensured = True
@@ -291,6 +295,6 @@ async def ensure_ingested_column(db: Any) -> None:
 async def mark_fulltext_ingested(db: Any, doi: str) -> None:
     """Mark a DOI's cached full text as fully ingested into the knowledge graph."""
     await db.execute(
-        "UPDATE shadow_sources_cache SET ingested_at = now() WHERE doi = $1",
+        f"UPDATE {fulltext_cache_table()} SET ingested_at = now() WHERE doi = $1",
         _normalize_doi(doi),
     )

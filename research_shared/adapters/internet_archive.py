@@ -203,10 +203,10 @@ class InternetArchiveAdapter:
         Delegates to the shared ``research_shared.s3_storage`` helper.
         Optional capability — returns None if storage is not configured.
         """
-        from research_shared.s3_storage import S3StorageError, store_shadow_fulltext
+        from research_shared.s3_storage import S3StorageError, store_fulltext
 
         try:
-            return await store_shadow_fulltext(
+            return await store_fulltext(
                 db,
                 storage,
                 doi=doi,

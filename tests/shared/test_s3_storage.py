@@ -10,12 +10,16 @@ from unittest.mock import patch
 
 import pytest
 
+from research_shared.sources import fulltext_cache_table
+
+FULLTEXT_CACHE_TABLE = fulltext_cache_table()
+
 from research_shared.adapters.internet_archive import InternetArchiveAdapter
 from research_shared.s3_storage import (
     S3Storage,
     S3StorageError,
     build_fulltext_object_key,
-    store_shadow_fulltext,
+    store_fulltext,
 )
 
 FULL_ENV = {
@@ -190,7 +194,7 @@ class TestObjectKey:
 
 
 # ---------------------------------------------------------------------------
-# store_shadow_fulltext — upload + cache persistence
+# store_fulltext — upload + cache persistence
 # ---------------------------------------------------------------------------
 
 
@@ -215,7 +219,7 @@ class TestStoreShadowFulltext:
         storage = S3Storage.from_env(FULL_ENV)
         db = _RecordingDb()
 
-        key = await store_shadow_fulltext(
+        key = await store_fulltext(
             db,
             storage,
             doi="10.1000/EXAMPLE",
@@ -229,14 +233,14 @@ class TestStoreShadowFulltext:
         assert key.endswith(".pdf")
         assert any(key in stored for stored in fake.objects)
         assert len(db.statements) == 1
-        assert "shadow_sources_cache" in db.statements[0]
+        assert f"{FULLTEXT_CACHE_TABLE}" in db.statements[0]
         assert "full_text_path" in db.statements[0]
         # canonical DOI is lowercased
         assert db.args[0][0] == "10.1000/example"
 
     async def test_unconfigured_storage_raises(self) -> None:
         with pytest.raises(S3StorageError):
-            await store_shadow_fulltext(
+            await store_fulltext(
                 None, S3Storage.from_env({}), doi="10.1000/x", data=b"data"
             )
 

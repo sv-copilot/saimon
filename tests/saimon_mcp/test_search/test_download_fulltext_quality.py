@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import pytest
 
+from research_shared.sources import fulltext_cache_table
+
+FULLTEXT_CACHE_TABLE = fulltext_cache_table()
+
 from research_shared.adapters.base import FulltextFetchResult
 from saimon_mcp.search.server import _download_fulltext_flow
 
@@ -99,7 +103,7 @@ class TestQualityGate:
         assert result.get("quality_score") < 0.5
         # no S3 upload, no cache row, no KG persistence
         assert storage.uploaded == {}
-        assert not any("INSERT INTO shadow_sources_cache" in q for q, _ in db.executed)
+        assert not any(f"INSERT INTO {FULLTEXT_CACHE_TABLE}" in q for q, _ in db.executed)
         assert not any("knowledge_graph_nodes" in q for q, _ in db.executed)
 
     async def test_clean_text_ingests(self) -> None:

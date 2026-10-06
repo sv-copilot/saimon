@@ -93,7 +93,7 @@ class TestSearch:
 
     async def test_search_scholarly_returns_results(self):
         data = await _post(
-            f"{BASE_SEARCH}/tools/search_shadow_libraries", KEY_SEARCH,
+            f"{BASE_SEARCH}/tools/search_sources", KEY_SEARCH,
             {"content_type": "search", "parameters": {"query": "machine learning", "limit": 3}},
         )
         assert data["status"] in ("success", "degraded")
@@ -112,7 +112,7 @@ class TestSearch:
             {"content_type": "search"},
         )
         types = {s["type"] for s in data["data"]["source_indexes"]}
-        assert "shadow_library" in types
+        assert "source_index" in types
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +293,7 @@ class TestEndToEndPipeline:
     async def test_full_pipeline(self):
         # 1. Search
         search = await _post(
-            f"{BASE_SEARCH}/tools/search_shadow_libraries", KEY_SEARCH,
+            f"{BASE_SEARCH}/tools/search_sources", KEY_SEARCH,
             {"content_type": "search", "parameters": {"query": "neural networks", "limit": 2}},
         )
         assert search["status"] in ("success", "degraded")

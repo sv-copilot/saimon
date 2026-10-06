@@ -1,6 +1,6 @@
 """Integration tests for shadow library search pipeline.
 
-These test the end-to-end flow: search_shadow_libraries →
+These test the end-to-end flow: search_sources →
 deduplication → verify_claim with shadow sources.  They hit the live
 Internet Archive (archive.org) adapter, so they are marked ``integration``
 and skipped in CI, where outbound network access is unavailable.
@@ -75,7 +75,7 @@ class TestShadowSearchEndToEnd:
     def test_full_search_returns_results(self, client, sample_trace_id, auth_headers):
         """A real query produces results from multiple adapters."""
         response = client.post(
-            "/tools/search_shadow_libraries",
+            "/tools/search_sources",
             json={
                 "trace_id": sample_trace_id,
                 "content_type": "search",
@@ -96,7 +96,7 @@ class TestShadowSearchEndToEnd:
     ):
         """Results from multiple sources are deduplicated."""
         response = client.post(
-            "/tools/search_shadow_libraries",
+            "/tools/search_sources",
             json={
                 "trace_id": sample_trace_id,
                 "content_type": "search",
@@ -112,7 +112,7 @@ class TestShadowSearchEndToEnd:
     def test_citations_present_in_response(self, client, sample_trace_id, auth_headers):
         """Response includes citations array."""
         response = client.post(
-            "/tools/search_shadow_libraries",
+            "/tools/search_sources",
             json={
                 "trace_id": sample_trace_id,
                 "content_type": "search",
@@ -138,7 +138,7 @@ class TestShadowSearchEndToEnd:
         )
         data = response.json()
         shadow_indexes = [
-            s for s in data["data"]["source_indexes"] if s["type"] == "shadow_library"
+            s for s in data["data"]["source_indexes"] if s["type"] == "source_index"
         ]
         names = {s["identifier"] for s in shadow_indexes}
         assert names == {
@@ -177,7 +177,7 @@ class TestShadowSearchEndToEnd:
         """Source indexes from search are usable in verify context."""
         # Search for sources
         search_resp = client.post(
-            "/tools/search_shadow_libraries",
+            "/tools/search_sources",
             json={
                 "trace_id": sample_trace_id,
                 "content_type": "search",

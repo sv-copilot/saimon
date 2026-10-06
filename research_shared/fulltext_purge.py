@@ -7,12 +7,14 @@ keep polluting the vector index.
 
 This module identifies ``fulltext_chunk`` nodes whose ``body`` fails the
 ``research_shared.text_quality`` gate and deletes them plus any orphaned
-``fulltext_document`` nodes, ``shadow_sources_cache`` rows, and S3 objects.
+``fulltext_document`` nodes, full-text cache rows, and S3 objects.
 The operation is keyed on the #196 quality scorer (garbled text, not language
 identity) and is re-runnable: a second run finds nothing and is a no-op.
 """
 
 from __future__ import annotations
+
+from research_shared.sources import fulltext_cache_table
 
 import json
 from typing import Any
@@ -38,7 +40,7 @@ def _metadata(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_doi(doi: str | None) -> str:
-    """Canonical DOI form matching ``shadow_sources_cache.doi``."""
+    """Canonical DOI form matching the full-text cache's ``doi``."""
     return (doi or "").strip().lower()
 
 
@@ -125,13 +127,13 @@ async def purge_low_quality_fulltext(
             summary["documents_deleted"] += 1
 
         cache_row = await db.fetchrow(
-            "SELECT full_text_path FROM shadow_sources_cache WHERE doi = $1",
+            f"SELECT full_text_path FROM {fulltext_cache_table()} WHERE doi = $1",
             _normalize_doi(doi),
         )
         if cache_row is not None:
             s3_key = s3_key or cache_row.get("full_text_path")
             await db.execute(
-                "DELETE FROM shadow_sources_cache WHERE doi = $1",
+                f"DELETE FROM {fulltext_cache_table()} WHERE doi = $1",
                 _normalize_doi(doi),
             )
             summary["cache_rows_deleted"] += 1

@@ -17,14 +17,9 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from research_shared.adapters.academic_torrents import AcademicTorrentsAdapter
-from research_shared.adapters.annas_archive import AnnasArchiveAdapter
 from research_shared.adapters.base import SourceSearchResult
 from research_shared.adapters.dedup import deduplicate
-from research_shared.adapters.internet_archive import InternetArchiveAdapter
-from research_shared.adapters.libgen import LibGenAdapter
-from research_shared.adapters.ranking import rank_shadow_results
-from research_shared.adapters.scihub import SciHubAdapter
+from research_shared.adapters.ranking import rank_results
 from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.db import DatabaseError, DatabasePool
@@ -32,7 +27,12 @@ from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
 from research_shared.rerank import RerankConfig, reformulate_query, rerank
-from research_shared.shadow_registry import ShadowRegistry
+from research_shared.source_registry import get_registry
+from research_shared.sources import (
+    default_source_indexes,
+    legacy_tool_aliases,
+    sources_enabled_env_vars,
+)
 from research_shared.source_discovery import SOURCE_DISCOVERY_MIN_CANDIDATES
 
 # ── Serper.dev Tier B config ──────────────────────────────────────
@@ -85,47 +85,19 @@ _lifespan = build_lifespan("search-mcp", db_pool_ref=lambda: _db_pool, db_pool_s
 app = FastAPI(title="search-mcp", version="0.1.0", lifespan=_lifespan)
 
 # ---------------------------------------------------------------------------
-# shadow library registry
+# source registry
 # ---------------------------------------------------------------------------
-
-_shadow_registry = ShadowRegistry()
-
-# Register all Tier S + A adapters
-_shadow_registry.register(AnnasArchiveAdapter())
-_shadow_registry.register(LibGenAdapter())
-_shadow_registry.register(SciHubAdapter())
-_shadow_registry.register(InternetArchiveAdapter())
-_shadow_registry.register(AcademicTorrentsAdapter())
-
-_SHADOW_LABELS: dict[str, str] = {
-    "annas_archive": "Anna's Archive",
-    "libgen": "Library Genesis (LibGen)",
-    "scihub": "Sci-Hub / SciDB",
-    "internet_archive": "Internet Archive",
-    "academic_torrents": "Academic Torrents",
-}
-
-# Default source indexes queried by search_shadow_libraries.  Academic Torrents
-# is excluded because its API 404s on every query (SAIMON-SEARCH-RELIABILITY-1).
-_DEFAULT_SHADOW_INDEXES = frozenset(
-    {"annas_archive", "libgen", "scihub", "internet_archive"}
-)
+# Which sources exist, and which of them a default query searches, is this
+# deployment's business: research_shared.sources registers them and declares the
+# default set. Nothing in this service names a source.
 
 
-def _get_shadow_adapters(source_indexes: list[str] | None = None) -> list:
-    """Return adapters filtered by optional source_indexes list."""
+def _get_adapters(source_indexes: list[str] | None = None) -> list:
+    """Adapters for *source_indexes*, or this deployment's default set."""
+    registry = get_registry()
     if source_indexes:
-        return [
-            a for a in _shadow_registry.list_all()
-            if a.name in source_indexes
-        ]
-    # Default: Tier S book/paper sources plus Internet Archive.  Academic
-    # Torrents is excluded because its API 404s on every query (burning a 15s
-    # timeout per query with no results) — SAIMON-SEARCH-RELIABILITY-1 (#201).
-    return [
-        a for a in _shadow_registry.list_all()
-        if a.name in _DEFAULT_SHADOW_INDEXES
-    ]
+        return registry.select(list(source_indexes))
+    return registry.select(sorted(default_source_indexes()))
 
 
 # ---------------------------------------------------------------------------
@@ -186,13 +158,12 @@ _TOOLS = [
         "parameters": {"query": "str"},
     },
     {
-        "name": "search_shadow_libraries",
+        "name": "search_sources",
         "description": (
-            "Search shadow library source indexes (Anna's Archive, LibGen, "
-            "Sci-Hub/SciDB, Internet Archive, Academic Torrents) for "
-            "academic papers, books, and datasets. Returns ranked "
-            "SourceReferences with DOIs, abstracts, and source index "
-            "attribution."
+            "Search the registered source indexes for academic papers, books "
+            "and datasets. Returns ranked SourceReferences with DOIs, "
+            "abstracts and source attribution. Pass source_indexes to search a "
+            "subset; see list_source_indexes for what this deployment has."
         ),
         "parameters": {
             "query": "str (required)",
@@ -206,7 +177,7 @@ _TOOLS = [
         "name": "source_discovery",
         "description": (
             "Extract references (DOIs, URLs, arXiv IDs) from text and resolve "
-            "to real source metadata via shadow libraries."
+            "to real source metadata via the registered source indexes."
         ),
         "parameters": {
             "text": "str (required)",
@@ -215,7 +186,7 @@ _TOOLS = [
     },
     {
         "name": "list_source_indexes",
-        "description": "List available source indexes (knowledge graph, shadow libraries, web).",
+        "description": "List available source indexes (knowledge graph, source indexes, web).",
         "parameters": {},
     },
     {
@@ -233,7 +204,7 @@ _TOOLS = [
         ),
         "parameters": {
             "doi": "str (optional — canonical DOI)",
-            "source": "dict (optional — source result from search_shadow_libraries)",
+            "source": "dict (optional — source result from search_sources)",
             "source_indexes": "list[str] (optional — restrict source indexes)",
             "fetch_only": "bool (optional — download + cache, skip RAG ingestion)",
         },
@@ -622,14 +593,14 @@ async def search_web(
 
 
 # ---------------------------------------------------------------------------
-# tool: search_shadow_libraries
+# tool: search_sources
 # ---------------------------------------------------------------------------
 
-@app.post("/tools/search_shadow_libraries")
-async def search_shadow_libraries(
+@app.post("/tools/search_sources")
+async def search_sources(
     payload: ResearchRequest, request: Request
 ) -> ResearchResponse:
-    """Search shadow library source indexes for academic papers, books, and datasets."""
+    """Search the registered source indexes for academic papers, books and datasets."""
     _require_auth(request)
 
     query = payload.parameters.get("query")
@@ -643,13 +614,13 @@ async def search_shadow_libraries(
     logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
     logger.log_request(
         content_type=payload.content_type,
-        tool="search_shadow_libraries",
+        tool="search_sources",
         query=query,
         source_indexes=requested_indexes,
     )
 
-    # Get adapters (filtered or default book/paper + Internet Archive set)
-    adapters = _get_shadow_adapters(requested_indexes)
+    # Adapters: the requested subset, or this deployment's default set
+    adapters = _get_adapters(requested_indexes)
 
     if not adapters:
         resp = _ok(
@@ -678,7 +649,7 @@ async def search_shadow_libraries(
 
     # Deduplicate across source indexes, then rank book sources above web noise
     deduped = deduplicate(all_results)
-    ranked = rank_shadow_results(deduped)
+    ranked = rank_results(deduped)
 
     # Apply limit
     ranked = ranked[:limit]
@@ -708,19 +679,28 @@ async def search_shadow_libraries(
     return resp
 
 
+# Retired names this deployment still answers to, decided at the composition
+# point. A client that predates a rename keeps working until it is updated; a
+# fresh deployment registers none.
+for _retired_name in legacy_tool_aliases().get("search_sources", ()):
+    app.add_api_route(
+        f"/tools/{_retired_name}", search_sources, methods=["POST"], name=_retired_name
+    )
+
+
 # ---------------------------------------------------------------------------
-# helpers: shadow library resolution
+# helpers: source resolution
 # ---------------------------------------------------------------------------
 
 async def _search_all_adapters(
     query: str, limit: int = 1, source_indexes: list[str] | None = None
 ) -> list[SourceSearchResult]:
-    """Search all shadow library adapters for a query.
+    """Search all registered source adapters for a query.
 
     Queries each adapter in parallel, gracefully handling individual failures.
     Deduplicates and truncates to limit.
     """
-    adapters = _get_shadow_adapters(source_indexes)
+    adapters = _get_adapters(source_indexes)
     if not adapters:
         return []
 
@@ -743,7 +723,7 @@ async def _search_all_adapters(
 async def list_source_indexes(
     payload: ResearchRequest, request: Request
 ) -> ResearchResponse:
-    """List available source indexes (knowledge graph, shadow libraries, web)."""
+    """List available source indexes (knowledge graph, source indexes, web)."""
     _require_auth(request)
 
     logger = build_audit_logger(payload, request, _auth, "search-mcp")
@@ -763,11 +743,11 @@ async def list_source_indexes(
                 {"type": "knowledge_graph", "identifier": "kg-concepts", "label": "Concepts"},
                 {"type": "web_page", "identifier": "web-index", "label": "Web index"},
             ]
-            for adapter in _shadow_registry.list_all():
+            for adapter in get_registry().list_all():
                 source_indexes_db.append({
-                    "type": "shadow_library",
+                    "type": "source_index",
                     "identifier": adapter.name,
-                    "label": _SHADOW_LABELS.get(adapter.name, adapter.name),
+                    "label": get_registry().labels().get(adapter.name, adapter.name),
                     "tier": adapter.tier,
                     "trust_model": adapter.trust_model,
                     "status": "available",
@@ -790,12 +770,12 @@ async def list_source_indexes(
         {"type": "web_page", "identifier": "web-index", "label": "Web index"},
     ]
 
-    # Add shadow library adapters
-    for adapter in _shadow_registry.list_all():
+    # Add the deployment's source adapters
+    for adapter in get_registry().list_all():
         source_indexes.append({
-            "type": "shadow_library",
+            "type": "source_index",
             "identifier": adapter.name,
-            "label": _SHADOW_LABELS.get(adapter.name, adapter.name),
+            "label": get_registry().labels().get(adapter.name, adapter.name),
             "tier": adapter.tier,
             "trust_model": adapter.trust_model,
             "status": "available",
@@ -984,7 +964,7 @@ async def source_discovery(
     """Extract references from text and resolve to real source metadata.
 
     Tier A: deterministic DOI/URL/arXiv extraction via regex.
-    Resolution: queries shadow library adapters for each extracted identifier.
+    Resolution: queries the registered source adapters for each extracted identifier.
     """
     _require_auth(request)
 
@@ -1015,7 +995,7 @@ async def source_discovery(
             if web_results:
                 tier_used = "B"
 
-    # Step 2: Resolve each candidate via shadow library adapters
+    # Step 2: Resolve each candidate via the registered source adapters
     resolved: list[dict[str, Any]] = []
     for c in candidates:
         query = c.doi or c.url or c.arxiv_id or ""
@@ -1083,13 +1063,17 @@ def _resolve_fulltext_consent() -> set[str]:
     return {part.strip().lower() for part in raw.split(",") if part.strip()}
 
 
-def _shadow_sources_enabled() -> bool:
-    return _os.environ.get("SHADOW_SOURCES_ENABLED", "true").lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+def _sources_enabled() -> bool:
+    """Whether source retrieval is on, per this deployment's flags.
+
+    The first variable the deployment declares that is set wins; with none set,
+    retrieval is on.
+    """
+    for name in sources_enabled_env_vars():
+        raw = _os.environ.get(name)
+        if raw is not None:
+            return raw.strip().lower() in ("1", "true", "yes", "on")
+    return True
 
 
 def _normalize_doi(doi: str) -> str:
@@ -1120,13 +1104,14 @@ async def _download_fulltext_flow(
     )
     from research_shared.s3_storage import (
         ensure_ingested_column,
+        fulltext_cache_table,
         mark_fulltext_ingested,
-        store_shadow_fulltext,
+        store_fulltext,
     )
     from research_shared.text_quality import text_quality_ok, text_quality_score
 
-    if not _shadow_sources_enabled():
-        return {"ok": False, "blocked": True, "error": "shadow sources are disabled"}
+    if not _sources_enabled():
+        return {"ok": False, "blocked": True, "error": "source retrieval is disabled"}
 
     # ── resolve source identity ──
     resolved_source_index: str | None = None
@@ -1165,7 +1150,7 @@ async def _download_fulltext_flow(
         await ensure_ingested_column(db)
         cached = await db.fetchrow(
             "SELECT full_text_path, file_type, title, source_index, ingested_at "
-            "FROM shadow_sources_cache WHERE doi = $1",
+            f"FROM {fulltext_cache_table()} WHERE doi = $1",
             canonical_doi,
         )
         if cached and cached.get("full_text_path") and cached.get("ingested_at"):
@@ -1184,7 +1169,7 @@ async def _download_fulltext_flow(
         # Prefer a cached metadata row, else default to Sci-Hub for DOIs.
         if db is not None:
             row = await db.fetchrow(
-                "SELECT source_index, title, file_type FROM shadow_sources_cache WHERE doi = $1",
+                f"SELECT source_index, title, file_type FROM {fulltext_cache_table()} WHERE doi = $1",
                 canonical_doi,
             )
             if row:
@@ -1253,7 +1238,7 @@ async def _download_fulltext_flow(
 
     # ── S3 upload + cache persistence ──
     try:
-        s3_key = await store_shadow_fulltext(
+        s3_key = await store_fulltext(
             db,
             storage,
             doi=canonical_doi,
@@ -1350,7 +1335,7 @@ async def download_fulltext(
     result = await _download_fulltext_flow(
         _db_pool,
         storage,
-        _shadow_registry.get,
+        get_registry().get,
         doi=doi,
         source=source,
         fetch_only=fetch_only,

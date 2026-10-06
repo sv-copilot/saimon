@@ -1,6 +1,6 @@
 """Tests for the download_fulltext dedup-gap fix (SAIMON-FULLTEXT-DEDUP-FIX-1, #194).
 
-The bug: ``store_shadow_fulltext`` wrote the S3 cache row (``full_text_path``)
+The bug: ``store_fulltext`` wrote the S3 cache row (``full_text_path``)
 before chunk/embed/persist, so a run that failed after the S3 upload left a
 cache row with no KG nodes. Every re-run then short-circuited to
 ``cache_hit: True, chunk_count: 0`` and silently never ingested.
@@ -15,6 +15,10 @@ These tests pin the fix:
 from __future__ import annotations
 
 import pytest
+
+from research_shared.sources import fulltext_cache_table
+
+FULLTEXT_CACHE_TABLE = fulltext_cache_table()
 
 from research_shared.adapters.base import FulltextFetchResult
 from research_shared.fulltext import persist_fulltext_document
@@ -113,7 +117,7 @@ class TestDedupFix:
         assert adapter.calls == 1
         # the cache row is marked ingested only after persist succeeds
         assert any(
-            "UPDATE shadow_sources_cache SET ingested_at" in q for q, _ in db.executed
+            f"UPDATE {FULLTEXT_CACHE_TABLE} SET ingested_at" in q for q, _ in db.executed
         )
 
     async def test_rerun_after_success_is_cache_hit(self) -> None:

@@ -48,7 +48,8 @@ TEXT_SUFFIXES = {
 # ---------------------------------------------------------------------------
 
 INCLUDE_DIRS = [
-    "saimon_mcp",          # the nine MCP services: the platform itself
+    "saimon_mcp",
+    "tools/saimon-mcp-proxy",   # the proxy is the adopter's client entry point          # the nine MCP services: the platform itself
     "research_shared",     # the shared library: db, llm, embedding, validation, ...
     "eval_harness",        # the eval gate and its metrics
     "plugins",             # domain plugins; `legal` is lawful-source work
@@ -67,7 +68,7 @@ INCLUDE_FILES = [
     "schema.sql",
     "openapi.json",
     ".gitignore",
-    "tools/saimon-mcp-proxy",   # the proxy is the adopter's client entry point
+    ".dockerignore",
 ]
 
 # Scripts worth shipping: the ones that operate on a public adopter's own data.
@@ -132,6 +133,11 @@ EXCLUDE_REL_PATHS = {
     "tests/shared/test_sql_injection.py",
     "tests/test_pipeline.py",
     "tests/test_compose_tags.py",   # asserts this deployment's registry tags
+    "tests/test_docker_packaging.py",  # asserts the prod compose file, which is not shipped
+    "tests/test_branch_flow_agents_docs.py",  # requires AGENTS.md, which ships only with consent
+    "tests/test_branch_flow_docs.py",  # same: asserts repo-level agent contract docs
+    "tests/saimon_mcp/test_embedding_model_bundle.py",  # tests a withheld bundling script
+    "tests/test_docker.py",  # asserts the prod compose, the private CI's build jobs and image tags
     "tests/saimon_mcp/test_search/test_download_fulltext.py",
     "tests/saimon_mcp/test_search/test_download_fulltext_dedup.py",
     "tests/saimon_mcp/test_search/test_download_fulltext_quality.py",
@@ -406,33 +412,42 @@ adapter must declare so callers can tell whether it needs credentials.
 PUBLIC_ENV_EXAMPLE = """\
 # Saimon Platform -- environment template.
 # Copy to .env and fill in real values. Never commit .env.
+#
+# The names here are the ones the code reads. A variable set under a different
+# name will be ignored, however sensible it looks.
 
 # --- Database -------------------------------------------------------------
-POSTGRES_DB=saimon
-POSTGRES_USER=saimon
 POSTGRES_PASSWORD=change-me-before-you-run-this
 DATABASE_URL=postgresql://saimon:change-me-before-you-run-this@postgres:5432/saimon
+SAIMON_ENV=local
 
 # --- Model provider -------------------------------------------------------
 # Any OpenAI-compatible endpoint. The adapter is a client, not a dependency.
-LLM_BASE_URL=https://api.deepseek.com/v1
-LLM_API_KEY=
-LLM_MODEL=deepseek-chat
-EMBEDDING_MODEL=BAAI/bge-m3
+DEEPSEEK_API_KEY=
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 
-# --- Services -------------------------------------------------------------
-# Ports are internal to the compose network; publish only what you need.
-SEARCH_MCP_PORT=8001
-GENERATE_MCP_PORT=8002
-EXPORT_MCP_PORT=8003
-EVALUATE_MCP_PORT=8004
-VERIFY_MCP_PORT=8005
-EXPLORE_MCP_PORT=8006
+# --- Service authentication ----------------------------------------------
+# Each service authenticates its callers with its own key. Set what you run;
+# a service with no key configured refuses to start rather than running open.
+SAIMON_SEARCH_API_KEY=
+SAIMON_GENERATE_API_KEY=
+SAIMON_EXPORT_API_KEY=
+SAIMON_EVALUATE_API_KEY=
+SAIMON_VERIFY_API_KEY=
+SAIMON_EXPLORE_API_KEY=
+SAIMON_DOMAIN_API_KEY=
 
-# --- Optional: sources that need an identity ------------------------------
-# Leave blank to run entirely on the bundled stub and public-domain sources.
-OPENALEX_EMAIL=
-CROSSREF_MAILTO=
+# --- Optional -------------------------------------------------------------
+# Plugin directories the domain service loads at startup.
+SAIMON_DOMAIN_PLUGIN_PATHS=plugins
+# Secret used to sign caller tokens; generate one per deployment.
+SAIMON_JWT_SECRET=change-me-too
+# Identity for sources that require one (Unpaywall, polite OpenAlex mailto).
+SAIMON_CONTACT_EMAIL=
+# Set to false to run with source retrieval off entirely.
+RESEARCH_SOURCES_ENABLED=true
+# Only needed when migrating from an earlier full-text cache table name.
+# SAIMON_FULLTEXT_CACHE_TABLE=source_fulltext_cache
 """
 
 # Files that must exist in the public tree but are not written yet. AGENTS.md is
@@ -565,6 +580,9 @@ REWRITES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bShadow libraries\b"), "Source indexes"),
     (re.compile(r"\bShadow library source indexes\b"), "Registered source indexes"),
     (re.compile(r"\bShadow library\b"), "Source index"),
+    # a deployment's own gateway becomes the local default an adopter expects
+    (re.compile(r"https://mcp-staging\.spencervaradi\.com/saimon"), "http://localhost:8000"),
+    (re.compile(r"https://mcp\.spencervaradi\.com/saimon"), "http://localhost:8000"),
 ]
 
 
@@ -642,7 +660,12 @@ def plan_export() -> tuple[list[PlannedPath], list[tuple[str, str]]]:
     for rel in INCLUDE_FILES + INCLUDE_SCRIPTS:
         src = REPO_ROOT / rel
         if not src.is_file():
-            continue
+            # Silently skipping an allowlisted path is how the proxy never
+            # shipped while the plan looked correct. Say so and stop.
+            raise FileNotFoundError(
+                f"allowlisted path is not a file: {rel} "
+                f"(a directory allowlisted as a file means nothing from it ships)"
+            )
         reason = _excluded(rel)
         (withheld.append((rel, reason)) if reason else plan.append(PlannedPath(rel, src)))
 

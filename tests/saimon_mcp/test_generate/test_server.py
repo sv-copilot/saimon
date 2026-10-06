@@ -2,6 +2,20 @@
 
 import pytest
 
+# The optional domain configuration is not installed in every tree; the services
+# degrade gracefully without it, so these tests are skipped rather than failed.
+try:
+    import research_shared.job_hunt_config  # noqa: F401
+
+    _HAS_DOMAIN_CONFIG = True
+except ImportError:
+    _HAS_DOMAIN_CONFIG = False
+
+needs_domain_config = pytest.mark.skipif(
+    not _HAS_DOMAIN_CONFIG,
+    reason="the optional domain configuration is not installed in this tree",
+)
+
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
@@ -287,6 +301,7 @@ class TestToolCount:
 # ---------------------------------------------------------------------------
 
 
+@needs_domain_config
 class TestGenerateJobHuntContent:
     def test_tool_registered(self, client, auth_headers):
         """generate_job_hunt_content appears in tools listing."""

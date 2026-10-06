@@ -82,7 +82,9 @@ class TestTheRenameDidNotCollide:
     def test_every_method_id_is_unique(self):
         """A repeated key in the method table silently drops an entry."""
         source = pathlib.Path(verify_server.__file__).read_text(encoding="utf-8")
-        keys = re.findall(r'^\s{8}"([a-z_]+)": \{$', source, re.M)
+        # only the stub verifier table: entries are lambdas, which is what
+        # distinguishes it from unrelated dict keys such as "parameters"
+        keys = re.findall(r'^\s{8}"([a-z_]+)": lambda:', source, re.M)
         duplicates = {k for k in keys if keys.count(k) > 1}
         assert not duplicates, f"duplicate method keys in the stub table: {sorted(duplicates)}"
 

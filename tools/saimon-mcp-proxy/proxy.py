@@ -70,9 +70,8 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "saimon_search_scholarly": {
         "description": (
             "Search the registered source indexes for papers, books and datasets. "
-            "Internet Archive, Academic Torrents) for academic papers, books, "
-            "and datasets. Returns ranked results with DOIs, titles, authors, "
-            "years, and source attribution."
+            "Returns ranked results with DOIs, titles, authors, years and source "
+            "attribution."
         ),
         "service": "search",
         "method": "POST",

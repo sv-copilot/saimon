@@ -19,6 +19,20 @@ from fastapi.testclient import TestClient
 
 from research_shared.domain_plugin import DomainPlugin
 
+# The optional domain configuration is not installed in every tree; the services
+# degrade gracefully without it, so these tests are skipped rather than failed.
+try:
+    import research_shared.job_hunt_config  # noqa: F401
+
+    _HAS_DOMAIN_CONFIG = True
+except ImportError:
+    _HAS_DOMAIN_CONFIG = False
+
+needs_domain_config = pytest.mark.skipif(
+    not _HAS_DOMAIN_CONFIG,
+    reason="the optional domain configuration is not installed in this tree",
+)
+
 # ---------------------------------------------------------------------------
 # fixture plugin
 # ---------------------------------------------------------------------------
@@ -161,12 +175,13 @@ class TestPluginLoader:
         loaded = server._load_plugins([path])
         assert "fake" in loaded
 
+    @needs_domain_config
     def test_registers_adapters_and_content_types(self, server):
         path = _install_fake_plugin_module()
         server._load_plugins([path])
-        from research_shared.shadow_registry import get_shadow_registry
+        from research_shared.source_registry import get_registry
 
-        registry = get_shadow_registry()
+        registry = get_registry()
         assert registry.get("fake_index") is not None
         assert any(ct["name"] == "fake:widget" for ct in server._content_types)
 

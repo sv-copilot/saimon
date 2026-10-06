@@ -147,10 +147,19 @@ class TestShadowRegistrySingleton:
         assert r1 is r2
 
     def test_reset_creates_new_instance(self):
-        """reset_shadow_registry clears the singleton."""
+        """reset_shadow_registry clears the singleton; a fresh one re-composes.
+
+        The contract changed with the composition point: a registry obtained from
+        the singleton is now the deployment's composed source set, rather than an
+        empty object that callers populate themselves. What reset must still
+        guarantee is that no state leaks across a reset.
+        """
         r1 = get_shadow_registry()
         r1.register(_FakeAdapter("test", "S"))
         reset_shadow_registry()
         r2 = get_shadow_registry()
         assert r1 is not r2
-        assert len(r2) == 0
+        assert "test" not in r2
+        assert len(r2) > 0  # composed from this deployment's source set
+        # The mechanism is unchanged: a bare registry starts empty.
+        assert len(ShadowRegistry()) == 0

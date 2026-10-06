@@ -1,90 +1,41 @@
-"""shadow_registry.py — registry of shadow library source index adapters.
+"""shadow_registry.py — private compatibility shim.
 
-ShadowRegistry holds all registered adapters and provides lookup,
-filtering, and listing.  Adapters are registered at import time
-and can be filtered by tier for relevance-weighted search.
+The registry *mechanism* now lives in :mod:`research_shared.source_registry`, and
+which sources this deployment registers lives in :mod:`research_shared.sources`.
+This module keeps the previous names working for this deployment's own code and
+tests while they are migrated; it is deliberately not part of the public
+artifact.
+
+New code imports from :mod:`research_shared.source_registry`.
 """
 
 from __future__ import annotations
 
-from research_shared.adapters.base import SourceIndexAdapter
+from research_shared.source_registry import (
+    SourceRegistry,
+    get_registry,
+    reset_registry,
+)
 
-# ---------------------------------------------------------------------------
-# ShadowRegistry
-# ---------------------------------------------------------------------------
-
-
-class ShadowRegistry:
-    """A registry of SourceIndexAdapter instances.
-
-    Thread-safe for reads; writes (register) should happen at startup.
-
-    Usage::
-
-        registry = ShadowRegistry()
-        registry.register(AnnasArchiveAdapter())
-        adapters = registry.filter(tier="S")
-        results = await adapters[0].search("transformer attention", limit=5)
-    """
-
-    def __init__(self) -> None:
-        self._adapters: dict[str, SourceIndexAdapter] = {}
-
-    # ── registration ──────────────────────────────────────────────
-
-    def register(self, adapter: SourceIndexAdapter) -> None:
-        """Register an adapter.  Replaces any existing adapter with the same name."""
-        self._adapters[adapter.name] = adapter
-
-    # ── lookup ────────────────────────────────────────────────────
-
-    def get(self, name: str) -> SourceIndexAdapter | None:
-        """Return the adapter with *name*, or None."""
-        return self._adapters.get(name)
-
-    def list_all(self) -> list[SourceIndexAdapter]:
-        """Return all registered adapters, sorted by name."""
-        return sorted(self._adapters.values(), key=lambda a: a.name)
-
-    def filter(self, tier: str | None = None) -> list[SourceIndexAdapter]:
-        """Return adapters matching *tier* (or all if *tier* is None).
-
-        Results are sorted by name within tier.
-        """
-        if tier is None:
-            return self.list_all()
-        return sorted(
-            [a for a in self._adapters.values() if a.tier == tier],
-            key=lambda a: a.name,
-        )
-
-    def list_tiers(self) -> list[str]:
-        """Return distinct tiers present in the registry, sorted."""
-        return sorted({a.tier for a in self._adapters.values()})
-
-    def __len__(self) -> int:
-        return len(self._adapters)
-
-    def __contains__(self, name: str) -> bool:
-        return name in self._adapters
+#: Previous name for the same class.
+ShadowRegistry = SourceRegistry
 
 
-# ---------------------------------------------------------------------------
-# module-level singleton
-# ---------------------------------------------------------------------------
-
-_registry: ShadowRegistry | None = None
-
-
-def get_shadow_registry() -> ShadowRegistry:
-    """Return the module-level ShadowRegistry singleton."""
-    global _registry
-    if _registry is None:
-        _registry = ShadowRegistry()
-    return _registry
+def get_shadow_registry() -> SourceRegistry:
+    """Previous name for :func:`research_shared.source_registry.get_registry`."""
+    return get_registry()
 
 
 def reset_shadow_registry() -> None:
-    """Reset the singleton (for tests)."""
-    global _registry
-    _registry = None
+    """Previous name for :func:`research_shared.source_registry.reset_registry`."""
+    reset_registry()
+
+
+__all__ = [
+    "ShadowRegistry",
+    "SourceRegistry",
+    "get_registry",
+    "get_shadow_registry",
+    "reset_registry",
+    "reset_shadow_registry",
+]

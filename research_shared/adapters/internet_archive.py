@@ -74,6 +74,9 @@ class InternetArchiveAdapter:
     name: str = "internet_archive"
     tier: str = "A"
     trust_model: str = "institutional"
+    label: str = "Internet Archive"
+    kind: str = "mixed"
+    access: str = "anonymous"
 
     def __init__(self, http_client: Any = None) -> None:
         self._http = http_client

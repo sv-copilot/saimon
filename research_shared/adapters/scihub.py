@@ -30,6 +30,9 @@ class SciHubAdapter:
     name: str = "scihub"
     tier: str = "S"
     trust_model: str = "algorithmic"
+    label: str = "Sci-Hub / SciDB"
+    kind: str = "paper"
+    access: str = "anonymous"
 
     def __init__(self, http_client: Any = None) -> None:
         self._http = http_client

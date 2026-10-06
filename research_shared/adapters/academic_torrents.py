@@ -27,6 +27,9 @@ class AcademicTorrentsAdapter:
     name: str = "academic_torrents"
     tier: str = "A"
     trust_model: str = "community"
+    label: str = "Academic Torrents"
+    kind: str = "dataset"
+    access: str = "anonymous"
 
     def __init__(self, http_client: Any = None) -> None:
         self._http = http_client

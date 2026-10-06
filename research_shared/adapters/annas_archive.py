@@ -85,6 +85,9 @@ class AnnasArchiveAdapter:
     name: str = "annas_archive"
     tier: str = "S"
     trust_model: str = "algorithmic"
+    label: str = "Anna's Archive"
+    kind: str = "mixed"
+    access: str = "anonymous"
 
     def __init__(self, http_client: Any = None) -> None:
         self._http = http_client

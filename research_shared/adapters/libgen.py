@@ -75,6 +75,9 @@ class LibGenAdapter:
     name: str = "libgen"
     tier: str = "S"
     trust_model: str = "community"
+    label: str = "Library Genesis"
+    kind: str = "mixed"
+    access: str = "anonymous"
 
     def __init__(self, http_client: Any = None) -> None:
         self._http = http_client

@@ -76,7 +76,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         ),
         "service": "search",
         "method": "POST",
-        "path": "/tools/search_shadow_libraries",
+        "path": "/tools/search_sources",
         "body_template": {
             "content_type": "search",
             "parameters": {"query": "{query}", "limit": "{limit}"},
@@ -121,7 +121,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
             "content_type": "verify",
             "parameters": {
                 "claim": "{claim}",
-                "use_shadow_sources": True,
+                "use_source_search": True,
                 "adversarial": "{adversarial}",
                 "risk_profile": "{risk_profile}",
                 "verify_citations": "{verify_citations}",
@@ -590,7 +590,7 @@ async def _run_generate_verified_pipeline(
                 "adversarial": True,
                 "risk_profile": "high",
                 "verify_citations": True,
-                "use_shadow_sources": True,
+                "use_source_search": True,
             }
             verify_resp = await _call_saimon("saimon_verify_claim", verify_args)
             verify_data = verify_resp.get("data", {})
@@ -636,7 +636,7 @@ async def _run_generate_verified_pipeline(
                     "adversarial": True,
                     "risk_profile": "high",
                     "verify_citations": True,
-                    "use_shadow_sources": True,
+                    "use_source_search": True,
                 }
                 verify_resp_2 = await _call_saimon("saimon_verify_claim", verify_args_2)
                 verify_data_2 = verify_resp_2.get("data", {})
@@ -992,7 +992,7 @@ async def _run_audit_pipeline(
                 "adversarial": True,
                 "risk_profile": "high",
                 "verify_citations": True,
-                "use_shadow_sources": True,
+                "use_source_search": True,
             }
             verify_resp = await _call_saimon("saimon_verify_claim", verify_args)
             verify_data = verify_resp.get("data", {})

@@ -103,3 +103,31 @@ LEGACY_TOOL_ALIASES = {"search_sources": ("search_shadow_libraries",)}
 def legacy_tool_aliases() -> dict[str, tuple[str, ...]]:
     """Retired tool names this deployment still answers to."""
     return LEGACY_TOOL_ALIASES
+
+
+#: Retired request parameters this deployment still accepts: canonical -> retired.
+#: A fresh deployment declares none and accepts only the canonical name.
+PARAM_ALIASES = {"use_source_search": ("use_shadow_sources",)}
+
+#: Verification method ids: canonical -> retired. Both are registered while the
+#: retired id is still in use.
+METHOD_ALIASES = {"source_corroboration": "shadow_source_corroboration"}
+
+#: ``evidence_type`` written for evidence backed by a source index. This is a
+#: stored value, so a deployment with existing rows keeps its own.
+EVIDENCE_TYPE_SOURCE_INDEX = "shadow_source"
+
+
+def param_aliases() -> dict[str, tuple[str, ...]]:
+    """Retired request parameter names this deployment still accepts."""
+    return PARAM_ALIASES
+
+
+def method_aliases() -> dict[str, str]:
+    """Retired verification method ids this deployment still serves."""
+    return METHOD_ALIASES
+
+
+def evidence_type_source_index() -> str:
+    """``evidence_type`` stored for source-index evidence."""
+    return EVIDENCE_TYPE_SOURCE_INDEX

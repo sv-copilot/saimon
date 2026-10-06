@@ -8,7 +8,7 @@ types, and tools through the ``DomainPlugin`` contract.
 Design invariants:
 
 - A missing plugin is a log line, never a crash.
-- Plugin adapters register into the shared shadow registry; plugin content
+- Plugin adapters register into the shared source registry; plugin content
   types register into the server's content-type view.
 - ``POST /tools/call`` dispatches ``{domain}.{tool}`` to the owning plugin.
 - Auth is fail-closed and audit follows the other six servers.
@@ -31,7 +31,7 @@ from research_shared.domain_plugin import DomainPlugin
 from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
-from research_shared.shadow_registry import get_shadow_registry, reset_shadow_registry
+from research_shared.source_registry import get_registry, reset_registry
 
 logger = logging.getLogger("saimon.domain")
 
@@ -76,7 +76,7 @@ def _register_plugin(plugin: DomainPlugin) -> None:
     """Register a plugin's adapters and content types into the shared registries."""
     _plugins[plugin.domain] = plugin
 
-    registry = get_shadow_registry()
+    registry = get_registry()
     for adapter in plugin.adapters():
         name = getattr(adapter, "name", None)
         if name and isinstance(adapter, SourceIndexAdapter):
@@ -108,7 +108,7 @@ def _load_plugins(paths: list[str] | None = None) -> dict[str, DomainPlugin]:
     # Rebuild registration state so repeated loads are idempotent.
     _plugins.clear()
     _content_types.clear()
-    reset_shadow_registry()
+    reset_registry()
 
     loaded: dict[str, DomainPlugin] = {}
     for path in targets:

@@ -30,6 +30,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SELF = "scripts/validate_public_tree.py"
 
+#: Directories that are never part of the shipped source.
+SKIP_DIRS = {".venv", "venv", ".git", "__pycache__", "node_modules", ".mypy_cache", ".ruff_cache", ".pytest_cache"}
+
 TEXT_SUFFIXES = {
     ".md", ".py", ".sh", ".json", ".yml", ".yaml", ".toml", ".sql", ".txt",
     ".cfg", ".ini", ".example", ".in", ".js", ".ts", ".tsx",
@@ -80,12 +83,17 @@ def tracked_text_files() -> list[Path]:
         out = "\n".join(
             str(p.relative_to(REPO_ROOT))
             for p in REPO_ROOT.rglob("*")
-            if p.is_file() and ".git" not in p.parts
+            if p.is_file() and not any(part in SKIP_DIRS for part in p.parts)
         )
     files = []
     for line in out.splitlines():
         rel = line.strip()
         if not rel or rel == SELF:
+            continue
+        # Never scan a virtualenv, a bytecode cache or a package directory that
+        # an adopter installed: those are not this project's files, and a marker
+        # inside somebody else's package is not this tree's problem.
+        if any(part in SKIP_DIRS for part in Path(rel).parts):
             continue
         path = REPO_ROOT / rel
         if path.suffix.lower() in TEXT_SUFFIXES and path.is_file():

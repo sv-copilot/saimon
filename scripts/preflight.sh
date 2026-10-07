@@ -20,6 +20,15 @@ FAST=0
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
 
+# An ambient PYTHONPATH can shadow this project's own packages with another
+# tree's (or another interpreter's) builds, producing failures that look like
+# code defects. A gate that depends on the caller's environment is not a gate, so
+# say so and drop it.
+if [ -n "${PYTHONPATH:-}" ]; then
+  red "note: ignoring ambient PYTHONPATH ($PYTHONPATH) — it can shadow this project's packages"
+  unset PYTHONPATH
+fi
+
 PASS=0
 FAIL=0
 SKIPPED_TOOLING=0
@@ -78,8 +87,15 @@ check "requirements resolve" $PY -m pip install --dry-run -q -r requirements.txt
 # 4. Security audit — blocking. No `|| echo`.
 check_needs "pip-audit (blocking)" pip-audit $PY -m pip_audit -r requirements.txt --strict
 
-# 5. The test suite.
-check "pytest" $PY -m pytest tests -q
+# 5. The test suite. The runner is not a runtime dependency, so say what to
+# install rather than failing with a bare "No module named pytest".
+if ! $PY -c "import pytest" >/dev/null 2>&1; then
+  red "   FAILED: pytest — the test runner is not installed."
+  echo "      install the dev tools: $PY -m pip install pytest pytest-asyncio"
+  FAIL=$((FAIL + 1))
+else
+  check "pytest" $PY -m pytest tests -q
+fi
 
 # 6. The published API contract still matches the app.
 check "openapi spec validates" $PY scripts/validate_openapi_spec.py

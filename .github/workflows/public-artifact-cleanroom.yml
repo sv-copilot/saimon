@@ -10,8 +10,11 @@ name: public-artifact-cleanroom
 # the release path builds the real one on a machine that has the documents.
 
 on:
-  pull_request:
-    branches: [dev, rc, main]
+  # Deliberately NOT on pull_request. This repository is private, so
+  # GitHub-hosted minutes are billed, and a clean-room boot is one of the most
+  # expensive things a workflow can do. Run it on purpose, not on every push.
+  # Moving it to the self-hosted runner is the next step if it needs to be
+  # routine; that runner is free but shares a disk with live services.
   workflow_dispatch:
 
 jobs:

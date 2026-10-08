@@ -13,6 +13,15 @@ env:
 jobs:
   # ── Validate (all branches) ──────────────────────────────────────
   validate:
+    # NOTE: this job stays on a GitHub-hosted runner on purpose. It installs the
+    # full requirements (crewai + fastembed, ~1.5-2 GB) and the self-hosted runner
+    # lives on a VPS whose disk had 2.3 GB free with live services on it — moving
+    # it there would fill the disk and take those down. It becomes free anyway the
+    # moment this repository is public; until then, cancelling superseded runs is
+    # the saving that costs nothing.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.job }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -56,6 +65,15 @@ jobs:
   # SAIMON-EVAL-CI-GATE-1 (#27): the committed golden fixture suites must
   # pass offline. Pure Python + stdlib — no network, no model keys.
   eval:
+    # NOTE: this job stays on a GitHub-hosted runner on purpose. It installs the
+    # full requirements (crewai + fastembed, ~1.5-2 GB) and the self-hosted runner
+    # lives on a VPS whose disk had 2.3 GB free with live services on it — moving
+    # it there would fill the disk and take those down. It becomes free anyway the
+    # moment this repository is public; until then, cancelling superseded runs is
+    # the saving that costs nothing.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.job }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 5
 

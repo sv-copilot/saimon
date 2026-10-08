@@ -134,6 +134,8 @@ EXCLUDE_REL_PATHS = {
     "tests/test_pipeline.py",
     "tests/test_compose_tags.py",   # asserts this deployment's registry tags
     "tests/test_docker_packaging.py",  # asserts the prod compose file, which is not shipped
+    "tests/test_branch_flow_agents_docs.py",  # asserts this repo's internal governance docs
+    "tests/test_branch_flow_docs.py",  # asserts the private planning layout and branch flow
     "tests/saimon_mcp/test_embedding_model_bundle.py",  # tests a withheld bundling script
     "tests/test_docker.py",  # asserts the prod compose, the private CI's build jobs and image tags
     "tests/saimon_mcp/test_search/test_download_fulltext.py",

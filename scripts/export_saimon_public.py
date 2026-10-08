@@ -134,8 +134,6 @@ EXCLUDE_REL_PATHS = {
     "tests/test_pipeline.py",
     "tests/test_compose_tags.py",   # asserts this deployment's registry tags
     "tests/test_docker_packaging.py",  # asserts the prod compose file, which is not shipped
-    "tests/test_branch_flow_agents_docs.py",  # requires AGENTS.md, which ships only with consent
-    "tests/test_branch_flow_docs.py",  # same: asserts repo-level agent contract docs
     "tests/saimon_mcp/test_embedding_model_bundle.py",  # tests a withheld bundling script
     "tests/test_docker.py",  # asserts the prod compose, the private CI's build jobs and image tags
     "tests/saimon_mcp/test_search/test_download_fulltext.py",
@@ -451,8 +449,8 @@ RESEARCH_SOURCES_ENABLED=true
 """
 
 # Files that must exist in the public tree but are not written yet. AGENTS.md is
-# deliberately absent: it is a protected agent-instruction file, so it is not
-# generated without the operator asking for it. The exporter
+# shipped from the operator's own copy rather than generated: it is a protected
+# agent-instruction file, so writing it is the operator's act, not the tool's. The exporter
 # refuses to produce a tree while any of these is pending: a release with a
 # placeholder README is worse than no release.
 PUBLIC_CI = """name: ci
@@ -550,6 +548,7 @@ GENERATED = {
     ".github/workflows/ci.yml": lambda: PUBLIC_CI,
     "openapi.json": public_openapi,
     "README.md": public_doc("README.md"),
+    "AGENTS.md": public_doc("AGENTS.md"),
     "docs/adapters.md": public_doc("docs-adapters.md"),
     "research_shared/adapters/__init__.py": lambda: PUBLIC_ADAPTER_REGISTRY,
     ".env.example": lambda: PUBLIC_ENV_EXAMPLE,

@@ -10,11 +10,15 @@ name: public-artifact-cleanroom
 # the release path builds the real one on a machine that has the documents.
 
 on:
-  # Deliberately NOT on pull_request. This repository is private, so
-  # GitHub-hosted minutes are billed, and a clean-room boot is one of the most
-  # expensive things a workflow can do. Run it on purpose, not on every push.
-  # Moving it to the self-hosted runner is the next step if it needs to be
-  # routine; that runner is free but shares a disk with live services.
+  # NOT on pull_request: this repository is private, so GitHub-hosted minutes are
+  # billed and a clean-room boot is among the most expensive things a workflow can
+  # do. `push` on dev is here to run the stack mile once it lands (it cannot be
+  # dispatched from a feature branch, and workflow_dispatch requires the file on
+  # the default branch, which is main). Narrow it back to workflow_dispatch once
+  # the mile is proven, or move it to the self-hosted runner -- that runner is
+  # free but shares a 2.3 GB disk with live services, which is why it is not used.
+  push:
+    branches: [dev]
   workflow_dispatch:
 
 jobs:

@@ -531,10 +531,28 @@ EXPORT_DOCS = Path(
 
 
 def public_doc(name: str):
-    """Read a public artifact document, kept as prose in the export record."""
+    """Read a public artifact document, kept as prose in the export record.
+
+    Under CI the operator's documentation is not present (it lives with the
+    planning record, not in this repository), so the CI clean-room job may set
+    SAIMON_EXPORT_ALLOW_MISSING_DOCS=1. That produces an obviously-marked
+    placeholder rather than an empty file, and a tree built that way is for
+    exercising the stack — never for publishing.
+    """
 
     def _read() -> str:
-        return (EXPORT_DOCS / name).read_text(encoding="utf-8")
+        path = EXPORT_DOCS / name
+        try:
+            return path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            if os.environ.get("SAIMON_EXPORT_ALLOW_MISSING_DOCS") != "1":
+                raise
+            return (
+                "<!-- PLACEHOLDER: built without the operator's documentation.\n"
+                "     This tree exists to exercise the container stack in CI.\n"
+                "     Do NOT publish it: the real documents live with the\n"
+                "     export record (see the exporter's EXPORT_DOCS). -->\n"
+            )
 
     return _read
 

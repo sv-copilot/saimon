@@ -36,8 +36,15 @@ jobs:
       - name: Compile check
         run: python -m compileall research_shared/ saimon_mcp/
 
-      - name: Dependency audit
-        run: pip-audit --requirement requirements.txt || echo "⚠️ pip-audit found issues — review above"
+      - name: Dependency audit (blocking)
+        # This step used to end in `|| echo "⚠️ … review above"`, which reported
+        # success whatever it found — so its findings were never acted on. It is
+        # now blocking. Anything knowingly accepted is listed, with a reason, in
+        # security/pip-audit-ignores.txt: an explicit accepted-risk list rather
+        # than a step that cannot fail.
+        run: |
+          ignores=$(grep -vE '^\s*(#|$)' security/pip-audit-ignores.txt | sed 's/^/--ignore-vuln /' | tr '\n' ' ')
+          pip-audit --requirement requirements.txt $ignores
 
       - name: Run tests
         run: python -m pytest tests/ -q

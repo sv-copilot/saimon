@@ -1,0 +1,82 @@
+name: public-artifact-cleanroom
+
+# The container half of the adoption chain: does the generated public tree
+# actually build and come up? Nobody can answer that from a laptop without Docker,
+# and it is the one part of the adoption path that documentation cannot prove.
+#
+# The tree is built here with a placeholder for the operator's documentation,
+# because those documents live with the planning record rather than in this
+# repository. That is fine for exercising the stack and is NOT a tree to publish:
+# the release path builds the real one on a machine that has the documents.
+
+on:
+  pull_request:
+    branches: [dev, rc, main]
+  workflow_dispatch:
+
+jobs:
+  cleanroom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: build the public tree
+        env:
+          SAIMON_EXPORT_ALLOW_MISSING_DOCS: "1"
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r requirements.txt
+          python3 scripts/export_saimon_public.py --output "$RUNNER_TEMP/public"
+          ls "$RUNNER_TEMP/public" | head -20
+
+      - name: the gate, inside the generated tree
+        working-directory: ${{ runner.temp }}/public
+        env:
+          # A runner has no ambient PYTHONPATH and no operator documents; the
+          # gate is expected to pass on what the artifact ships.
+          PYTHON: python3
+        run: |
+          python3 -m pip install -r requirements-dev.txt
+          bash scripts/preflight.sh
+
+      - name: boot the stack
+        working-directory: ${{ runner.temp }}/public
+        run: |
+          cp .env.example .env
+          docker compose -p saimon-cleanroom build
+          docker compose -p saimon-cleanroom up -d
+          sleep 25
+          docker compose -p saimon-cleanroom ps
+
+      - name: every service answers
+        working-directory: ${{ runner.temp }}/public
+        run: |
+          set -u
+          failed=0
+          for port in 8001 8002 8003 8004 8005 8006 8007 8008 8009; do
+            code=$(curl -s -m 10 -o /dev/null -w "%{http_code}" "http://127.0.0.1:${port}/health" || echo "000")
+            printf 'port %s -> %s\n' "$port" "$code"
+            case "$code" in
+              200|401|403) ;;   # up and answering, even if it wants a key
+              *) failed=$((failed + 1)) ;;
+            esac
+          done
+          if [ "$failed" -gt 0 ]; then
+            echo "::error::$failed service(s) did not answer on /health"
+            exit 1
+          fi
+
+      - name: logs on failure
+        if: failure()
+        working-directory: ${{ runner.temp }}/public
+        run: docker compose -p saimon-cleanroom logs --tail=60
+
+      - name: always tear down
+        if: always()
+        working-directory: ${{ runner.temp }}/public
+        run: docker compose -p saimon-cleanroom down -v --remove-orphans

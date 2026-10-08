@@ -1,0 +1,15 @@
+# Vulnerabilities knowingly accepted, one id per line.
+#
+# The dependency audit in CI is blocking: it fails the build on any advisory.
+# Anything listed here is an explicit accepted risk, and each entry needs a
+# reason above it — this file is an accounting record, not a mute. The step it
+# replaced (`pip-audit … || echo "⚠️ review above"`) could not fail at all, so
+# the findings it printed were never seen, let alone decided on.
+#
+# Format: one advisory id per line, e.g.  PYSEC-2026-120
+# Remove an entry when the pin moves past it.
+#
+# Empty on purpose: the first pass (bumping pyjwt off 2.10.1, which carried six
+# advisories) has not been re-audited yet, so the remaining findings are not yet
+# triaged. Until they are, the audit fails — which is the honest state, and the
+# worklist.

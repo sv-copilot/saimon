@@ -1,0 +1,18 @@
+# Development and test tooling.
+#
+# These are deliberately NOT in requirements.txt: they are not needed to run the
+# platform, only to develop and check it. They were previously installed ad hoc
+# from CI configuration, which meant a fresh clone could not even collect the
+# test suite without guessing what was missing.
+#
+#   pip install -r requirements.txt -r requirements-dev.txt
+#   bash scripts/preflight.sh
+
+-r requirements.txt
+
+pytest>=8.0
+pytest-asyncio>=0.24
+respx>=0.21          # HTTP mocking: the adapters' tests never touch the network
+ruff>=0.6
+pip-audit>=2.7       # the gate runs this as a blocking check, never as an echo
+pyyaml>=6.0          # read by tests that inspect compose and CI configuration

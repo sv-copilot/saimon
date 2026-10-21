@@ -233,7 +233,7 @@ services:
       PORT: "8008"
       SAIMON_API_KEY: ${SAIMON_DOMAIN_API_KEY:-sk-test-domain-key}
       DATABASE_URL: postgresql://domain_mcp:${DOMAIN_DB_PASSWORD:-saimon-domain-dev}@postgres:5432/saimon
-      SAIMON_DOMAIN_PLUGIN_PATHS: ${SAIMON_DOMAIN_PLUGIN_PATHS:-}
+      SAIMON_DOMAIN_PLUGIN_PATHS: ${SAIMON_DOMAIN_PLUGIN_PATHS:-plugins.legal}
     ports:
       - "8008:8008"
     depends_on:

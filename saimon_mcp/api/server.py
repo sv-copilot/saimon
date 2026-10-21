@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import os as _os
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -226,7 +226,7 @@ async def _ensure_documents_table() -> None:
 
 def _create_access_token(user_id: str, email: str) -> str:
     """Create a short-lived JWT access token."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": user_id,
         "email": email,
@@ -239,7 +239,7 @@ def _create_access_token(user_id: str, email: str) -> str:
 
 def _create_refresh_token(user_id: str) -> str:
     """Create a longer-lived JWT refresh token."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": user_id,
         "exp": now + timedelta(days=_REFRESH_TOKEN_EXPIRE_DAYS),
@@ -407,7 +407,7 @@ async def login(body: LoginRequest):
 
     # Store refresh token in DB
     refresh_payload = _decode_token(refresh_token)
-    expires_at = datetime.fromtimestamp(refresh_payload["exp"], tz=timezone.utc)
+    expires_at = datetime.fromtimestamp(refresh_payload["exp"], tz=UTC)
     await _db_pool.execute(
         "INSERT INTO refresh_tokens (token, user_id, expires_at) VALUES ($1, $2, $3)",
         refresh_payload["jti"],
@@ -535,7 +535,7 @@ async def create_session(request: Request, body: CreateSessionRequest | None = N
         "session": {
             "id": str(session_id),
             "title": title,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
     }
 
@@ -661,7 +661,7 @@ async def add_message(session_id: str, body: AddMessageRequest, request: Request
             "session_id": session_id,
             "role": body.role,
             "content": body.content,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
     }
 
@@ -784,8 +784,8 @@ async def create_document(body: CreateDocumentRequest, request: Request):
             "content_type": body.content_type,
             "session_id": body.session_id,
             "is_published": False,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
     }
 

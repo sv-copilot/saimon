@@ -1307,10 +1307,16 @@ async def verify_claim(
     use_shadow = payload.parameters.get("use_shadow_sources", False)
     shadow_results: list[dict[str, Any]] = []
     shadow_search_degraded = False
-    if use_shadow:
+    # A DOI-anchored claim gets its precise `doi:` lookup even when the caller
+    # did not ask for a general shadow sweep — the passthrough query is exact,
+    # not a prose full-text search, and without it the shadow_doi anchor can
+    # only ever resolve to "inconclusive".
+    doi_anchor = theory_anchor["anchor"] == "shadow_doi"
+    if use_shadow or doi_anchor:
+        query = f"doi:{theory_anchor['doi']}" if doi_anchor else claim
         try:
             shadow_results, shadow_search_degraded = await _search_sources_with_status(
-                claim, limit=5
+                query, limit=5
             )
         except Exception:  # noqa: BLE001
             shadow_search_degraded = True

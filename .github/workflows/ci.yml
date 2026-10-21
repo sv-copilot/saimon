@@ -64,8 +64,12 @@ jobs:
         run: python3 scripts/eval.py gate --fixtures-root fixtures
 
   # ── Build & push Docker image (dev, rc, and main branches, pushes to GHCR) ─
+  # Runs on the `build`-labelled runner: the image is 3.6 GB and a build needs
+  # ~6-8 GB of free layer space, which the 38 GB staging runner does not have
+  # (its docker-push jobs died with "No space left on device"). general-prod-build
+  # gives the build a host with headroom; the staging runner keeps validate/deploy.
   docker-push:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, build]
     timeout-minutes: 20
     if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/rc' || github.ref == 'refs/heads/main'
     permissions:

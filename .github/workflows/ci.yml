@@ -12,8 +12,11 @@ env:
 
 jobs:
   # ── Validate (all branches) ──────────────────────────────────────
+  # Pinned to the `staging` label: general-prod-build also carries
+  # self-hosted/Linux/X64, so a bare [self-hosted, Linux, X64] target lets this
+  # 15-30 min suite land on the prod box and compete with everything else there.
   validate:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, staging]
     timeout-minutes: 10
 
     steps:
@@ -147,17 +150,26 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
         with:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
+          envs: GHCR_TOKEN,GHCR_ACTOR
           script: |
             set -e
             cd /data/planning/saimon
+            # The rc image is a PRIVATE GHCR package: without a login this pull
+            # answers "unauthorized". docker-push used to run on this same host
+            # and left credentials behind; it runs on the build runner now, so
+            # the deploy must authenticate for itself.
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
             echo "Pulling latest rc image..."
             docker compose -f docker-compose.yml -f docker-compose.staging.yml pull
             echo "Restarting services..."
-            docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --force-recreate
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --force-recreate --no-build
             echo "Cleaning up old images..."
             docker image prune -f
             echo "Health checks..."
@@ -209,17 +221,22 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
         with:
           host: ${{ secrets.PROD_HOST }}
           username: ${{ secrets.PROD_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
+          envs: GHCR_TOKEN,GHCR_ACTOR
           script: |
             set -e
             cd /data/saimon
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
             echo "Pulling latest main image..."
             docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
             echo "Restarting services..."
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate --no-build
             echo "Cleaning up old images..."
             docker image prune -f
             echo "Health checks..."
@@ -236,22 +253,8 @@ jobs:
             echo "Deploy complete."
 
   # ── Docker build only (rc branch, for verification) ──────
-  docker-build:
-    runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 15
-    if: github.ref == 'refs/heads/rc'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          tags: saimon:ci-test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+  # REMOVED: it rebuilt the same image `docker-push` already builds AND pushes
+  # on the same ref, on a runner whose disk cannot hold a 3.6 GB build — it was
+  # the only red on the rc ladder (buildx "error reading from server: EOF" plus
+  # a missing GITHUB_EVENT_PATH = the staging host ran out of disk mid-build).
+  # `docker-push` succeeding on `build` is the build verification.

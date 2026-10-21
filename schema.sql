@@ -301,7 +301,11 @@ VALUES
     ('bibliography',  'Ranked, annotated bibliography with DOIs and source index attribution.',
      '[{"name":"prompt","type":"str","description":"The research topic or question."}]',
      '[{"name":"source_indexes","type":"list[str]","description":"Shadow library source indexes to search."},{"name":"limit","type":"int","description":"Maximum number of entries."},{"name":"annotation_style","type":"str","description":"Annotation style: descriptive, evaluative, combined."},{"name":"tone","type":"str","description":"Desired tone."}]',
-     'spencer-technical')
+     'spencer-technical'),
+    ('observation',   'A single agent-captured observation: one fact, finding, number, or signal an agent judged worth keeping. Body is the claim in one to three sentences; metadata carries provenance (agent, source_url, confidence, run_id).',
+     '[{"name":"body","type":"str","description":"The observation, stated as one falsifiable sentence where possible."}]',
+     '[{"name":"title","type":"str","description":"Short label (<=80 chars)."},{"name":"agent","type":"str","description":"Which agent captured it (e.g. director, freebird, writer)."},{"name":"topic","type":"str","description":"Topic bucket, lowercase-hyphenated."},{"name":"source_url","type":"str","description":"Where it came from; omit if first-hand."},{"name":"confidence","type":"float","description":"0-1 self-assessed confidence."},{"name":"run_id","type":"str","description":"Optional trace/run identifier."}]',
+     None)
 ON CONFLICT (name) DO NOTHING;
 
 -- Voice profiles

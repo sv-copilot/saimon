@@ -54,6 +54,30 @@ pip-audit --requirement requirements.txt
 - **HTTP/Docker transport**: each MCP runs as a long-running Docker container
 - **Fail-closed**: no API key → error. LLM down → degraded response.
 
+## Agent Observations (fleet write path)
+
+Any agent that has the Saimon MCP mounted files what it learned worth keeping
+through the *existing* `store_content` tool — no new endpoint, no LLM call:
+
+```
+saimon_store_content(content_type="observation", title="<point, <=80 chars>",
+                     body="<1-3 self-contained sentences>",
+                     metadata='{"agent":"<name>","topic":"<lowercase-hyphen>",
+                                "confidence":0.8,"source_url":"..."}')
+```
+
+`observation` is registered in `content_type_registry`. Rows land in
+`knowledge_graph_nodes` with an embedding immediately; `scripts/observe_drain.py`
+(every 15 min via cron) projects them into the `observations` table as
+`verification_status='unverified'`, carrying `metadata.agent` / `source_url` /
+`node_id`, deduped on normalised claim text and idempotent on node_id.
+Verification stays a separate, later step — an observation is a claim, not a
+verified fact.
+
+Bar for a row: a measured number, a finding that changes a decision, a
+correction, a dead end with its reason, or a reusable mechanism. Not status,
+not prose, never secrets or PII. One to five per substantive session.
+
 ## Stack
 
 - Python 3.11+ with FastAPI (HTTP MCP servers)

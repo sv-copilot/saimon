@@ -150,17 +150,26 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
         with:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
+          envs: GHCR_TOKEN,GHCR_ACTOR
           script: |
             set -e
             cd /data/planning/saimon
+            # The rc image is a PRIVATE GHCR package: without a login this pull
+            # answers "unauthorized". docker-push used to run on this same host
+            # and left credentials behind; it runs on the build runner now, so
+            # the deploy must authenticate for itself.
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
             echo "Pulling latest rc image..."
             docker compose -f docker-compose.yml -f docker-compose.staging.yml pull
             echo "Restarting services..."
-            docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --force-recreate
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --force-recreate --no-build
             echo "Cleaning up old images..."
             docker image prune -f
             echo "Health checks..."
@@ -212,17 +221,22 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
         with:
           host: ${{ secrets.PROD_HOST }}
           username: ${{ secrets.PROD_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
+          envs: GHCR_TOKEN,GHCR_ACTOR
           script: |
             set -e
             cd /data/saimon
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
             echo "Pulling latest main image..."
             docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
             echo "Restarting services..."
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate --no-build
             echo "Cleaning up old images..."
             docker image prune -f
             echo "Health checks..."

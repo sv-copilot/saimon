@@ -12,8 +12,11 @@ env:
 
 jobs:
   # ── Validate (all branches) ──────────────────────────────────────
+  # Pinned to the `staging` label: general-prod-build also carries
+  # self-hosted/Linux/X64, so a bare [self-hosted, Linux, X64] target lets this
+  # 15-30 min suite land on the prod box and compete with everything else there.
   validate:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, staging]
     timeout-minutes: 10
 
     steps:
@@ -236,22 +239,8 @@ jobs:
             echo "Deploy complete."
 
   # ── Docker build only (rc branch, for verification) ──────
-  docker-build:
-    runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 15
-    if: github.ref == 'refs/heads/rc'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          tags: saimon:ci-test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+  # REMOVED: it rebuilt the same image `docker-push` already builds AND pushes
+  # on the same ref, on a runner whose disk cannot hold a 3.6 GB build — it was
+  # the only red on the rc ladder (buildx "error reading from server: EOF" plus
+  # a missing GITHUB_EVENT_PATH = the staging host ran out of disk mid-build).
+  # `docker-push` succeeding on `build` is the build verification.

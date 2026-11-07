@@ -240,6 +240,8 @@ async def persist_fulltext_document(
     fetched_at: str,
     chunks: list[str],
     embeddings: list[list[float] | None],
+    collection: str = "research",
+    unit_id: str | None = None,
 ) -> dict[str, Any]:
     """Persist one document node + N chunk nodes with ``part_of`` edges.
 
@@ -266,6 +268,10 @@ async def persist_fulltext_document(
         doi,
     )
     document_node_id = existing_id or str(uuid.uuid4())
+    # A document and its chunks are one content unit (#244): same collection,
+    # same unit_id. Callers that do not supply a unit_id get the document node
+    # id, so chunks are always linkable to their parent unit.
+    unit_id = unit_id or document_node_id
 
     if existing_id:
         # Refresh: drop stale chunks + their part_of edges, then update the doc.
@@ -283,24 +289,29 @@ async def persist_fulltext_document(
             doi,
         )
         await db.execute(
-            f"UPDATE {FULLTEXT_STORE_TABLE} "
-            "SET title = $1, body = $2, metadata = $3, updated_at = now() "
-            "WHERE id = $4",
+            "UPDATE knowledge_graph_nodes "
+            "SET title = $1, body = $2, metadata = $3, collection = $4, "
+            "unit_id = $5, updated_at = now() "
+            "WHERE id = $6",
             title,
             abstract or "",
             json.dumps(document_metadata),
+            collection,
+            unit_id,
             document_node_id,
         )
     else:
         await db.execute(
-            f"INSERT INTO {FULLTEXT_STORE_TABLE} "
-            "(id, title, content_type, body, metadata) "
-            "VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO knowledge_graph_nodes "
+            "(id, title, content_type, body, metadata, collection, unit_id) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7)",
             document_node_id,
             title,
             CONTENT_TYPE_FULLTEXT_DOCUMENT,
             abstract or "",
             json.dumps(document_metadata),
+            collection,
+            unit_id,
         )
 
     chunk_node_ids: list[str] = []
@@ -318,14 +329,16 @@ async def persist_fulltext_document(
         }
         await db.execute(
             f"INSERT INTO {FULLTEXT_STORE_TABLE} "
-            "(id, title, content_type, body, metadata, embedding) "
-            "VALUES ($1, $2, $3, $4, $5, $6::vector)",
+            "(id, title, content_type, body, metadata, embedding, collection, unit_id) "
+            "VALUES ($1, $2, $3, $4, $5, $6::vector, $7, $8)",
             chunk_id,
             f"{title} — chunk {index + 1}",
             CONTENT_TYPE_FULLTEXT_CHUNK,
             chunk,
             json.dumps(chunk_metadata),
             vector,
+            collection,
+            unit_id,
         )
         await db.execute(
             "INSERT INTO knowledge_graph_edges "

@@ -89,7 +89,7 @@ def retry(
             for attempt in range(config.max_retries + 1):
                 try:
                     return await func(*args, **kwargs)
-                except (OSError, TimeoutError, asyncio.TimeoutError, ConnectionError) as exc:
+                except (OSError, TimeoutError, ConnectionError) as exc:
                     last_exception = exc
                     if attempt < config.max_retries:
                         delay = config.delay_for_attempt(attempt)

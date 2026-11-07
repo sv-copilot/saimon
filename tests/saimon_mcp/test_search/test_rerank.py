@@ -63,12 +63,19 @@ class TestRerankRankOrder:
         assert 0.0 <= outcome.ranked[0]["relevance_score"] <= 1.0
 
     def test_top_k_truncates(self):
-        """Only the top-K passages are returned."""
+        """Only the top-K passages are returned.
+
+        Both gates are disabled here on purpose: this test pins TRUNCATION, and
+        the margin gate (#234) would abstain on evenly-spaced scores.  The
+        gates themselves are covered in test_abstain.py.
+        """
         candidates = [
             _candidate(f"c{i}", f"query {i}", f"query {i} query", similarity=0.9 - i * 0.1)
             for i in range(5)
         ]
-        outcome = rerank("query", candidates, RerankConfig(min_relevance=0.0, top_k=3))
+        outcome = rerank(
+            "query", candidates, RerankConfig(min_relevance=0.0, min_margin=0.0, top_k=3)
+        )
         assert len(outcome.ranked) == 3
         assert outcome.kept_count == 3
         assert outcome.candidate_count == 5

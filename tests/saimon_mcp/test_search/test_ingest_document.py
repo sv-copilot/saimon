@@ -166,7 +166,7 @@ class TestBatchEmbedding:
         import research_shared.embedding as emb
 
         class _FakeModel:
-            def embed(self, texts):
+            def embed(self, texts, batch_size=4):
                 for i, _ in enumerate(texts):
                     yield [1.0] * 768 if i != 1 else [0.0] * 4  # second is wrong shape
 

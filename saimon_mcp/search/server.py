@@ -1458,9 +1458,22 @@ async def ingest_document(
     if not chunks:
         return _error(payload.trace_id, "extracted text produced no chunks")
 
-    from research_shared.embedding import embed_local
+    from research_shared.embedding import EmbeddingConfig, embed_local
 
-    embeddings = [embed_local(chunk) for chunk in chunks]
+    emb_cfg = EmbeddingConfig.from_env()
+    embeddings = [
+        embed_local(chunk, emb_cfg.model, emb_cfg.dimensions, emb_cfg.model_path or None)
+        for chunk in chunks
+    ]
+    if all(vector is None for vector in embeddings):
+        # Fail closed: chunks stored without embeddings are invisible to the
+        # vector path, so a "successful" ingest would silently add nothing to
+        # retrieval. Name the backend instead of writing unsearchable rows.
+        return _error(
+            payload.trace_id,
+            "embedding backend unavailable: no chunk could be embedded "
+            f"(model={emb_cfg.model}, path={emb_cfg.model_path or 'default'})",
+        )
 
     await register_fulltext_content_types(_db_pool)
     persisted = await persist_fulltext_document(

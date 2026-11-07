@@ -29,6 +29,7 @@ from typing import Any
 
 DEFAULT_MIN_RELEVANCE = 0.62
 DEFAULT_MIN_MARGIN = 0.08
+DEFAULT_STRONG_RELEVANCE = 0.80
 DEFAULT_TOP_K = 10
 DEFAULT_MAX_REQUERY = 1
 DEFAULT_LEXICAL_WEIGHT = 0.5
@@ -55,6 +56,7 @@ class RerankConfig:
 
     min_relevance: float = DEFAULT_MIN_RELEVANCE
     min_margin: float = DEFAULT_MIN_MARGIN
+    strong_relevance: float = DEFAULT_STRONG_RELEVANCE
     top_k: int = DEFAULT_TOP_K
     max_requery: int = DEFAULT_MAX_REQUERY
     lexical_weight: float = DEFAULT_LEXICAL_WEIGHT
@@ -69,6 +71,11 @@ class RerankConfig:
             ),
             min_margin=float(
                 os.getenv("SAIMON_RERANK_MIN_MARGIN", str(DEFAULT_MIN_MARGIN))
+            ),
+            strong_relevance=float(
+                os.getenv(
+                    "SAIMON_RERANK_STRONG_RELEVANCE", str(DEFAULT_STRONG_RELEVANCE)
+                )
             ),
             top_k=int(os.getenv("SAIMON_RERANK_TOP_K", str(DEFAULT_TOP_K))),
             max_requery=int(
@@ -205,9 +212,14 @@ def gate_decision(
     * **floor** - the top score is below ``config.min_relevance``.  The floor
       sits above the reranker's nonsense semantic-similarity baseline, so an
       unrelated query returns nothing instead of top-N noise.
-    * **margin** - the top score clears the floor but is not far enough ahead of
-      the runner-up.  A weak-but-real hit and noise can land in the same band
-      (~0.6-0.7); the gap over the second-best is what separates them.
+    * **margin** - the top score is mediocre (below ``strong_relevance``) AND not
+      far enough ahead of the runner-up.  A weak-but-real hit and noise can land
+      in the same band (~0.6-0.75); the gap over the second-best separates them.
+
+    The margin deliberately does NOT apply to a strong top score: chunks of one
+    relevant document score close together, so a 0.85 hit followed by 0.84 is a
+    good answer, not an ambiguous one. Applying the gap there made whole papers
+    unfindable (observed: 0.854 and 0.866 tops abstained with kept_count 0).
 
     Returns ``(abstain, top_score, margin_gap)``.  A single candidate is judged
     on the floor alone, because there is no runner-up to be ambiguous about.
@@ -221,7 +233,11 @@ def gate_decision(
 
     if top_score < config.min_relevance:
         return True, top_score, margin_gap
-    if len(scored) > 1 and margin_gap < config.min_margin:
+    if (
+        len(scored) > 1
+        and top_score < config.strong_relevance
+        and margin_gap < config.min_margin
+    ):
         return True, top_score, margin_gap
     return False, top_score, margin_gap
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import os as _os
+from datetime import UTC
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -1316,9 +1317,9 @@ async def _download_fulltext_flow(
 
 
 def _iso_now() -> str:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 @app.post("/tools/download_fulltext")

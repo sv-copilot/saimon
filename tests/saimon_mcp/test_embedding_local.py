@@ -22,7 +22,7 @@ class _FakeEmbeddingModel:
     def __init__(self, *args, dims: int = 768, **kwargs):
         self._dims = dims
 
-    def embed(self, documents):
+    def embed(self, documents, batch_size=None, **kwargs):
         return [[0.1] * self._dims for _ in documents]
 
 

@@ -125,13 +125,21 @@ def embed_many_local(
     model_name: str = DEFAULT_EMBEDDING_MODEL,
     dimensions: int = DEFAULT_EMBEDDING_DIMENSIONS,
     model_path: str | None = None,
+    batch_size: int = 4,
 ) -> list[list[float] | None]:
-    """Embed many texts in ONE batched model call.
+    """Embed many texts in bounded batches with one loaded model.
 
-    Loading the model once per chunk is the difference between seconds and
-    minutes for a document: 39 chunks at ~5s each is a 3-minute request, while
-    a single batched ``embed`` is one pass over the same model. Alignment is
-    preserved: a vector that fails shape validation becomes None in place.
+    Two constraints drive the shape of this function:
+
+    * per-chunk calls were minutes for a paper (39 separate embed passes), so
+      the model is loaded once and the texts are batched;
+    * the service container is capped at 2 GB, and one 39-62 text pass peaks
+      near 1.4 GB on its own - enough to OOM the server mid-request. Four at a
+      time peaks around 1.2 GB including the model, and 62 chunks still finish
+      in under 10 seconds.
+
+    Alignment is preserved: a vector that fails shape validation, or a batch
+    that raises, becomes None in place.
     """
     if not texts:
         return []
@@ -140,17 +148,18 @@ def embed_many_local(
     if model is None:
         return [None for _ in texts]
 
-    try:
-        raw = list(model.embed([text[:8000] for text in texts]))
-    except Exception:  # noqa: BLE001 — fail-closed on any embedding failure
-        return [None for _ in texts]
-
     out: list[list[float] | None] = []
-    for vector in raw:
-        floats = [float(value) for value in vector]
-        out.append(floats if len(floats) == dimensions else None)
-    if len(out) < len(texts):
-        out.extend([None] * (len(texts) - len(out)))
+    for start in range(0, len(texts), batch_size):
+        batch = texts[start : start + batch_size]
+        try:
+            raw = list(model.embed([text[:8000] for text in batch], batch_size=batch_size))
+        except Exception:  # noqa: BLE001 — fail-closed per batch, keep going
+            raw = []
+        for vector in raw:
+            floats = [float(value) for value in vector]
+            out.append(floats if len(floats) == dimensions else None)
+        if len(raw) < len(batch):
+            out.extend([None] * (len(batch) - len(raw)))
     return out[: len(texts)]
 
 

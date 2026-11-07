@@ -59,6 +59,22 @@ class TestMarginGate:
         assert fire is False
         assert round(gap, 3) == 0.15
 
+    def test_strong_top_with_a_tight_gap_is_kept(self) -> None:
+        """Chunks of one relevant document cluster: 0.90/0.88 is a good answer."""
+        fire, _top, gap = gate_decision(
+            [{"relevance_score": 0.90}, {"relevance_score": 0.88}],
+            RerankConfig(),
+        )
+        assert fire is False
+        assert round(gap, 3) == 0.02
+
+    def test_strong_relevance_is_configurable(self) -> None:
+        fire, _, _ = gate_decision(
+            [{"relevance_score": 0.90}, {"relevance_score": 0.88}],
+            RerankConfig(strong_relevance=0.95),
+        )
+        assert fire is True
+
     def test_single_candidate_is_judged_on_the_floor_alone(self) -> None:
         fire, _, _ = gate_decision([{"relevance_score": 0.90}], RerankConfig())
         assert fire is False

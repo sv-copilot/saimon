@@ -267,7 +267,7 @@ async def persist_fulltext_document(
         CONTENT_TYPE_FULLTEXT_DOCUMENT,
         doi,
     )
-    document_node_id = existing_id or str(uuid.uuid4())
+    document_node_id = str(existing_id) if existing_id else str(uuid.uuid4())
     # A document and its chunks are one content unit (#244): same collection,
     # same unit_id. Callers that do not supply a unit_id get the document node
     # id, so chunks are always linkable to their parent unit.

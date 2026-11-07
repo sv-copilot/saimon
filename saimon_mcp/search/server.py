@@ -1458,13 +1458,12 @@ async def ingest_document(
     if not chunks:
         return _error(payload.trace_id, "extracted text produced no chunks")
 
-    from research_shared.embedding import EmbeddingConfig, embed_local
+    from research_shared.embedding import EmbeddingConfig, embed_many_local
 
     emb_cfg = EmbeddingConfig.from_env()
-    embeddings = [
-        embed_local(chunk, emb_cfg.model, emb_cfg.dimensions, emb_cfg.model_path or None)
-        for chunk in chunks
-    ]
+    embeddings = embed_many_local(
+        chunks, emb_cfg.model, emb_cfg.dimensions, emb_cfg.model_path or None
+    )
     if all(vector is None for vector in embeddings):
         # Fail closed: chunks stored without embeddings are invisible to the
         # vector path, so a "successful" ingest would silently add nothing to

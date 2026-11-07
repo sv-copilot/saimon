@@ -161,7 +161,7 @@ class TestGenerateEmbedding:
             def __init__(self, *args, **kwargs):
                 pass
 
-            def embed(self, documents):
+            def embed(self, documents, batch_size=None, **kwargs):
                 captured["docs"] = documents
                 return [[0.1] * 768 for _ in documents]
 

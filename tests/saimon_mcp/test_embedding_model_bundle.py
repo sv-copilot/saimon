@@ -24,7 +24,7 @@ class _RecordingEmbeddingModel:
         self._dims = dims
         self._kwargs = kwargs
 
-    def embed(self, documents):
+    def embed(self, documents, batch_size=None, **kwargs):
         return [[0.1] * self._dims for _ in documents]
 
 

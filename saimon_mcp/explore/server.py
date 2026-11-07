@@ -17,7 +17,30 @@ from research_shared.db import DatabaseError, DatabasePool
 from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
+from research_shared.rerank import RerankConfig, rerank
 from research_shared.seed_data import CONTENT_TYPES as SEED_CONTENT_TYPES
+
+# ---------------------------------------------------------------------------
+# retrieval gate (SAIMON-RETRIEVAL-ABSTAIN-1 #234)
+# ---------------------------------------------------------------------------
+
+_rerank_config = RerankConfig.from_env()
+
+
+def _rerank_embed_fn() -> Any:
+    """Return a fail-closed embedding callable for the reranker.
+
+    Same local backend the vector path uses, so cosine similarity can be
+    computed for keyword-only rows that carry no precomputed embedding.
+    """
+    from research_shared.embedding import EmbeddingConfig, embed_local
+
+    cfg = EmbeddingConfig.from_env()
+
+    def embed(text: str) -> list[float] | None:
+        return embed_local(text, cfg.model, cfg.dimensions)
+
+    return embed
 
 # ---------------------------------------------------------------------------
 # backend injection (must be before lifespan)
@@ -227,18 +250,42 @@ async def explore_content(
     # ── try DB backend ──
     if _db_pool is not None:
         try:
+            # Retrieve a broader pool than the final top-K so the gate can
+            # narrow by relevance instead of by adapter order (#234).
+            candidate_limit = max(limit * 2, _rerank_config.top_k)
             rows = await _db_pool.fetch(
                 "SELECT id, title, content_type, body, "
                 "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
                 "FROM knowledge_graph_nodes "
                 "WHERE title ILIKE $1 OR body ILIKE $1 "
                 "ORDER BY created_at DESC LIMIT $2",
-                f"%{query}%", limit,
+                f"%{query}%", candidate_limit,
             )
-            results = [dict(r) for r in rows]
+            candidates = [dict(r) for r in rows]
+            outcome = rerank(
+                query, candidates, _rerank_config,
+                embed_fn=_rerank_embed_fn(), top_k=limit,
+            )
+            results = outcome.ranked
+            logger.info(
+                "retrieval.abstain",
+                path="explore_content",
+                query=query,
+                top_score=outcome.top_score,
+                second_score=outcome.second_score,
+                margin_gap=outcome.margin_gap,
+                floor=_rerank_config.min_relevance,
+                margin=_rerank_config.min_margin,
+                abstained=outcome.fail_safe_fired,
+            )
             resp = _ok(
                 trace_id=payload.trace_id,
-                data={"query": query, "results": results, "total": len(results)},
+                data={
+                    "query": query,
+                    "results": results,
+                    "total": len(results),
+                    "no_strong_evidence": outcome.fail_safe_fired,
+                },
                 citations=[str(r["id"]) for r in results],
             )
             logger.log_response(

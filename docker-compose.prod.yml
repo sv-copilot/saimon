@@ -61,11 +61,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.5"
-          memory: "2G"
+          cpus: "2"
+          memory: "3G"
         reservations:
-          cpus: "0.1"
-          memory: "128M"
+          cpus: "0.5"
+          memory: "512M"
 
   # -----------------------------------------------------------------------
   # generate-mcp (port 8002)

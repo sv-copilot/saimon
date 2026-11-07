@@ -131,3 +131,59 @@ class TestPersistenceCarriesTheUnit:
         meta = json.loads(chunk_args[4])
         assert meta["part_of"]
         assert meta["source_index"] == "url_import"
+
+
+class TestReingestWithAnExistingUuid:
+    def test_uuid_from_the_database_is_serialised(self):
+        """asyncpg returns UUID objects; re-ingest used to 500 on json.dumps."""
+        import uuid as _uuid
+
+        existing = _uuid.uuid4()
+        db = _FakeDB(existing_id=existing)
+        out = asyncio.run(
+            persist_fulltext_document(
+                db,
+                doi="url:https://example.org/again.pdf",
+                title="Again",
+                source_index="url_import",
+                abstract=None,
+                s3_key="https://example.org/again.pdf",
+                content_hash_value="h",
+                fetched_at="2026-11-07T00:00:00+00:00",
+                chunks=["c1"],
+                embeddings=[None],
+            )
+        )
+        assert out["document_node_id"] == str(existing)
+        # On re-ingest the document is UPDATEd, so the only node INSERT is the chunk.
+        chunk_args = next(a for q, a in db.statements if "INSERT INTO knowledge_graph_nodes" in q)
+        meta = json.loads(chunk_args[4])  # must not raise
+        assert meta["part_of"] == str(existing)
+
+
+class TestBatchEmbedding:
+    def test_alignment_and_shape_validation(self, monkeypatch):
+        import research_shared.embedding as emb
+
+        class _FakeModel:
+            def embed(self, texts):
+                for i, _ in enumerate(texts):
+                    yield [1.0] * 768 if i != 1 else [0.0] * 4  # second is wrong shape
+
+        monkeypatch.setattr(emb, "_load_model", lambda model, path: _FakeModel())
+        out = emb.embed_many_local(["a", "b", "c", "d"])
+        assert len(out) == 4
+        assert out[0] is not None and len(out[0]) == 768
+        assert out[1] is None
+        assert out[3] is not None
+
+    def test_no_model_returns_nones(self, monkeypatch):
+        import research_shared.embedding as emb
+
+        monkeypatch.setattr(emb, "_load_model", lambda model, path: None)
+        assert emb.embed_many_local(["a", "b"]) == [None, None]
+
+    def test_empty_input(self):
+        import research_shared.embedding as emb
+
+        assert emb.embed_many_local([]) == []

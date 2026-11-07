@@ -73,6 +73,32 @@ def resolve_model_path(model_path: str | None) -> str | None:
     return None
 
 
+def _load_model(model_name: str, model_path: str | None) -> Any | None:
+    """Return the cached fastembed model, loading it once. None on failure."""
+    try:
+        from fastembed import TextEmbedding
+    except ImportError:
+        return None
+
+    cache_key = (model_name, model_path or "")
+    model = _EMBEDDING_MODEL_CACHE.get(cache_key)
+    if model is not None:
+        return model
+
+    kwargs: dict[str, Any] = {}
+    if model_path:
+        resolved = resolve_model_path(model_path)
+        if resolved is None:
+            return None
+        kwargs["specific_model_path"] = resolved
+    try:
+        model = TextEmbedding(model_name=model_name, **kwargs)
+    except Exception:  # noqa: BLE001 — fail-closed on model load
+        return None
+    _EMBEDDING_MODEL_CACHE[cache_key] = model
+    return model
+
+
 def embed_local(
     text: str,
     model_name: str = DEFAULT_EMBEDDING_MODEL,
@@ -88,33 +114,44 @@ def embed_local(
     Returns None on any failure (fastembed not installed, model missing, or
     unexpected output), preserving the fail-closed contract.
     """
-    try:
-        from fastembed import TextEmbedding
-    except ImportError:
-        return None
+    vectors = embed_many_local(
+        [text], model_name, dimensions, model_path
+    )
+    return vectors[0] if vectors else None
+
+
+def embed_many_local(
+    texts: list[str],
+    model_name: str = DEFAULT_EMBEDDING_MODEL,
+    dimensions: int = DEFAULT_EMBEDDING_DIMENSIONS,
+    model_path: str | None = None,
+) -> list[list[float] | None]:
+    """Embed many texts in ONE batched model call.
+
+    Loading the model once per chunk is the difference between seconds and
+    minutes for a document: 39 chunks at ~5s each is a 3-minute request, while
+    a single batched ``embed`` is one pass over the same model. Alignment is
+    preserved: a vector that fails shape validation becomes None in place.
+    """
+    if not texts:
+        return []
+
+    model = _load_model(model_name, model_path)
+    if model is None:
+        return [None for _ in texts]
 
     try:
-        cache_key = (model_name, model_path or "")
-        model = _EMBEDDING_MODEL_CACHE.get(cache_key)
-        if model is None:
-            kwargs: dict[str, Any] = {}
-            if model_path:
-                resolved = resolve_model_path(model_path)
-                if resolved is None:
-                    return None
-                kwargs["specific_model_path"] = resolved
-            model = TextEmbedding(model_name=model_name, **kwargs)
-            _EMBEDDING_MODEL_CACHE[cache_key] = model
-        embeddings = model.embed([text[:8000]])
-        vector = next(iter(embeddings), None)
-        if vector is None:
-            return None
-        floats = [float(value) for value in vector]
-        if len(floats) != dimensions:
-            return None
-        return floats
+        raw = list(model.embed([text[:8000] for text in texts]))
     except Exception:  # noqa: BLE001 — fail-closed on any embedding failure
-        return None
+        return [None for _ in texts]
+
+    out: list[list[float] | None] = []
+    for vector in raw:
+        floats = [float(value) for value in vector]
+        out.append(floats if len(floats) == dimensions else None)
+    if len(out) < len(texts):
+        out.extend([None] * (len(texts) - len(out)))
+    return out[: len(texts)]
 
 
 def embed_node_text(

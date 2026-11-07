@@ -175,7 +175,7 @@ def _record_llm_failure() -> None:
     import datetime as _dt
 
     _quality_metrics["llm_consecutive_failures"] += 1
-    _quality_metrics["last_llm_failure_at"] = _dt.datetime.now(tz=_dt.timezone.utc).isoformat() + "Z"
+    _quality_metrics["last_llm_failure_at"] = _dt.datetime.now(tz=_dt.UTC).isoformat() + "Z"
     _log = _logging.getLogger("saimon.generate.health")
     _log.warning(
         "LLM unreachable — consecutive failures: %d",

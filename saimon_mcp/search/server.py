@@ -1331,6 +1331,167 @@ def _iso_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _ingest_url_error(url: str) -> str | None:
+    """Return why *url* may not be ingested, or None when it is allowed.
+
+    Only public http(s) targets: a knowledge-graph service that fetches
+    arbitrary user-supplied URLs must not be usable as an SSRF probe against
+    loopback, link-local or private ranges.
+    """
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return "url must be http or https"
+    host = parsed.hostname or ""
+    if not host:
+        return "url has no host"
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        return f"cannot resolve host {host!r}"
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return f"host {host!r} resolved to an unparseable address"
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+        ):
+            return f"host {host!r} resolves to a non-public address"
+    return None
+
+
+async def _fetch_document(url: str, max_bytes: int = 40 * 1024 * 1024) -> tuple[bytes, str | None]:
+    """Fetch *url* and return (bytes, file_type). Raises on refusal/oversize."""
+    from urllib.parse import urlparse
+
+    import httpx
+
+    async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client, client.stream(
+        "GET", url, headers={"User-Agent": "saimon-ingest/1.0 (+spencervaradi.com)"}
+    ) as resp:
+        resp.raise_for_status()
+        ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
+        buf = bytearray()
+        async for chunk in resp.aiter_bytes():
+            buf.extend(chunk)
+            if len(buf) > max_bytes:
+                raise ValueError(f"document exceeds {max_bytes} bytes")
+
+    file_type = {
+        "application/pdf": "pdf",
+        "application/x-pdf": "pdf",
+        "text/html": "html",
+        "application/xhtml+xml": "html",
+        "text/plain": "txt",
+        "application/epub+zip": "epub",
+    }.get(ctype)
+    if file_type is None and urlparse(url).path.lower().endswith(".pdf"):
+        file_type = "pdf"
+    return bytes(buf), file_type
+
+
+@app.post("/tools/ingest_document")
+async def ingest_document(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    """Fetch a public document (PDF/HTML/EPUB) by URL and ingest it into the KG.
+
+    The lawful way in: the caller supplies a URL they are entitled to read, and
+    Saimon stores the extracted text as ``fulltext_document`` + ``fulltext_chunk``
+    nodes (embedded for retrieval, tagged with collection/unit_id).
+    """
+    _require_auth(request)
+
+    url = str(payload.parameters.get("url") or "").strip()
+    title = payload.parameters.get("title")
+    collection = str(payload.parameters.get("collection") or "research")
+
+    if not url:
+        return _error(payload.trace_id, "Parameter 'url' is required.")
+    refusal = _ingest_url_error(url)
+    if refusal:
+        return _error(payload.trace_id, f"Refusing to ingest: {refusal}.")
+    if _db_pool is None:
+        return _error(payload.trace_id, "Database not available.")
+
+    from research_shared.fulltext import (
+        chunk_text,
+        content_hash,
+        extract_text,
+        persist_fulltext_document,
+        register_fulltext_content_types,
+    )
+    from research_shared.text_quality import text_quality_ok, text_quality_score
+
+    logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
+    logger.log_request(
+        content_type=payload.content_type, tool="ingest_document", url=url
+    )
+
+    try:
+        data, file_type = await _fetch_document(url)
+    except Exception as exc:  # noqa: BLE001 — a fetch failure is an error response
+        return _error(payload.trace_id, f"download failed: {exc}")
+
+    text = extract_text(data, file_type)
+    if not text:
+        return _error(
+            payload.trace_id,
+            f"could not extract text (file_type={file_type or 'unknown'})",
+        )
+    if not text_quality_ok(text):
+        return _error(
+            payload.trace_id,
+            "quality gate rejected the extracted text "
+            f"(score={round(text_quality_score(text), 4)})",
+        )
+
+    chunks = chunk_text(text)
+    if not chunks:
+        return _error(payload.trace_id, "extracted text produced no chunks")
+
+    from research_shared.embedding import embed_local
+
+    embeddings = [embed_local(chunk) for chunk in chunks]
+
+    await register_fulltext_content_types(_db_pool)
+    persisted = await persist_fulltext_document(
+        _db_pool,
+        doi="url:" + url,
+        title=str(title or url.rsplit("/", 1)[-1] or url),
+        source_index="url_import",
+        abstract=text[:500],
+        s3_key=url,
+        content_hash_value=content_hash(data),
+        fetched_at=_iso_now(),
+        chunks=chunks,
+        embeddings=embeddings,
+        collection=collection,
+    )
+
+    logger.log_response(status="success", citations_count=persisted["chunk_count"])
+    return _ok(
+        trace_id=payload.trace_id,
+        data={
+            "url": url,
+            "title": title or url.rsplit("/", 1)[-1],
+            "collection": collection,
+            "document_node_id": persisted["document_node_id"],
+            "chunk_count": persisted["chunk_count"],
+            "chars": len(text),
+        },
+        citations=[persisted["document_node_id"]],
+    )
+
+
 @app.post("/tools/download_fulltext")
 async def download_fulltext(
     payload: ResearchRequest, request: Request

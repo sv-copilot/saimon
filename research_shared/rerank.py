@@ -27,7 +27,8 @@ from typing import Any
 # configuration
 # ---------------------------------------------------------------------------
 
-DEFAULT_MIN_RELEVANCE = 0.25
+DEFAULT_MIN_RELEVANCE = 0.62
+DEFAULT_MIN_MARGIN = 0.08
 DEFAULT_TOP_K = 10
 DEFAULT_MAX_REQUERY = 1
 DEFAULT_LEXICAL_WEIGHT = 0.5
@@ -53,6 +54,7 @@ class RerankConfig:
     """Configuration for the passage-level reranker."""
 
     min_relevance: float = DEFAULT_MIN_RELEVANCE
+    min_margin: float = DEFAULT_MIN_MARGIN
     top_k: int = DEFAULT_TOP_K
     max_requery: int = DEFAULT_MAX_REQUERY
     lexical_weight: float = DEFAULT_LEXICAL_WEIGHT
@@ -64,6 +66,9 @@ class RerankConfig:
         return cls(
             min_relevance=float(
                 os.getenv("SAIMON_RERANK_MIN_RELEVANCE", str(DEFAULT_MIN_RELEVANCE))
+            ),
+            min_margin=float(
+                os.getenv("SAIMON_RERANK_MIN_MARGIN", str(DEFAULT_MIN_MARGIN))
             ),
             top_k=int(os.getenv("SAIMON_RERANK_TOP_K", str(DEFAULT_TOP_K))),
             max_requery=int(
@@ -84,6 +89,8 @@ class RerankOutcome:
 
     ranked: list[dict[str, Any]]
     top_score: float
+    second_score: float
+    margin_gap: float
     candidate_count: int
     kept_count: int
     fail_safe_fired: bool
@@ -188,6 +195,37 @@ def reformulate_query(query: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def gate_decision(
+    scored: list[dict[str, Any]], config: RerankConfig
+) -> tuple[bool, float, float]:
+    """Decide whether a scored candidate set must abstain.
+
+    Two independent reasons to abstain, both needed:
+
+    * **floor** - the top score is below ``config.min_relevance``.  The floor
+      sits above the reranker's nonsense semantic-similarity baseline, so an
+      unrelated query returns nothing instead of top-N noise.
+    * **margin** - the top score clears the floor but is not far enough ahead of
+      the runner-up.  A weak-but-real hit and noise can land in the same band
+      (~0.6-0.7); the gap over the second-best is what separates them.
+
+    Returns ``(abstain, top_score, margin_gap)``.  A single candidate is judged
+    on the floor alone, because there is no runner-up to be ambiguous about.
+    """
+    if not scored:
+        return True, 0.0, 0.0
+
+    top_score = float(scored[0]["relevance_score"])
+    second_score = float(scored[1]["relevance_score"]) if len(scored) > 1 else 0.0
+    margin_gap = top_score - second_score
+
+    if top_score < config.min_relevance:
+        return True, top_score, margin_gap
+    if len(scored) > 1 and margin_gap < config.min_margin:
+        return True, top_score, margin_gap
+    return False, top_score, margin_gap
+
+
 def rerank(
     query: str,
     candidates: list[dict[str, Any]],
@@ -243,13 +281,15 @@ def rerank(
         scored.append(item)
 
     scored.sort(key=lambda r: r["relevance_score"], reverse=True)
-    top_score = scored[0]["relevance_score"] if scored else 0.0
-    fail_safe_fired = not scored or top_score < cfg.min_relevance
+    fail_safe_fired, top_score, margin_gap = gate_decision(scored, cfg)
+    second_score = float(scored[1]["relevance_score"]) if len(scored) > 1 else 0.0
     ranked = [] if fail_safe_fired else scored[:k]
 
     return RerankOutcome(
         ranked=ranked,
         top_score=top_score,
+        second_score=second_score,
+        margin_gap=margin_gap,
         candidate_count=len(candidates),
         kept_count=len(ranked),
         fail_safe_fired=fail_safe_fired,

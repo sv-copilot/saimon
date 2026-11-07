@@ -22,6 +22,7 @@ from fastapi import FastAPI, HTTPException, Request
 
 from research_shared import model_routing
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
+from research_shared.content_ops_seed import SOURCES as _SEEDED_SOURCES
 from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
@@ -500,6 +501,122 @@ _DOI_PATTERN = _re.compile(r"10\.\d{4,}/[^\s\"'<>]+", _re.IGNORECASE)
 def _extract_dois(text: str) -> list[str]:
     """Extract DOI strings from text using a regex pattern."""
     return _DOI_PATTERN.findall(text)
+
+
+# ── theory-citation anchors (SAIMON-VERIFY-THEORY-CITATIONS-1) ──
+
+_DOI_TRAILING_PUNCT = ".,);]}\"'"
+
+
+def _clean_doi(doi: str) -> str:
+    """Normalize a DOI: strip whitespace/trailing punctuation and lowercase."""
+    return (doi or "").strip().rstrip(_DOI_TRAILING_PUNCT).lower()
+
+
+def _normalize_for_match(text: str) -> str:
+    """Lowercase and strip punctuation so titles/claims can be compared."""
+    return _PUNCT_STRIP.sub(" ", (text or "")).strip().lower()
+
+
+def _match_seeded_source_node(claim: str) -> dict[str, Any] | None:
+    """Return the first seeded ``source`` node that anchors *claim*.
+
+    Anchoring is by exact title or DOI. The canonical seeded sources come from
+    ``research_shared.content_ops_seed.SOURCES`` (SAIMON-CONTENT-OPS-KG-SEED-1).
+    """
+    claim_dois = {_clean_doi(d) for d in _extract_dois(claim or "")}
+    claim_text = _normalize_for_match(claim)
+    for node in _SEEDED_SOURCES:
+        meta = node.get("metadata") or {}
+        node_doi = _clean_doi(meta.get("doi") or "")
+        if node_doi and node_doi in claim_dois:
+            return node
+        title = _normalize_for_match(node.get("title", ""))
+        if title and title in claim_text:
+            return node
+    return None
+
+
+def _detect_theory_anchor(claim: str) -> dict[str, Any]:
+    """Determine the verification anchor path for a claim.
+
+    Returns a dict with:
+      - ``anchor``: ``"seeded_node"`` | ``"shadow_doi"`` | ``"full_text"``
+      - ``source_node``: matched seeded source node (seeded_node only)
+      - ``doi``: canonical DOI (seeded_node / shadow_doi)
+      - ``theory``: theory slug (seeded_node only)
+    """
+    seeded = _match_seeded_source_node(claim)
+    if seeded is not None:
+        meta = seeded.get("metadata") or {}
+        return {
+            "anchor": "seeded_node",
+            "source_node": seeded,
+            "doi": meta.get("doi"),
+            "theory": meta.get("theory"),
+        }
+
+    claim_dois = _extract_dois(claim or "")
+    if claim_dois:
+        return {
+            "anchor": "shadow_doi",
+            "source_node": None,
+            "doi": _clean_doi(claim_dois[0]),
+            "theory": None,
+        }
+
+    return {"anchor": "full_text", "source_node": None, "doi": None, "theory": None}
+
+
+def _theory_anchor_verifications(
+    anchor: dict[str, Any],
+    shadow_results: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Build deterministic verifications for an anchored theory claim.
+
+    Returns an empty list for the ``full_text`` anchor (caller should fall back
+    to the normal LLM/heuristic path).
+    """
+    if anchor["anchor"] == "seeded_node":
+        node = anchor["source_node"]
+        meta = node.get("metadata") or {}
+        title = node.get("title", "")
+        doi = meta.get("doi")
+        evidence = f"doi:{doi}" if doi else title
+        return [
+            {
+                "method": "source_corroboration",
+                "verdict": "supported",
+                "confidence": 0.92,
+                "explanation": (
+                    f"Claim corroborated by seeded source node '{title}'"
+                    + (f" (DOI: {doi})" if doi else "")
+                    + "."
+                ),
+                "evidence_source": evidence,
+            }
+        ]
+
+    if anchor["anchor"] == "shadow_doi":
+        doi = anchor["doi"]
+        found = any(
+            _clean_doi(result.get("doi", "")) == doi
+            for result in (shadow_results or [])
+        )
+        return [
+            {
+                "method": "shadow_source_corroboration",
+                "verdict": "supported" if found else "inconclusive",
+                "confidence": 0.9 if found else 0.4,
+                "explanation": (
+                    "Claim resolved via DOI passthrough to shadow sources"
+                    + (" and corroborated." if found else " but the DOI did not resolve.")
+                ),
+                "evidence_source": f"doi:{doi}",
+            }
+        ]
+
+    return []
 
 
 async def _verify_citation(doi: str) -> dict[str, Any]:
@@ -1183,14 +1300,23 @@ async def verify_claim(
 
     sources = payload.sources if payload.sources else None
 
+    # ── theory-citation anchor detection ────────────────────
+    theory_anchor = _detect_theory_anchor(claim)
+
     # ── shadow source search ─────────────────────────────────
     use_shadow = payload.parameters.get("use_shadow_sources", False)
     shadow_results: list[dict[str, Any]] = []
     shadow_search_degraded = False
-    if use_shadow:
+    # A DOI-anchored claim gets its precise `doi:` lookup even when the caller
+    # did not ask for a general shadow sweep — the passthrough query is exact,
+    # not a prose full-text search, and without it the shadow_doi anchor can
+    # only ever resolve to "inconclusive".
+    doi_anchor = theory_anchor["anchor"] == "shadow_doi"
+    if use_shadow or doi_anchor:
+        query = f"doi:{theory_anchor['doi']}" if doi_anchor else claim
         try:
             shadow_results, shadow_search_degraded = await _search_sources_with_status(
-                claim, limit=5
+                query, limit=5
             )
         except Exception:  # noqa: BLE001
             shadow_search_degraded = True
@@ -1214,8 +1340,20 @@ async def verify_claim(
     if risk_profile == "high":
         risk_items = _detect_risk_items(claim)
 
-    # Verify using each method — try LLM first, fall back to heuristic
-    if _llm_client is not None:
+    # Verify using each method — anchored theory claims short-circuit to a
+    # deterministic verdict; otherwise try LLM first, fall back to heuristic.
+    anchor_method = (
+        "source_corroboration"
+        if theory_anchor["anchor"] == "seeded_node"
+        else "shadow_source_corroboration"
+        if theory_anchor["anchor"] == "shadow_doi"
+        else None
+    )
+    use_theory_shortcut = anchor_method is not None and anchor_method in method_names
+
+    if use_theory_shortcut:
+        verifications = _theory_anchor_verifications(theory_anchor, shadow_results)
+    elif _llm_client is not None:
         try:
             # Build risk-boosted prompt if needed
             sources_for_verify: list[dict[str, Any]] | None = (
@@ -1459,6 +1597,7 @@ async def verify_claim(
         "overall_verdict": overall,
         "overall_confidence": overall_confidence,
         "methods_used": len(verifications),
+        "theory_anchor": theory_anchor["anchor"],
     }
     if abstained:
         resp_data["abstained"] = True

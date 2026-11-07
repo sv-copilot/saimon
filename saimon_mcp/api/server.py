@@ -189,7 +189,13 @@ async def _ensure_messages_table() -> None:
 
 
 async def _ensure_documents_table() -> None:
-    """Create documents table if it doesn't exist."""
+    """Create the api-mcp ``documents`` table if it doesn't exist.
+
+    NOTE: this is the *per-user* document store for the Research/Cockpit UI
+    (SAIMON-DOCUMENTS-1), NOT the fulltext store.  Fulltext lives in
+    ``knowledge_graph_nodes`` as ``fulltext_document`` + ``fulltext_chunk``
+    nodes (see ``research_shared.fulltext``); it does not use this table.
+    """
     if _db_pool is None:
         return
     await _db_pool.execute("""

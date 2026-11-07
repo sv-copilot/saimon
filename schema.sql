@@ -54,6 +54,13 @@ ON CONFLICT (identifier) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
 -- knowledge_graph_nodes — the core graph entity
+--
+-- This is the canonical fulltext store: downloaded documents are persisted
+-- here as ``fulltext_document`` + ``fulltext_chunk`` nodes (see
+-- research_shared/fulltext.py).  There is intentionally NO ``documents`` table
+-- in this schema — the api-mcp creates its own per-user ``documents`` table at
+-- runtime for user-uploaded documents (SAIMON-DOCUMENTS-1), which is unrelated
+-- to fulltext.  See SAIMON-FULLTEXT-DOCUMENTS-1 (#216).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS knowledge_graph_nodes (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -61,6 +68,8 @@ CREATE TABLE IF NOT EXISTS knowledge_graph_nodes (
     content_type    TEXT NOT NULL REFERENCES content_type_registry(name),
     body            TEXT NOT NULL DEFAULT '',
     metadata        JSONB NOT NULL DEFAULT '{}',
+    collection      TEXT NOT NULL DEFAULT 'research',  -- corpus this unit belongs to (#244)
+    unit_id         UUID,                              -- node <-> observation identity (#244)
     embedding       VECTOR(768),                  -- pgvector (nomic-embed-text)
     user_id         UUID REFERENCES users(id),     -- NULL = shared/public content
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -110,6 +119,8 @@ CREATE TABLE IF NOT EXISTS observations (
     source_quality_score   REAL,
     primacy_tier           TEXT,           -- 'primary' | 'secondary' | 'tertiary'
     metadata               JSONB NOT NULL DEFAULT '{}',
+    collection             TEXT NOT NULL DEFAULT 'research',  -- corpus (#244)
+    unit_id                UUID,                              -- node <-> observation (#244)
     created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -117,6 +128,34 @@ CREATE INDEX IF NOT EXISTS idx_observations_status
     ON observations(verification_status);
 CREATE INDEX IF NOT EXISTS idx_observations_doi
     ON observations((metadata->>'doi'));
+
+-- ---------------------------------------------------------------------------
+-- SAIMON-COLLECTION-COLUMN-1 (#244) — idempotent migration
+--
+-- schema.sql is applied to existing databases as well as fresh ones, so the
+-- columns above need an additive migration for rows created before #244.  Both
+-- statements are safe to re-run, and the NOT NULL DEFAULT backfills existing
+-- rows to 'research' in place.
+-- ---------------------------------------------------------------------------
+ALTER TABLE knowledge_graph_nodes
+    ADD COLUMN IF NOT EXISTS collection TEXT NOT NULL DEFAULT 'research';
+ALTER TABLE knowledge_graph_nodes
+    ADD COLUMN IF NOT EXISTS unit_id UUID;
+ALTER TABLE observations
+    ADD COLUMN IF NOT EXISTS collection TEXT NOT NULL DEFAULT 'research';
+ALTER TABLE observations
+    ADD COLUMN IF NOT EXISTS unit_id UUID;
+CREATE INDEX IF NOT EXISTS idx_observations_collection
+    ON observations(collection);
+CREATE INDEX IF NOT EXISTS idx_observations_unit_id
+    ON observations(unit_id);
+-- Indexes for the node columns live HERE, not next to the CREATE TABLE: on an
+-- existing database the column does not exist until the ALTERs above run, and
+-- schema.sql is applied top to bottom.
+CREATE INDEX IF NOT EXISTS idx_kg_nodes_collection
+    ON knowledge_graph_nodes(collection);
+CREATE INDEX IF NOT EXISTS idx_kg_nodes_unit_id
+    ON knowledge_graph_nodes(unit_id);
 
 -- ---------------------------------------------------------------------------
 -- observation_verifications — one row per (observation, verification method)

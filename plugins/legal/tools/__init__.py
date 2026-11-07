@@ -34,6 +34,7 @@ from plugins.legal.tools.reconcile_citators import (
     ReconcileCitatorsTool,
     reconcile_citators,
 )
+from plugins.legal.tools.scaffold_claim import ScaffoldClaimTool, scaffold_claim
 from plugins.legal.tools.split_of_authority import (
     DetectSplitOfAuthorityTool,
     detect_split_of_authority,
@@ -51,6 +52,7 @@ __all__ = [
     "PredictErieGuessTool",
     "RankAuthorityTool",
     "ReconcileCitatorsTool",
+    "ScaffoldClaimTool",
     "build_authority_ladder",
     "build_usage_layer",
     "detect_implicit_overruling",
@@ -61,4 +63,5 @@ __all__ = [
     "predict_erie_guess",
     "rank_persuasive_authority",
     "reconcile_citators",
+    "scaffold_claim",
 ]

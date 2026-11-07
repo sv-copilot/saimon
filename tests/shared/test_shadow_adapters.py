@@ -10,10 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helper: build a mock HTTP response
@@ -121,10 +120,53 @@ class TestInternetArchive:
 # ---------------------------------------------------------------------------
 
 class TestAcademicTorrents:
-    """Verify Academic Torrents adapter returns real metadata."""
+    """Verify Academic Torrents adapter is disabled and fails closed.
+
+    SAIMON-ACADEMIC-TORRENTS-404-1: the upstream ``apiv2/search`` endpoint was
+    removed, so the adapter is disabled.  Parsing logic is preserved and
+    verified by explicitly re-enabling the adapter in the field-extraction test.
+    """
+
+    def test_adapter_is_disabled(self):
+        """The adapter is disabled with an honest reason."""
+        from research_shared.adapters.academic_torrents import AcademicTorrentsAdapter
+
+        adapter = AcademicTorrentsAdapter()
+        assert adapter.disabled is True
+        assert "apiv2/search" in adapter.disabled_reason
+
+    def test_disabled_search_returns_empty(self):
+        """A disabled adapter returns [] without making any HTTP call."""
+        from research_shared.adapters.academic_torrents import AcademicTorrentsAdapter
+
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(return_value=_mock_response(
+            status=200, json_data=[{"id": "x", "title": "Nope"}],
+        ))
+
+        adapter = AcademicTorrentsAdapter(http_client=mock_client)
+        results = asyncio.run(adapter.search("ML datasets", limit=5))
+
+        assert results == []
+        mock_client.get.assert_not_called()
+
+    def test_disabled_resolve_doi_returns_none(self):
+        """A disabled adapter resolves DOI to None without any HTTP call."""
+        from research_shared.adapters.academic_torrents import AcademicTorrentsAdapter
+
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(return_value=_mock_response(
+            status=200, json_data=[{"id": "x", "title": "Nope"}],
+        ))
+
+        adapter = AcademicTorrentsAdapter(http_client=mock_client)
+        result = asyncio.run(adapter.resolve_doi("10.1000/at123"))
+
+        assert result is None
+        mock_client.get.assert_not_called()
 
     def test_search_returns_real_metadata(self):
-        """Mock AT JSON response — verify correct field extraction."""
+        """Mock AT JSON response — verify correct field extraction (re-enabled)."""
         from research_shared.adapters.academic_torrents import AcademicTorrentsAdapter
 
         mock_client = MagicMock()
@@ -144,6 +186,7 @@ class TestAcademicTorrents:
         ))
 
         adapter = AcademicTorrentsAdapter(http_client=mock_client)
+        adapter.disabled = False  # verify parsing still works if re-enabled
         results = asyncio.run(adapter.search("ML datasets", limit=5))
 
         assert len(results) == 1
@@ -187,31 +230,9 @@ class TestAcademicTorrents:
         results = asyncio.run(adapter.search(""))
         assert results == []
 
-    @pytest.mark.skipif(
-        "os.getenv('GITHUB_ACTIONS')",
-        reason="Real HTTP call — skipped in CI",
-    )
-    def test_real_api_search(self):
-        """Real HTTP call to Academic Torrents API — verifies live structure."""
-        import os
-        if os.getenv("GITHUB_ACTIONS"):
-            pytest.skip("Real HTTP call — skipped in CI")
-
-        from research_shared.adapters.academic_torrents import AcademicTorrentsAdapter
-
-        adapter = AcademicTorrentsAdapter()
-        results = asyncio.run(adapter.search("neural networks", limit=3))
-
-        # Real API should return results
-        assert isinstance(results, list)
-        if results:
-            r = results[0]
-            assert r.title != "Unknown"
-            assert "result 1 for:" not in r.title.lower()
-            assert r.source_index == "academic_torrents"
-            assert r.full_text_available is True
-            # Magnet link or file_type should be present
-            assert r.download_url is not None or r.file_type is not None
+    # NOTE: the previous real-API integration test was removed in
+    # SAIMON-ACADEMIC-TORRENTS-404-1 — the upstream /apiv2/search endpoint no
+    # longer exists, so there is nothing to hit live.  The adapter is disabled.
 
 
 # ---------------------------------------------------------------------------
@@ -230,11 +251,11 @@ class TestSciHub:
         assert results == []
 
     def test_resolve_doi_pdf_available(self):
-        """HEAD request returns 200 with PDF content-type."""
+        """GET returns 200 with PDF content-type."""
         from research_shared.adapters.scihub import SciHubAdapter
 
         mock_client = MagicMock()
-        mock_client.head = AsyncMock(return_value=_mock_response(
+        mock_client.get = AsyncMock(return_value=_mock_response(
             status=200,
             headers={"content-type": "application/pdf"},
         ))
@@ -249,11 +270,11 @@ class TestSciHub:
         assert "sci-hub.ru/10.1000/test.1" in (result.download_url or "")
 
     def test_resolve_doi_not_available(self):
-        """HEAD request returns 404 → None."""
+        """GET returns 404 → None."""
         from research_shared.adapters.scihub import SciHubAdapter
 
         mock_client = MagicMock()
-        mock_client.head = AsyncMock(return_value=_mock_response(status=404))
+        mock_client.get = AsyncMock(return_value=_mock_response(status=404))
 
         adapter = SciHubAdapter(http_client=mock_client)
         result = asyncio.run(adapter.resolve_doi("10.1000/missing"))
@@ -265,7 +286,7 @@ class TestSciHub:
         from research_shared.adapters.scihub import SciHubAdapter
 
         mock_client = MagicMock()
-        mock_client.head = AsyncMock(side_effect=Exception("Timeout"))
+        mock_client.get = AsyncMock(side_effect=Exception("Timeout"))
 
         adapter = SciHubAdapter(http_client=mock_client)
         result = asyncio.run(adapter.resolve_doi("10.1000/timeout"))

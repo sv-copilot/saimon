@@ -12,8 +12,11 @@ env:
 
 jobs:
   # ── Validate (all branches) ──────────────────────────────────────
+  # Pinned to the `staging` label: general-prod-build also carries
+  # self-hosted/Linux/X64, so a bare [self-hosted, Linux, X64] target lets this
+  # 15-30 min suite land on the prod box and compete with everything else there.
   validate:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, staging]
     timeout-minutes: 10
 
     steps:
@@ -64,8 +67,12 @@ jobs:
         run: python3 scripts/eval.py gate --fixtures-root fixtures
 
   # ── Build & push Docker image (dev, rc, and main branches, pushes to GHCR) ─
+  # Runs on the `build`-labelled runner: the image is 3.6 GB and a build needs
+  # ~6-8 GB of free layer space, which the 38 GB staging runner does not have
+  # (its docker-push jobs died with "No space left on device"). general-prod-build
+  # gives the build a host with headroom; the staging runner keeps validate/deploy.
   docker-push:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, build]
     timeout-minutes: 20
     if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/rc' || github.ref == 'refs/heads/main'
     permissions:
@@ -118,56 +125,63 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Back up compose files
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
-          script: |
-            set -e
-            cd /data/planning/saimon
-            stamp=$(date +%Y%m%d)
-            cp -n docker-compose.yml docker-compose.yml.bak-$stamp
-            cp -n docker-compose.staging.yml docker-compose.staging.yml.bak-$stamp
-            cp -n schema.sql schema.sql.bak-$stamp
+      # Plain ssh/scp, not appleboy/* docker actions: those build a container
+      # image pulled from ghcr.io on the runner, and on 2026-11-07 that pull
+      # failed with "failed to fetch oauth token: denied" and blocked the release.
+      - name: Install deploy key
+        env:
+          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          SSH_HOST: ${{ secrets.STAGING_HOST }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          ssh-keyscan -H "$SSH_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
 
-      - name: Sync compose files
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
-          source: "docker-compose.yml,docker-compose.staging.yml,schema.sql"
-          target: /data/planning/saimon/
+      - name: Back up and sync compose files
+        env:
+          SSH_HOST: ${{ secrets.STAGING_HOST }}
+          SSH_USER: ${{ secrets.STAGING_USER }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
+          ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" 'set -e; cd /data/planning/saimon; stamp=$(date +%Y%m%d); cp -n docker-compose.yml docker-compose.yml.bak-$stamp; cp -n docker-compose.staging.yml docker-compose.staging.yml.bak-$stamp; cp -n schema.sql schema.sql.bak-$stamp'
+          scp $SSH_OPTS docker-compose.yml docker-compose.staging.yml schema.sql "$SSH_USER@$SSH_HOST:/data/planning/saimon/"
 
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
-          script: |
-            set -e
-            cd /data/planning/saimon
-            echo "Pulling latest rc image..."
-            docker compose -f docker-compose.yml -f docker-compose.staging.yml pull
-            echo "Restarting services..."
-            docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --force-recreate
-            echo "Cleaning up old images..."
-            docker image prune -f
-            echo "Health checks..."
-            for port in 8101 8102 8103 8104 8105 8106 8107 8108; do
-              for i in 1 2 3 4 5; do
-                status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/health 2>/dev/null || echo '000')
-                if [ "$status" = "200" ]; then
-                  echo "  port $port: OK"
-                  break
-                fi
-                sleep 3
-              done
+        env:
+          SSH_HOST: ${{ secrets.STAGING_HOST }}
+          SSH_USER: ${{ secrets.STAGING_USER }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
+          {
+            printf 'GHCR_TOKEN=%q\n' "$GHCR_TOKEN"
+            printf 'GHCR_ACTOR=%q\n' "$GHCR_ACTOR"
+            cat <<'REMOTE'
+          set -euo pipefail
+          cd /data/planning/saimon
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+          echo "Pulling latest rc image..."
+          docker compose -f docker-compose.yml -f docker-compose.staging.yml pull
+          echo "Restarting services..."
+          docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --force-recreate --no-build
+          docker image prune -f
+          echo "Health checks..."
+          for port in 8101 8102 8103 8104 8105 8106 8107 8108; do
+            for i in 1 2 3 4 5; do
+              status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/health 2>/dev/null || echo '000')
+              if [ "$status" = "200" ]; then echo "  port $port: OK"; break; fi
+              sleep 3
             done
-            echo "Deploy complete."
+          done
+          echo "Deploy complete."
+          REMOTE
+          } | ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" 'bash -s'
 
   # ── Deploy to production (main branch only) ──────────────────────────
   deploy-production:
@@ -180,74 +194,67 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Back up compose files
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.PROD_HOST }}
-          username: ${{ secrets.PROD_USER }}
-          key: ${{ secrets.PROD_SSH_KEY }}
-          script: |
-            set -e
-            cd /data/saimon
-            stamp=$(date +%Y%m%d)
-            cp -n docker-compose.yml docker-compose.yml.bak-$stamp
-            cp -n docker-compose.prod.yml docker-compose.prod.yml.bak-$stamp
-            cp -n schema.sql schema.sql.bak-$stamp
+      # Plain ssh/scp, not appleboy/* docker actions: those build a container
+      # image pulled from ghcr.io on the runner, and on 2026-11-07 that pull
+      # failed with "failed to fetch oauth token: denied" and blocked the release.
+      - name: Install deploy key
+        env:
+          SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
+          SSH_HOST: ${{ secrets.PROD_HOST }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          ssh-keyscan -H "$SSH_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
 
-      - name: Sync compose files
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.PROD_HOST }}
-          username: ${{ secrets.PROD_USER }}
-          key: ${{ secrets.PROD_SSH_KEY }}
-          source: "docker-compose.yml,docker-compose.prod.yml,schema.sql"
-          target: /data/saimon/
+      - name: Back up and sync compose files
+        env:
+          SSH_HOST: ${{ secrets.PROD_HOST }}
+          SSH_USER: ${{ secrets.PROD_USER }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
+          ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" 'set -e; cd /data/saimon; stamp=$(date +%Y%m%d); cp -n docker-compose.yml docker-compose.yml.bak-$stamp; cp -n docker-compose.prod.yml docker-compose.prod.yml.bak-$stamp; cp -n schema.sql schema.sql.bak-$stamp'
+          scp $SSH_OPTS docker-compose.yml docker-compose.prod.yml schema.sql "$SSH_USER@$SSH_HOST:/data/saimon/"
 
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.PROD_HOST }}
-          username: ${{ secrets.PROD_USER }}
-          key: ${{ secrets.PROD_SSH_KEY }}
-          script: |
-            set -e
-            cd /data/saimon
-            echo "Pulling latest main image..."
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
-            echo "Restarting services..."
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate
-            echo "Cleaning up old images..."
-            docker image prune -f
-            echo "Health checks..."
-            for port in 8101 8102 8103 8104 8105 8106 8107 8108; do
-              for i in 1 2 3 4 5; do
-                status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/health 2>/dev/null || echo '000')
-                if [ "$status" = "200" ]; then
-                  echo "  port $port: OK"
-                  break
-                fi
-                sleep 3
-              done
+        env:
+          SSH_HOST: ${{ secrets.PROD_HOST }}
+          SSH_USER: ${{ secrets.PROD_USER }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
+          {
+            printf 'GHCR_TOKEN=%q\n' "$GHCR_TOKEN"
+            printf 'GHCR_ACTOR=%q\n' "$GHCR_ACTOR"
+            cat <<'REMOTE'
+          set -euo pipefail
+          cd /data/saimon
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+          echo "Pulling latest main image..."
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+          echo "Restarting services..."
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate --no-build
+          docker image prune -f
+          echo "Health checks..."
+          for port in 8101 8102 8103 8104 8105 8106 8107 8108; do
+            for i in 1 2 3 4 5; do
+              status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/health 2>/dev/null || echo '000')
+              if [ "$status" = "200" ]; then echo "  port $port: OK"; break; fi
+              sleep 3
             done
-            echo "Deploy complete."
+          done
+          echo "Deploy complete."
+          REMOTE
+          } | ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" 'bash -s'
 
   # ── Docker build only (rc branch, for verification) ──────
-  docker-build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    if: github.ref == 'refs/heads/rc'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          tags: saimon:ci-test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+  # REMOVED: it rebuilt the same image `docker-push` already builds AND pushes
+  # on the same ref, on a runner whose disk cannot hold a 3.6 GB build — it was
+  # the only red on the rc ladder (buildx "error reading from server: EOF" plus
+  # a missing GITHUB_EVENT_PATH = the staging host ran out of disk mid-build).
+  # `docker-push` succeeding on `build` is the build verification.

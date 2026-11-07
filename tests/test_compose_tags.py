@@ -186,3 +186,27 @@ def test_domain_mcp_has_command_in_prod(prod_config):
     cmd = prod_config["services"]["domain-mcp"].get("command")
     assert cmd, "domain-mcp missing command in prod merge"
     assert "domain-mcp" in (cmd if isinstance(cmd, list) else [cmd])
+
+
+# ── SAIMON-LONGFORM-PACKAGING-1 (2026-09-09) ───────────────────────────────
+# The retail ``plugins.legal`` plugin only loads when SAIMON_DOMAIN_PLUGIN_PATHS
+# reaches the container non-empty.  Previously the merged config resolved the
+# variable to "" (plugins: 0).  These tests pin the *authoritative merged*
+# config (docker compose config) so a regressed default cannot hide behind a
+# per-file YAML check.
+
+def _domain_plugin_paths(config: dict) -> str:
+    env = config["services"]["domain-mcp"].get("environment", {})
+    return str(env.get("SAIMON_DOMAIN_PLUGIN_PATHS", ""))
+
+
+def test_staging_domain_mcp_plugin_paths_non_empty(staging_config):
+    value = _domain_plugin_paths(staging_config)
+    assert value, "staging domain-mcp SAIMON_DOMAIN_PLUGIN_PATHS is empty"
+    assert "plugins.legal" in value
+
+
+def test_prod_domain_mcp_plugin_paths_non_empty(prod_config):
+    value = _domain_plugin_paths(prod_config)
+    assert value, "prod domain-mcp SAIMON_DOMAIN_PLUGIN_PATHS is empty"
+    assert "plugins.legal" in value

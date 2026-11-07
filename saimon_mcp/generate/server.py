@@ -27,6 +27,7 @@ from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
 from research_shared.llm import LLMError
 from research_shared.seed_data import CONTENT_TYPES as SEED_CONTENT_TYPES
+from saimon_mcp.generate.auto_seed_loop import fill_gaps
 
 try:
     from research_shared.job_hunt_config import (
@@ -296,6 +297,14 @@ _TOOLS = [
                        "to the knowledge graph. Idempotent — only processes "
                        "rows with status='pending'.",
         "parameters": {},
+    },
+    {
+        "name": "fill_gaps",
+        "description": "Auto-fill knowledge gaps: for each gap, create a "
+                       "pending seed_request (idempotently), seed content, and "
+                       "re-verify the produced node. Reports filled/failed/"
+                       "skipped per gap.",
+        "parameters": {"gaps": "list[dict] (optional; defaults to a full gap sweep)"},
     },
     {
         "name": "store_content",
@@ -1374,6 +1383,127 @@ async def generate_content(
 
 
 # ---------------------------------------------------------------------------
+# shared claim-extraction + verification pipeline
+# ---------------------------------------------------------------------------
+
+async def _extract_and_verify_claims(content: str) -> dict[str, Any]:
+    """Extract claims from content, verify each, and persist observations.
+
+    Shared by ``generate_verified`` and the auto-seed loop's verify step so
+    the loop genuinely reuses the released verification wiring.
+    """
+    import hashlib as _hashlib
+    import uuid as _uuid
+
+    extract_resp = await _call_verify_extract(content)
+    claims = extract_resp.get("data", {}).get("claims", [])
+    claims_extracted = len(claims)
+
+    claims_verified = 0
+    cited_claims = 0
+    claim_bindings: list[dict[str, Any]] = []
+    observation_ids: list[str] = []
+
+    for claim in claims:
+        claim_text = claim.get("claim_text", "")
+        if not claim_text:
+            continue
+
+        obs_id = ""
+        if _db_pool is not None:
+            try:
+                obs_id = str(_uuid.uuid4())
+                source_hash = _hashlib.sha256(content.encode()).hexdigest()[:16]
+
+                await _db_pool.execute(
+                    """INSERT INTO observations
+                       (id, claim_text, topic, summary, confidence_0_1, rationale,
+                        verification_status, source_text_hash)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                       ON CONFLICT DO NOTHING""",
+                    obs_id,
+                    claim_text,
+                    claim.get("topic"),
+                    claim_text[:200],
+                    float(claim.get("confidence_0_1", 0.5)),
+                    claim.get("rationale"),
+                    "unverified",
+                    source_hash,
+                )
+                observation_ids.append(obs_id)
+            except Exception:  # noqa: BLE001
+                obs_id = ""
+
+        verify_resp = await _call_verify_claim(claim_text)
+        verifications = verify_resp.get("data", {}).get("verifications", [])
+        overall_verdict = verify_resp.get("data", {}).get("overall_verdict", "inconclusive")
+
+        evidence_sources = [
+            v.get("evidence_source")
+            for v in verifications
+            if v.get("evidence_source")
+        ]
+        if evidence_sources:
+            cited_claims += 1
+        claim_bindings.append(
+            {
+                "claim_text": claim_text,
+                "cited": bool(evidence_sources),
+                "citation": evidence_sources[0] if evidence_sources else None,
+            }
+        )
+
+        if _db_pool is not None and obs_id:
+            for v in verifications:
+                try:
+                    ver_id = str(_uuid.uuid4())
+                    method = v.get("method", "unknown")
+                    verdict = v.get("verdict", "inconclusive")
+                    confidence = float(v.get("confidence", 0.5))
+                    explanation = v.get("explanation", "")
+
+                    await _db_pool.execute(
+                        """INSERT INTO observation_verifications
+                           (id, observation_id, method, verdict, confidence, explanation)
+                           VALUES ($1, $2, $3, $4, $5, $6)""",
+                        ver_id, obs_id, method, verdict, confidence, explanation,
+                    )
+
+                    evidence_source = v.get("evidence_source", "")
+                    if evidence_source:
+                        evidence_type = "citation" if evidence_source.startswith("doi:") else "shadow_source"
+                        ev_id = str(_uuid.uuid4())
+                        await _db_pool.execute(
+                            """INSERT INTO observation_verification_evidence
+                               (id, verification_id, evidence_type, evidence_identifier, relevance_score)
+                               VALUES ($1, $2, $3, $4, $5)""",
+                            ev_id, ver_id, evidence_type, evidence_source, confidence,
+                        )
+                except Exception:  # noqa: BLE001, S110
+                    pass
+
+            try:
+                await _db_pool.execute(
+                    "UPDATE observations SET verification_status = $1, "
+                    "updated_at = now() WHERE id = $2",
+                    "verified" if overall_verdict != "inconclusive" else "unverified",
+                    obs_id,
+                )
+            except Exception:  # noqa: BLE001, S110
+                pass
+
+        claims_verified += 1
+
+    return {
+        "claims_extracted": claims_extracted,
+        "claims_verified": claims_verified,
+        "cited_claims": cited_claims,
+        "claim_bindings": claim_bindings,
+        "observation_ids": observation_ids if observation_ids else None,
+    }
+
+
+# ---------------------------------------------------------------------------
 # tool: generate_verified
 # ---------------------------------------------------------------------------
 
@@ -1576,6 +1706,28 @@ async def generate_verified(
     return resp
 
 
+
+# ---------------------------------------------------------------------------
+# helper: verify + annotate existing content (extract → verify → persist)
+# ---------------------------------------------------------------------------
+
+async def _verify_and_annotate(
+    node_id: str,
+    content: str,
+    content_type: str,
+) -> dict[str, Any]:
+    """Re-verify already-generated content and persist the annotation.
+
+    Delegates to the shared claim-extraction + verification pipeline so the
+    auto-fill loop reuses the same wiring as ``generate_verified``.
+    """
+    result = await _extract_and_verify_claims(content)
+    result["node_id"] = node_id
+    result["content_type"] = content_type
+    return result
+
+
+
 # ---------------------------------------------------------------------------
 # tool: store_content
 # ---------------------------------------------------------------------------
@@ -1643,6 +1795,77 @@ async def store_content(
     )
     logger.log_response(status=resp.status)
     return resp
+
+
+
+# ---------------------------------------------------------------------------
+# helper: seed a single seed_request row (used by self_seed + fill_gaps)
+# ---------------------------------------------------------------------------
+
+async def _self_seed_one(seed_id: int) -> dict[str, Any]:
+    """Generate + persist content for one ``seed_request`` row.
+
+    Reads the row, generates content, persists a knowledge-graph node, and
+    marks the seed_request complete.  Returns a result dict with ``node_id``,
+    ``content``, and ``content_type`` on success; ``status: failed`` on error.
+    """
+    row = await _db_pool.fetchrow(
+        "SELECT id, content_type, prompt, parameters "
+        "FROM seed_requests WHERE id = $1",
+        seed_id,
+    )
+    if row is None:
+        return {"seed_id": seed_id, "status": "failed", "error": "seed_request not found"}
+
+    seed_content_type = row["content_type"]
+    seed_prompt = row["prompt"]
+    seed_params = row.get("parameters") or {}
+    seed_tone = seed_params.get("tone", "neutral") if isinstance(seed_params, dict) else "neutral"
+    seed_meta = seed_params if isinstance(seed_params, dict) else {}
+
+    try:
+        content = await _generate_via_llm(
+            seed_prompt, seed_content_type, seed_tone,
+            ct_schema=None, sources=None, skip_critique=True,
+        )
+
+        node_id = await _persist_content_node(
+            title=seed_prompt[:200],
+            content_type=seed_content_type,
+            body=content,
+            metadata=seed_meta,
+        )
+
+        if node_id:
+            await _db_pool.execute(
+                "UPDATE seed_requests SET status = 'complete', result_id = $1 "
+                "WHERE id = $2",
+                node_id, seed_id,
+            )
+        else:
+            await _db_pool.execute(
+                "UPDATE seed_requests SET status = 'complete' WHERE id = $1",
+                seed_id,
+            )
+
+        return {
+            "seed_id": seed_id,
+            "node_id": node_id,
+            "content": content,
+            "content_type": seed_content_type,
+            "status": "seeded",
+        }
+    except Exception as exc:  # noqa: BLE001 — per-row resilience
+        import logging as _logging
+        _log = _logging.getLogger("saimon.self_seed")
+        _log.warning("Seed failed for %s: %s", seed_id, exc)
+        return {
+            "seed_id": seed_id,
+            "content_type": seed_content_type,
+            "status": "failed",
+            "error": str(exc)[:200],
+        }
+
 
 
 # ---------------------------------------------------------------------------
@@ -1752,6 +1975,57 @@ async def self_seed(
     except Exception as exc:  # noqa: BLE001
         logger.log_response(status="error")
         return _error(payload.trace_id, f"Self-seed failed: {exc}")
+
+
+
+# ---------------------------------------------------------------------------
+# tool: fill_gaps (auto-fill loop: gap → seed → verify)
+# ---------------------------------------------------------------------------
+
+@app.post("/tools/fill_gaps")
+async def fill_gaps_tool(
+    payload: ResearchRequest, request: Request
+) -> ResearchResponse:
+    """Auto-fill knowledge gaps: gap → seed_request → self_seed → verify.
+
+    Consumes the ``saimon_list_gaps`` gap shape.  If ``gaps`` is not passed
+    in parameters, it sweeps the KG itself.  For each gap it creates a
+    pending seed_request (idempotently), seeds content, and re-verifies the
+    produced node.  Returns filled/failed/skipped per gap.
+    """
+    _require_auth(request)
+
+    logger = build_audit_logger(payload, request, _auth, "generate-mcp")
+    logger.log_request(content_type=payload.content_type, tool="fill_gaps")
+
+    if _db_pool is None:
+        return _error(payload.trace_id, "Database not available — cannot fill gaps.")
+    if _llm_client is None:
+        return _error(payload.trace_id, "LLM client not available — cannot fill gaps.")
+
+    from saimon_mcp.explore.gap_sweep import list_gaps
+
+    gaps = payload.parameters.get("gaps")
+    if gaps is None:
+        try:
+            gaps = await list_gaps(_db_pool)
+        except Exception as exc:  # noqa: BLE001 — surface a clean envelope
+            logger.log_response(status="error")
+            return _error(payload.trace_id, f"Failed to list gaps: {exc}")
+    if not isinstance(gaps, list):
+        return _error(payload.trace_id, "Parameter 'gaps' must be a list.")
+
+    report = await fill_gaps(
+        gaps,
+        _db_pool,
+        self_seed_fn=_self_seed_one,
+        generate_verified_fn=_verify_and_annotate,
+    )
+
+    resp = _ok(trace_id=payload.trace_id, data=report)
+    logger.log_response(status=resp.status)
+    return resp
+
 
 
 # ---------------------------------------------------------------------------

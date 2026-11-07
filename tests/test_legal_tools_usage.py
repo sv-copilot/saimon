@@ -220,8 +220,8 @@ class TestRegistration:
         assert "legal.extract_procedural_history" in names
         assert "legal.build_usage_layer" in names
 
-    def test_all_ten_tools_returned(self):
-        assert len(LegalPlugin().tools()) == 10
+    def test_all_eleven_tools_returned(self):
+        assert len(LegalPlugin().tools()) == 11
 
     def test_all_tools_are_domain_tools(self):
         for tool in LegalPlugin().tools():

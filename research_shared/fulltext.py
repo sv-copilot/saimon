@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from typing import Any
 
@@ -38,6 +39,23 @@ CONTENT_TYPE_FULLTEXT_CHUNK = "fulltext_chunk"
 FULLTEXT_STORE_TABLE = "knowledge_graph_nodes"
 
 _EMPTY_JSONB_ARRAY = "[]"
+
+# Postgres text/vector columns reject NUL bytes and unpaired surrogates; PDF text
+# extraction produces both on malformed fonts and embedded binary streams.
+_SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
+
+
+def sanitize_pg_text(value: str | None) -> str | None:
+    """Make extracted text safe for a Postgres ``text`` column.
+
+    NUL (0x00) cannot be stored at all; unpaired surrogates cannot be encoded to
+    UTF-8. Both abort the whole ingest transaction, so strip them at the single
+    persistence choke point rather than trusting every extractor.
+    """
+    if not isinstance(value, str):
+        return value
+    return _SURROGATE_RE.sub("", value.replace("\x00", ""))
+
 
 
 # ---------------------------------------------------------------------------
@@ -293,8 +311,8 @@ async def persist_fulltext_document(
             "SET title = $1, body = $2, metadata = $3, collection = $4, "
             "unit_id = $5, updated_at = now() "
             "WHERE id = $6",
-            title,
-            abstract or "",
+            sanitize_pg_text(title),
+            sanitize_pg_text(abstract or ""),
             json.dumps(document_metadata),
             collection,
             unit_id,
@@ -306,9 +324,9 @@ async def persist_fulltext_document(
             "(id, title, content_type, body, metadata, collection, unit_id) "
             "VALUES ($1, $2, $3, $4, $5, $6, $7)",
             document_node_id,
-            title,
+            sanitize_pg_text(title),
             CONTENT_TYPE_FULLTEXT_DOCUMENT,
-            abstract or "",
+            sanitize_pg_text(abstract or ""),
             json.dumps(document_metadata),
             collection,
             unit_id,
@@ -332,9 +350,9 @@ async def persist_fulltext_document(
             "(id, title, content_type, body, metadata, embedding, collection, unit_id) "
             "VALUES ($1, $2, $3, $4, $5, $6::vector, $7, $8)",
             chunk_id,
-            f"{title} — chunk {index + 1}",
+            sanitize_pg_text(f"{title} — chunk {index + 1}"),
             CONTENT_TYPE_FULLTEXT_CHUNK,
-            chunk,
+            sanitize_pg_text(chunk),
             json.dumps(chunk_metadata),
             vector,
             collection,

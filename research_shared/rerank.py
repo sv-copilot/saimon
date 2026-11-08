@@ -275,6 +275,7 @@ def rerank(
     config: RerankConfig | None = None,
     *,
     embed_fn: Callable[[str], list[float] | None] | None = None,
+    passage_embed_fn: Callable[[str], list[float] | None] | None = None,
     top_k: int | None = None,
 ) -> RerankOutcome:
     """Score *candidates* against *query* and return the ranked top-K.
@@ -286,6 +287,9 @@ def rerank(
     """
     cfg = config or RerankConfig()
     k = top_k if top_k is not None else cfg.top_k
+    # Queries and passages are embedded with different task prefixes, so they get
+    # different embedders; defaulting keeps every existing caller working.
+    passage_embed = passage_embed_fn or embed_fn
 
     passages = [_passage_text(c) for c in candidates]
     lexical_raw = bm25_scores(query, passages)
@@ -305,7 +309,7 @@ def rerank(
 
         similarity = candidate.get("similarity")
         if similarity is None and embed_fn is not None and query_embedding is not None:
-            passage_embedding = embed_fn(_passage_text(candidate))
+            passage_embedding = passage_embed(_passage_text(candidate))
             if passage_embedding is not None:
                 similarity = cosine_similarity(query_embedding, passage_embedding)
 

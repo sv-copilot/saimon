@@ -33,12 +33,34 @@ def _rerank_embed_fn() -> Any:
     Same local backend the vector path uses, so cosine similarity can be
     computed for keyword-only rows that carry no precomputed embedding.
     """
-    from research_shared.embedding import EmbeddingConfig, embed_local
+    from research_shared.embedding import EmbeddingConfig, embed_local, query_embed_text
 
     cfg = EmbeddingConfig.from_env()
 
     def embed(text: str) -> list[float] | None:
-        return embed_local(text, cfg.model, cfg.dimensions)
+        return embed_local(query_embed_text(text), cfg.model, cfg.dimensions)
+
+    return embed
+
+
+def _prefixes_on() -> bool:
+    """Prefixes are opt-in; with them off the passage path must stay unchanged."""
+    from research_shared.embedding import task_prefixes_enabled
+
+    return task_prefixes_enabled()
+
+
+def _rerank_passage_embed_fn():
+    from research_shared.embedding import (
+        EmbeddingConfig,
+        document_embed_text,
+        embed_local,
+    )
+
+    cfg = EmbeddingConfig.from_env()
+
+    def embed(text: str) -> list[float] | None:
+        return embed_local(document_embed_text(text), cfg.model, cfg.dimensions)
 
     return embed
 
@@ -264,7 +286,9 @@ async def explore_content(
             candidates = [dict(r) for r in rows]
             outcome = rerank(
                 query, candidates, _rerank_config,
-                embed_fn=_rerank_embed_fn(), top_k=limit,
+                embed_fn=_rerank_embed_fn(),
+                passage_embed_fn=_rerank_passage_embed_fn() if _prefixes_on() else None,
+                top_k=limit,
             )
             results = outcome.ranked
             logger.info(

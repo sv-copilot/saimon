@@ -64,10 +64,12 @@ class TestOutcomeCarriesReason:
         from research_shared.rerank import has_lexical_support
 
         passage = "overview of bookkeeping clerks and their transactions"
-        assert not has_lexical_support("zzzq wobblewick frandish quintar", passage)
-        # ... but they do once the reformulator appends its own word, which is
-        # exactly why the server judges support against the original query.
-        assert has_lexical_support("zzzq wobblewick frandish quintar overview", passage)
+        original = "zzzq wobblewick frandish quintar"
+        reformulated = original + " overview bookkeeping"
+        assert not has_lexical_support(original, passage)
+        # The reformulated query can satisfy support on the appender's words,
+        # which is why the server judges support against the ORIGINAL query.
+        assert has_lexical_support(reformulated, passage)
 
     def test_requery_condition_excludes_lexical_failures(self):
         for reason, allowed in [
@@ -102,3 +104,41 @@ class TestNumericTokensAreNotSupport:
             "how many years must payroll records be kept",
             "Keep payroll records for at least four years.",
         )
+
+
+class TestSiblingChunksAreNotAmbiguity:
+    """Two chunks of one document score close together by nature."""
+
+    def test_close_scores_from_the_same_unit_do_not_abstain(self):
+        from research_shared.rerank import RerankConfig, gate_decision
+
+        scored = [
+            {"relevance_score": 0.79, "body": "pgvector hnsw", "unit_id": "doc-1"},
+            {"relevance_score": 0.76, "body": "pgvector ef_search", "unit_id": "doc-1"},
+        ]
+        abstain, _, _ = gate_decision(scored, RerankConfig(), lexical_support=True)
+        assert abstain is False
+
+    def test_close_scores_from_different_units_still_abstain(self):
+        from research_shared.rerank import RerankConfig, gate_decision
+
+        scored = [
+            {"relevance_score": 0.70, "body": "a", "unit_id": "doc-1"},
+            {"relevance_score": 0.68, "body": "b", "unit_id": "doc-2"},
+        ]
+        abstain, _, _ = gate_decision(scored, RerankConfig(), lexical_support=True)
+        assert abstain is True
+
+    def test_one_weak_word_is_not_enough_support(self):
+        from research_shared.rerank import has_lexical_support
+
+        # "super" alone must not anchor an unrelated page.
+        assert not has_lexical_support(
+            "who won the 2024 super bowl",
+            "This is a super way to plan work.",
+        )
+
+    def test_one_word_query_still_works(self):
+        from research_shared.rerank import has_lexical_support
+
+        assert has_lexical_support("pgvector", "pgvector supports hnsw")

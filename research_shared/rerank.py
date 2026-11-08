@@ -150,9 +150,18 @@ def support_tokens(query: str) -> set[str]:
     return non_numeric or tokens
 
 
-def has_lexical_support(query: str, text: str, min_overlap: int = 1) -> bool:
-    """True when *text* shares at least *min_overlap* content tokens with *query*."""
-    return len(support_tokens(query) & content_tokens(text)) >= min_overlap
+def has_lexical_support(query: str, text: str, min_overlap: int | None = None) -> bool:
+    """True when *text* shares enough content tokens with *query*.
+
+    Two shared tokens are required when the query offers two or more, so one weak
+    word ("super") cannot anchor an unrelated page; a one-word query still only
+    needs that word.
+    """
+    query_tokens = support_tokens(query)
+    if not query_tokens:
+        return False
+    needed = min_overlap if min_overlap is not None else min(2, len(query_tokens))
+    return len(query_tokens & content_tokens(text)) >= needed
 
 
 def bm25_scores(
@@ -237,6 +246,13 @@ def reformulate_query(query: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _same_unit(first: dict[str, Any], second: dict[str, Any]) -> bool:
+    """True when two candidates are chunks of the same document."""
+    a = first.get("unit_id") or first.get("document_id")
+    b = second.get("unit_id") or second.get("document_id")
+    return bool(a) and str(a) == str(b)
+
+
 def gate_decision(
     scored: list[dict[str, Any]], config: RerankConfig, lexical_support: bool = True
 ) -> tuple[bool, float, float]:
@@ -272,7 +288,11 @@ def gate_decision(
         len(scored) > 1
         and top_score < config.strong_relevance
         and margin_gap < config.min_margin
+        and not _same_unit(scored[0], scored[1])
     ):
+        # Two chunks of one relevant document score close together by nature;
+        # that is depth, not ambiguity. Treating it as ambiguity made whole
+        # documents unfindable once a corpus change pushed them under 0.80.
         return True, top_score, margin_gap
     # A weak top score with no shared content token is semantic drift: the
     # embedding landed near something unrelated (observed live: a nonsense probe
@@ -306,7 +326,11 @@ def abstain_reason(
         return "floor"
     if len(scored) > 1:
         gap = top_score - float(scored[1]["relevance_score"])
-        if top_score < config.strong_relevance and gap < config.min_margin:
+        if (
+            top_score < config.strong_relevance
+            and gap < config.min_margin
+            and not _same_unit(scored[0], scored[1])
+        ):
             return "margin"
     if (
         config.require_lexical_below_strong

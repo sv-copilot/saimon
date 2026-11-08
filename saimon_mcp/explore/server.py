@@ -276,7 +276,7 @@ async def explore_content(
             # narrow by relevance instead of by adapter order (#234).
             candidate_limit = max(limit * 2, _rerank_config.top_k)
             rows = await _db_pool.fetch(
-                "SELECT id, title, content_type, body, "
+                "SELECT id, title, content_type, body, unit_id, "
                 "COALESCE(metadata->>'status', 'ready') as doc_status, "
                 "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
                 "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "

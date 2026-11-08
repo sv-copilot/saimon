@@ -529,7 +529,14 @@ async def _retrieve_and_rerank(
 
     requery_count = 0
     reformulated = query
-    if outcome.fail_safe_fired and config.max_requery > 0:
+    # A requery can fix weak phrasing; it cannot fix a query that shares no
+    # vocabulary with the corpus, and the reformulator's generic words would
+    # manufacture the lexical support the gate just refused.
+    if (
+        outcome.fail_safe_fired
+        and config.max_requery > 0
+        and outcome.abstain_reason in {"floor", "margin"}
+    ):
         requery_count = 1
         reformulated = reformulate_query(query)
         requery_candidates = await _search_candidates(
@@ -545,9 +552,24 @@ async def _retrieve_and_rerank(
         outcome = rerank(
             reformulated, requery_candidates, config,
             embed_fn=embed_fn,
-        passage_embed_fn=_rerank_passage_embed_fn() if _prefixes_on() else None,
-        top_k=limit,
+            passage_embed_fn=_rerank_passage_embed_fn() if _prefixes_on() else None,
+            top_k=limit,
         )
+        # The reformulator's own words must not rescue a query that shares no
+        # vocabulary with the corpus: support is judged against the ORIGINAL
+        # query. Live case: nonsense + " overview" matched a bookkeeping page.
+        from research_shared.rerank import has_lexical_support, passage_text
+
+        if (
+            not outcome.fail_safe_fired
+            and outcome.ranked
+            and outcome.top_score < config.strong_relevance
+            and not has_lexical_support(query, passage_text(outcome.ranked[0]))
+        ):
+            outcome.ranked = []
+            outcome.kept_count = 0
+            outcome.fail_safe_fired = True
+            outcome.abstain_reason = "no_lexical_support_original"
 
     logger.info(
         "retrieval.rerank",
@@ -555,6 +577,7 @@ async def _retrieve_and_rerank(
         kept_count=outcome.kept_count,
         top_score=outcome.top_score,
         fail_safe_fired=outcome.fail_safe_fired,
+        abstain_reason=outcome.abstain_reason,
         lexical_support=outcome.lexical_support,
         requery_count=requery_count,
         reformulated_query=reformulated,
@@ -564,6 +587,7 @@ async def _retrieve_and_rerank(
         "results": outcome.ranked,
         "total": len(outcome.ranked),
         "no_strong_evidence": outcome.fail_safe_fired,
+        "abstain_reason": outcome.abstain_reason,
         "lexical_support": outcome.lexical_support,
         "requery_count": requery_count,
     }

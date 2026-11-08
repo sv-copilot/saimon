@@ -367,6 +367,7 @@ async def _vector_search(
         "SELECT id, title, body, content_type, "
         "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
         "COALESCE(metadata->>'status', 'ready') as doc_status, "
+        "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
         "1 - (embedding <=> $1) as similarity "
         "FROM knowledge_graph_nodes "
         "WHERE embedding IS NOT NULL"
@@ -423,7 +424,8 @@ async def _keyword_search(
         rows = await _db_pool.fetch(
             "SELECT id, title, body, content_type, "
             "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
-            "COALESCE(metadata->>'status', 'ready') as doc_status "
+            "COALESCE(metadata->>'status', 'ready') as doc_status, "
+            "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review "
             "FROM knowledge_graph_nodes "
             "WHERE (title ILIKE $" + str(offset + 1) + " OR body ILIKE $" + str(offset + 1) + ")"
             + user_clause + " "
@@ -441,7 +443,8 @@ async def _keyword_search(
         sql = (
             "SELECT id, title, body, content_type, "
             "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
-            "COALESCE(metadata->>'status', 'ready') as doc_status "
+            "COALESCE(metadata->>'status', 'ready') as doc_status, "
+            "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review "
             "FROM knowledge_graph_nodes "
             "WHERE " + " AND ".join(conditions) + user_clause + " "
             "ORDER BY created_at DESC LIMIT $" + str(len(params))
@@ -494,6 +497,7 @@ async def _retrieve_and_rerank(
     user_id: str | None,
     logger: Any,
     allow_failed: bool = False,
+    review_statuses: list[str] | None = None,
 ) -> dict[str, Any]:
     """Retrieve candidates, rerank them, and apply the fail-safe no-answer gate.
 
@@ -513,6 +517,9 @@ async def _retrieve_and_rerank(
         candidates = [
             c for c in candidates if (c.get("doc_status") or "ready") != "failed"
         ]
+    from research_shared.review import filter_by_review
+
+    candidates = filter_by_review(candidates, review_statuses)
     outcome = rerank(
         query, candidates, config,
         embed_fn=embed_fn,
@@ -532,6 +539,9 @@ async def _retrieve_and_rerank(
             requery_candidates = [
                 c for c in requery_candidates if (c.get("doc_status") or "ready") != "failed"
             ]
+        from research_shared.review import filter_by_review as _filter_review
+
+        requery_candidates = _filter_review(requery_candidates, review_statuses)
         outcome = rerank(
             reformulated, requery_candidates, config,
             embed_fn=embed_fn,
@@ -584,7 +594,10 @@ async def search_knowledge_graph(
     if _db_pool is not None:
         try:
             allow_failed = bool(payload.parameters.get("allow_failed_documents", False))
-            data = await _retrieve_and_rerank(query, limit, user_id, logger, allow_failed)
+            review_statuses = payload.parameters.get("review_statuses")
+            data = await _retrieve_and_rerank(
+                query, limit, user_id, logger, allow_failed, review_statuses
+            )
             results = data["results"]
             resp = _ok(
                 trace_id=payload.trace_id,

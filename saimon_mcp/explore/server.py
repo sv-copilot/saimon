@@ -277,13 +277,23 @@ async def explore_content(
             candidate_limit = max(limit * 2, _rerank_config.top_k)
             rows = await _db_pool.fetch(
                 "SELECT id, title, content_type, body, "
+                "COALESCE(metadata->>'status', 'ready') as doc_status, "
+                "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
                 "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
                 "FROM knowledge_graph_nodes "
                 "WHERE title ILIKE $1 OR body ILIKE $1 "
                 "ORDER BY created_at DESC LIMIT $2",
                 f"%{query}%", candidate_limit,
             )
-            candidates = [dict(r) for r in rows]
+            candidates = [
+                dict(r) for r in rows
+                if (dict(r).get("doc_status") or "ready") != "failed"
+            ]
+            from research_shared.review import filter_by_review
+
+            candidates = filter_by_review(
+                candidates, payload.parameters.get("review_statuses")
+            )
             outcome = rerank(
                 query, candidates, _rerank_config,
                 embed_fn=_rerank_embed_fn(),

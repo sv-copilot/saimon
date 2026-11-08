@@ -75,3 +75,30 @@ class TestOutcomeCarriesReason:
             ("no_lexical_support", False), ("empty", False), (None, False),
         ]:
             assert (reason in {"floor", "margin"}) is allowed
+
+
+class TestNumericTokensAreNotSupport:
+    """A year is a value, not evidence (live leak: "2024 super bowl" -> story map)."""
+
+    def test_year_alone_does_not_anchor(self):
+        from research_shared.rerank import has_lexical_support
+
+        assert not has_lexical_support(
+            "who won the 2024 super bowl",
+            "The New User Story Backlog is a Map, updated 2024.",
+        )
+
+    def test_numeric_only_query_keeps_its_digits(self):
+        from research_shared.rerank import has_lexical_support, support_tokens
+
+        assert support_tokens("2024") == {"2024"}
+        assert has_lexical_support("2024", "annual report 2024")
+
+    def test_real_queries_still_anchor(self):
+        from research_shared.rerank import has_lexical_support
+
+        assert has_lexical_support("pgvector hnsw tuning", "HNSW parameters in pgvector")
+        assert has_lexical_support(
+            "how many years must payroll records be kept",
+            "Keep payroll records for at least four years.",
+        )

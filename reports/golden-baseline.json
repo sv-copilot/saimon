@@ -1,17 +1,17 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-11-08T12:42:32.174363+00:00",
+  "generated_at": "2026-11-08T19:41:58.117568+00:00",
   "mode": "live",
   "environment": {
     "search_url": "http://127.0.0.1:8101",
     "verify_url": "http://127.0.0.1:8105",
-    "git_revision": "1b30ca2"
+    "git_revision": "2633857"
   },
   "dimensions": {
     "retrieval-rubric-v1": {
       "hit_rate": 1.0,
       "score_floor": 1.0,
-      "abstention": 0.5,
+      "abstention": 1.0,
       "provenance": 1.0
     },
     "claim-rubric-v1": {
@@ -20,8 +20,8 @@
       "noise_rejection": 1.0
     },
     "degraded-rubric-v1": {
-      "fail_closed_distinction": 0.6666666666666666,
-      "degradation_reason_presence": 0.3333333333333333
+      "fail_closed_distinction": 1.0,
+      "degradation_reason_presence": 0.6666666666666666
     },
     "verification-rubric-v1": {
       "evidence_binding": 0.0,
@@ -136,8 +136,8 @@
       {
         "id": "abstain-nonsense-2",
         "kind": "abstain",
-        "ok": false,
-        "hits": 3
+        "ok": true,
+        "hits": 0
       }
     ],
     "claim": [
@@ -321,9 +321,9 @@
     "degraded": [
       {
         "id": "deg-empty-query",
-        "ok": false,
-        "refused": false,
-        "results": 3
+        "ok": true,
+        "refused": true,
+        "results": 0
       },
       {
         "id": "deg-private-ingest",
@@ -344,7 +344,7 @@
         "evidence_items": 5,
         "has_evidence_source": false,
         "ledger_ok": true,
-        "ms": 41230
+        "ms": 60653
       },
       {
         "id": "ver-unbound-claim",
@@ -352,7 +352,7 @@
         "evidence_items": 5,
         "has_evidence_source": false,
         "ledger_ok": true,
-        "ms": 14757
+        "ms": 8819
       }
     ]
   },
@@ -361,7 +361,7 @@
     "rubrics": {
       "retrieval-rubric-v1": {
         "rubric": "retrieval-rubric-v1",
-        "score": 0.9,
+        "score": 1.0,
         "verdict": "PASS",
         "missing_dimensions": [],
         "failed_dimensions": [],
@@ -387,12 +387,10 @@
       },
       "degraded-rubric-v1": {
         "rubric": "degraded-rubric-v1",
-        "score": 0.5333,
-        "verdict": "FAIL",
+        "score": 0.8667,
+        "verdict": "PASS",
         "missing_dimensions": [],
-        "failed_dimensions": [
-          "degradation_reason_presence"
-        ],
+        "failed_dimensions": [],
         "threshold": 0.75
       }
     }

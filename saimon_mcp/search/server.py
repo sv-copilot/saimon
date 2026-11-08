@@ -501,6 +501,7 @@ async def _retrieve_and_rerank(
         kept_count=outcome.kept_count,
         top_score=outcome.top_score,
         fail_safe_fired=outcome.fail_safe_fired,
+        lexical_support=outcome.lexical_support,
         requery_count=requery_count,
         reformulated_query=reformulated,
     )
@@ -509,6 +510,7 @@ async def _retrieve_and_rerank(
         "results": outcome.ranked,
         "total": len(outcome.ranked),
         "no_strong_evidence": outcome.fail_safe_fired,
+        "lexical_support": outcome.lexical_support,
         "requery_count": requery_count,
     }
 
@@ -526,7 +528,11 @@ async def search_knowledge_graph(
         query=payload.parameters.get("query"),
     )
 
-    query = payload.parameters.get("query", "")
+    query = str(payload.parameters.get("query", "") or "")
+    if not query.strip():
+        # An empty query is bad input, not "no match". Returning hits for "" makes
+        # the two indistinguishable to a caller (found by the golden degraded probe).
+        return _error(payload.trace_id, "Parameter 'query' is required and must not be empty.")
     limit = min(int(payload.parameters.get("limit", 10)), 100)
     user_id = payload.parameters.get("user_id")  # optional — scopes results
 

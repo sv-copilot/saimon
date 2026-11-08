@@ -144,6 +144,7 @@ async def main() -> int:
     ap.add_argument("--limit-chunks", type=int, default=50)
     ap.add_argument("--max-claims", type=int, default=6)
     ap.add_argument("--concurrency", type=int, default=4, help="parallel LLM calls")
+    ap.add_argument("--wave", type=int, default=24, help="chunks per stored batch")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -181,30 +182,38 @@ async def main() -> int:
             except Exception:  # noqa: BLE001 — one bad chunk must not stop the run
                 return chunk, None
 
-    for chunk, claims in await asyncio.gather(*(process(c) for c in chunks)):
-        done += 1
-        label = f"[{done}/{len(chunks)}]"
-        if claims is None:
-            counts["chunk_fail"] += 1
-            print(f"{label} ERROR could not extract", flush=True)
-            continue
-        if not claims:
-            counts["empty"] += 1
-            print(f"{label} none  {chunk['document_title'][:50]} #{chunk['chunk_index']}", flush=True)
-            continue
-        stored = 0
-        for claim in claims:
-            outcome = await store_claim(db, claim, chunk, args.dry_run)
-            if outcome == "new":
-                counts["new"] += 1
-                stored += 1
-            elif outcome == "dupe":
-                counts["dupe"] += 1
-        print(
-            f"{label} +{stored:2d}/{len(claims):2d} "
-            f"{chunk['document_title'][:48]} #{chunk['chunk_index']}",
-            flush=True,
-        )
+    # Store in waves: a whole-corpus gather would hold every result in memory and
+    # write nothing until the last chunk finished, losing progress on a restart.
+    wave = max(1, args.wave)
+    for offset in range(0, len(chunks), wave):
+        batch = chunks[offset : offset + wave]
+        for chunk, claims in await asyncio.gather(*(process(c) for c in batch)):
+            done += 1
+            label = f"[{done}/{len(chunks)}]"
+            if claims is None:
+                counts["chunk_fail"] += 1
+                print(f"{label} ERROR could not extract", flush=True)
+                continue
+            if not claims:
+                counts["empty"] += 1
+                print(
+                    f"{label} none  {chunk['document_title'][:50]} #{chunk['chunk_index']}",
+                    flush=True,
+                )
+                continue
+            stored = 0
+            for claim in claims:
+                outcome = await store_claim(db, claim, chunk, args.dry_run)
+                if outcome == "new":
+                    counts["new"] += 1
+                    stored += 1
+                elif outcome == "dupe":
+                    counts["dupe"] += 1
+            print(
+                f"{label} +{stored:2d}/{len(claims):2d} "
+                f"{chunk['document_title'][:48]} #{chunk['chunk_index']}",
+                flush=True,
+            )
 
     print(
         f"\nclaims new={counts['new']} dupe={counts['dupe']} "

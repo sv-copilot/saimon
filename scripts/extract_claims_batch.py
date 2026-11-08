@@ -110,6 +110,8 @@ async def store_claim(
         "topic": claim.get("topic") or "",
         "confidence": claim.get("confidence_0_1"),
         "rationale": claim.get("rationale") or "",
+        "score": claim.get("score"),
+        "reasons": claim.get("reasons") or [],
         "extractor": EXTRACTOR,
     }
     await db.execute(

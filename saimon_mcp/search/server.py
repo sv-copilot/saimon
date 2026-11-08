@@ -68,12 +68,35 @@ def _rerank_embed_fn() -> Any:
     embedding backend as the vector search path, so cosine similarity can be
     computed for keyword-only passages that have no precomputed embedding.
     """
-    from research_shared.embedding import EmbeddingConfig, embed_local
+    from research_shared.embedding import EmbeddingConfig, embed_local, query_embed_text
 
     cfg = EmbeddingConfig.from_env()
 
     def embed(text: str) -> list[float] | None:
-        return embed_local(text, cfg.model, cfg.dimensions)
+        return embed_local(query_embed_text(text), cfg.model, cfg.dimensions)
+
+    return embed
+
+
+def _prefixes_on() -> bool:
+    """Prefixes are opt-in; with them off the passage path must stay unchanged."""
+    from research_shared.embedding import task_prefixes_enabled
+
+    return task_prefixes_enabled()
+
+
+def _rerank_passage_embed_fn():
+    """Passage embedder — same model, document task prefix."""
+    from research_shared.embedding import (
+        EmbeddingConfig,
+        document_embed_text,
+        embed_local,
+    )
+
+    cfg = EmbeddingConfig.from_env()
+
+    def embed(text: str) -> list[float] | None:
+        return embed_local(document_embed_text(text), cfg.model, cfg.dimensions)
 
     return embed
 
@@ -333,16 +356,18 @@ async def _vector_search(
     Returns None when the query cannot be embedded (no local model) or no DB
     pool is available, so callers fall back to keyword search.
     """
-    from research_shared.embedding import EmbeddingConfig, embed_local
+    from research_shared.embedding import EmbeddingConfig, embed_local, query_embed_text
 
     cfg = EmbeddingConfig.from_env()
-    vector = embed_local(query, cfg.model, cfg.dimensions, cfg.model_path or None)
+    vector = embed_local(query_embed_text(query), cfg.model, cfg.dimensions, cfg.model_path or None)
     if vector is None or _db_pool is None:
         return None
 
     select = (
         "SELECT id, title, body, content_type, "
         "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
+        "COALESCE(metadata->>'status', 'ready') as doc_status, "
+        "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
         "1 - (embedding <=> $1) as similarity "
         "FROM knowledge_graph_nodes "
         "WHERE embedding IS NOT NULL"
@@ -392,12 +417,15 @@ async def _keyword_search(
         user_clause = " AND user_id IS NULL"
         user_params = []
 
+
     if len(words) == 1:
         params = user_params + [f"%{words[0]}%", limit]
         offset = len(user_params)
         rows = await _db_pool.fetch(
             "SELECT id, title, body, content_type, "
-            "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
+            "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
+            "COALESCE(metadata->>'status', 'ready') as doc_status, "
+            "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review "
             "FROM knowledge_graph_nodes "
             "WHERE (title ILIKE $" + str(offset + 1) + " OR body ILIKE $" + str(offset + 1) + ")"
             + user_clause + " "
@@ -414,7 +442,9 @@ async def _keyword_search(
         params.append(limit)
         sql = (
             "SELECT id, title, body, content_type, "
-            "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
+            "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
+            "COALESCE(metadata->>'status', 'ready') as doc_status, "
+            "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review "
             "FROM knowledge_graph_nodes "
             "WHERE " + " AND ".join(conditions) + user_clause + " "
             "ORDER BY created_at DESC LIMIT $" + str(len(params))
@@ -466,6 +496,8 @@ async def _retrieve_and_rerank(
     limit: int,
     user_id: str | None,
     logger: Any,
+    allow_failed: bool = False,
+    review_statuses: list[str] | None = None,
 ) -> dict[str, Any]:
     """Retrieve candidates, rerank them, and apply the fail-safe no-answer gate.
 
@@ -481,7 +513,19 @@ async def _retrieve_and_rerank(
     candidate_limit = max(limit * 2, config.top_k)
 
     candidates = await _search_candidates(query, candidate_limit, user_id)
-    outcome = rerank(query, candidates, config, embed_fn=embed_fn, top_k=limit)
+    if not allow_failed:
+        candidates = [
+            c for c in candidates if (c.get("doc_status") or "ready") != "failed"
+        ]
+    from research_shared.review import filter_by_review
+
+    candidates = filter_by_review(candidates, review_statuses)
+    outcome = rerank(
+        query, candidates, config,
+        embed_fn=embed_fn,
+        passage_embed_fn=_rerank_passage_embed_fn() if _prefixes_on() else None,
+        top_k=limit,
+    )
 
     requery_count = 0
     reformulated = query
@@ -491,8 +535,18 @@ async def _retrieve_and_rerank(
         requery_candidates = await _search_candidates(
             reformulated, candidate_limit, user_id
         )
+        if not allow_failed:
+            requery_candidates = [
+                c for c in requery_candidates if (c.get("doc_status") or "ready") != "failed"
+            ]
+        from research_shared.review import filter_by_review as _filter_review
+
+        requery_candidates = _filter_review(requery_candidates, review_statuses)
         outcome = rerank(
-            reformulated, requery_candidates, config, embed_fn=embed_fn, top_k=limit
+            reformulated, requery_candidates, config,
+            embed_fn=embed_fn,
+        passage_embed_fn=_rerank_passage_embed_fn() if _prefixes_on() else None,
+        top_k=limit,
         )
 
     logger.info(
@@ -501,6 +555,7 @@ async def _retrieve_and_rerank(
         kept_count=outcome.kept_count,
         top_score=outcome.top_score,
         fail_safe_fired=outcome.fail_safe_fired,
+        lexical_support=outcome.lexical_support,
         requery_count=requery_count,
         reformulated_query=reformulated,
     )
@@ -509,6 +564,7 @@ async def _retrieve_and_rerank(
         "results": outcome.ranked,
         "total": len(outcome.ranked),
         "no_strong_evidence": outcome.fail_safe_fired,
+        "lexical_support": outcome.lexical_support,
         "requery_count": requery_count,
     }
 
@@ -526,14 +582,22 @@ async def search_knowledge_graph(
         query=payload.parameters.get("query"),
     )
 
-    query = payload.parameters.get("query", "")
+    query = str(payload.parameters.get("query", "") or "")
+    if not query.strip():
+        # An empty query is bad input, not "no match". Returning hits for "" makes
+        # the two indistinguishable to a caller (found by the golden degraded probe).
+        return _error(payload.trace_id, "Parameter 'query' is required and must not be empty.")
     limit = min(int(payload.parameters.get("limit", 10)), 100)
     user_id = payload.parameters.get("user_id")  # optional — scopes results
 
     # ── try DB backend ──
     if _db_pool is not None:
         try:
-            data = await _retrieve_and_rerank(query, limit, user_id, logger)
+            allow_failed = bool(payload.parameters.get("allow_failed_documents", False))
+            review_statuses = payload.parameters.get("review_statuses")
+            data = await _retrieve_and_rerank(
+                query, limit, user_id, logger, allow_failed, review_statuses
+            )
             results = data["results"]
             resp = _ok(
                 trace_id=payload.trace_id,
@@ -1459,6 +1523,20 @@ async def ingest_document(
     from research_shared.text_quality import text_quality_ok, text_quality_score
 
     logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
+    from research_shared.lifecycle import (
+        STATUS_CHUNKING,
+        STATUS_EMBEDDING,
+        STATUS_READY,
+        ensure_document_stub,
+        mark_failed,
+        set_document_status,
+    )
+
+    doi = "url:" + url
+    try:
+        await ensure_document_stub(_db_pool, doi=doi, title=str(title or url))
+    except Exception:  # noqa: BLE001 — lifecycle must never block an ingest
+        logger.warning("lifecycle_stub_failed", doi=doi)
     logger.log_request(
         content_type=payload.content_type, tool="ingest_document", url=url
     )
@@ -1484,34 +1562,49 @@ async def ingest_document(
             data, file_type = await _fetch_document(url)
             text = extract_text(data, file_type)
     except Exception as exc:  # noqa: BLE001 — a fetch failure is an error response
+        await mark_failed(_db_pool, doi=doi, error=f"download failed: {exc}")
         return _error(payload.trace_id, f"download failed: {exc}")
 
     if not text:
+        await mark_failed(
+            _db_pool, doi=doi, error=f"could not extract text (file_type={file_type or 'unknown'})"
+        )
         return _error(
             payload.trace_id,
             f"could not extract text (file_type={file_type or 'unknown'})",
         )
     if not text_quality_ok(text):
+        await mark_failed(_db_pool, doi=doi, error="quality gate rejected the extracted text")
         return _error(
             payload.trace_id,
             "quality gate rejected the extracted text "
             f"(score={round(text_quality_score(text), 4)})",
         )
 
+    await set_document_status(_db_pool, doi=doi, status=STATUS_CHUNKING)
     chunks = chunk_text(text)
     if not chunks:
         return _error(payload.trace_id, "extracted text produced no chunks")
 
-    from research_shared.embedding import EmbeddingConfig, embed_many_local
+    from research_shared.embedding import (
+        EmbeddingConfig,
+        document_embed_text,
+        embed_many_local,
+    )
 
+    await set_document_status(_db_pool, doi=doi, status=STATUS_EMBEDDING)
     emb_cfg = EmbeddingConfig.from_env()
     embeddings = embed_many_local(
-        chunks, emb_cfg.model, emb_cfg.dimensions, emb_cfg.model_path or None
+        [document_embed_text(c) for c in chunks],
+        emb_cfg.model,
+        emb_cfg.dimensions,
+        emb_cfg.model_path or None,
     )
     if all(vector is None for vector in embeddings):
         # Fail closed: chunks stored without embeddings are invisible to the
         # vector path, so a "successful" ingest would silently add nothing to
         # retrieval. Name the backend instead of writing unsearchable rows.
+        await mark_failed(_db_pool, doi=doi, error="embedding backend unavailable")
         return _error(
             payload.trace_id,
             "embedding backend unavailable: no chunk could be embedded "
@@ -1533,6 +1626,7 @@ async def ingest_document(
         collection=collection,
     )
 
+    await set_document_status(_db_pool, doi=doi, status=STATUS_READY)
     logger.log_response(status="success", citations_count=persisted["chunk_count"])
     return _ok(
         trace_id=payload.trace_id,

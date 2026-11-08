@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, rc, dev]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
@@ -51,9 +55,11 @@ jobs:
   # ── Offline eval gate (all branches) ──────────────────────────────
   # SAIMON-EVAL-CI-GATE-1 (#27): the committed golden fixture suites must
   # pass offline. Pure Python + stdlib — no network, no model keys.
+  # Self-hosted: pure stdlib checks (fixtures + golden self-check). Running them
+  # on the staging runner keeps GitHub-hosted minutes for jobs that need them.
   eval:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    runs-on: [self-hosted, Linux, X64, staging]
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4

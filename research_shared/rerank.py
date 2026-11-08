@@ -61,6 +61,7 @@ class RerankConfig:
     max_requery: int = DEFAULT_MAX_REQUERY
     lexical_weight: float = DEFAULT_LEXICAL_WEIGHT
     semantic_weight: float = DEFAULT_SEMANTIC_WEIGHT
+    require_lexical_below_strong: bool = True
 
     @classmethod
     def from_env(cls) -> RerankConfig:
@@ -81,6 +82,10 @@ class RerankConfig:
             max_requery=int(
                 os.getenv("SAIMON_RERANK_MAX_REQUERY", str(DEFAULT_MAX_REQUERY))
             ),
+            require_lexical_below_strong=os.getenv(
+                "SAIMON_RERANK_REQUIRE_LEXICAL", "1"
+            ).strip().lower()
+            not in {"0", "false", "no"},
             lexical_weight=float(
                 os.getenv("SAIMON_RERANK_LEXICAL_WEIGHT", str(DEFAULT_LEXICAL_WEIGHT))
             ),
@@ -101,6 +106,7 @@ class RerankOutcome:
     candidate_count: int
     kept_count: int
     fail_safe_fired: bool
+    lexical_support: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +124,16 @@ def _passage_text(candidate: dict[str, Any]) -> str:
     title = candidate.get("title") or ""
     body = candidate.get("body") or ""
     return f"{title}\n{body}".strip()
+
+
+def content_tokens(text: str) -> set[str]:
+    """Tokens that can carry meaning: >=3 chars, not stopwords."""
+    return {tok for tok in tokenize(text) if len(tok) >= 3 and tok not in _STOPWORDS}
+
+
+def has_lexical_support(query: str, text: str, min_overlap: int = 1) -> bool:
+    """True when *text* shares at least *min_overlap* content tokens with *query*."""
+    return len(content_tokens(query) & content_tokens(text)) >= min_overlap
 
 
 def bm25_scores(
@@ -203,7 +219,7 @@ def reformulate_query(query: str) -> str:
 
 
 def gate_decision(
-    scored: list[dict[str, Any]], config: RerankConfig
+    scored: list[dict[str, Any]], config: RerankConfig, lexical_support: bool = True
 ) -> tuple[bool, float, float]:
     """Decide whether a scored candidate set must abstain.
 
@@ -239,6 +255,17 @@ def gate_decision(
         and margin_gap < config.min_margin
     ):
         return True, top_score, margin_gap
+    # A weak top score with no shared content token is semantic drift: the
+    # embedding landed near something unrelated (observed live: a nonsense probe
+    # scored 0.767 against a bookkeeping page whose only overlap was stopwords).
+    # Requiring lexical support below ``strong_relevance`` keeps paraphrase hits
+    # that share vocabulary and rejects the rest.
+    if (
+        config.require_lexical_below_strong
+        and top_score < config.strong_relevance
+        and not lexical_support
+    ):
+        return True, top_score, margin_gap
     return False, top_score, margin_gap
 
 
@@ -248,6 +275,7 @@ def rerank(
     config: RerankConfig | None = None,
     *,
     embed_fn: Callable[[str], list[float] | None] | None = None,
+    passage_embed_fn: Callable[[str], list[float] | None] | None = None,
     top_k: int | None = None,
 ) -> RerankOutcome:
     """Score *candidates* against *query* and return the ranked top-K.
@@ -259,6 +287,9 @@ def rerank(
     """
     cfg = config or RerankConfig()
     k = top_k if top_k is not None else cfg.top_k
+    # Queries and passages are embedded with different task prefixes, so they get
+    # different embedders; defaulting keeps every existing caller working.
+    passage_embed = passage_embed_fn or embed_fn
 
     passages = [_passage_text(c) for c in candidates]
     lexical_raw = bm25_scores(query, passages)
@@ -278,7 +309,7 @@ def rerank(
 
         similarity = candidate.get("similarity")
         if similarity is None and embed_fn is not None and query_embedding is not None:
-            passage_embedding = embed_fn(_passage_text(candidate))
+            passage_embedding = passage_embed(_passage_text(candidate))
             if passage_embedding is not None:
                 similarity = cosine_similarity(query_embedding, passage_embedding)
 
@@ -297,7 +328,10 @@ def rerank(
         scored.append(item)
 
     scored.sort(key=lambda r: r["relevance_score"], reverse=True)
-    fail_safe_fired, top_score, margin_gap = gate_decision(scored, cfg)
+    lexical_support = (
+        has_lexical_support(query, _passage_text(scored[0])) if scored else True
+    )
+    fail_safe_fired, top_score, margin_gap = gate_decision(scored, cfg, lexical_support)
     second_score = float(scored[1]["relevance_score"]) if len(scored) > 1 else 0.0
     ranked = [] if fail_safe_fired else scored[:k]
 
@@ -309,4 +343,5 @@ def rerank(
         candidate_count=len(candidates),
         kept_count=len(ranked),
         fail_safe_fired=fail_safe_fired,
+        lexical_support=lexical_support,
     )

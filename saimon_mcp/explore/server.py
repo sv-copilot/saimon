@@ -33,12 +33,34 @@ def _rerank_embed_fn() -> Any:
     Same local backend the vector path uses, so cosine similarity can be
     computed for keyword-only rows that carry no precomputed embedding.
     """
-    from research_shared.embedding import EmbeddingConfig, embed_local
+    from research_shared.embedding import EmbeddingConfig, embed_local, query_embed_text
 
     cfg = EmbeddingConfig.from_env()
 
     def embed(text: str) -> list[float] | None:
-        return embed_local(text, cfg.model, cfg.dimensions)
+        return embed_local(query_embed_text(text), cfg.model, cfg.dimensions)
+
+    return embed
+
+
+def _prefixes_on() -> bool:
+    """Prefixes are opt-in; with them off the passage path must stay unchanged."""
+    from research_shared.embedding import task_prefixes_enabled
+
+    return task_prefixes_enabled()
+
+
+def _rerank_passage_embed_fn():
+    from research_shared.embedding import (
+        EmbeddingConfig,
+        document_embed_text,
+        embed_local,
+    )
+
+    cfg = EmbeddingConfig.from_env()
+
+    def embed(text: str) -> list[float] | None:
+        return embed_local(document_embed_text(text), cfg.model, cfg.dimensions)
 
     return embed
 
@@ -255,16 +277,28 @@ async def explore_content(
             candidate_limit = max(limit * 2, _rerank_config.top_k)
             rows = await _db_pool.fetch(
                 "SELECT id, title, content_type, body, "
+                "COALESCE(metadata->>'status', 'ready') as doc_status, "
+                "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
                 "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
                 "FROM knowledge_graph_nodes "
                 "WHERE title ILIKE $1 OR body ILIKE $1 "
                 "ORDER BY created_at DESC LIMIT $2",
                 f"%{query}%", candidate_limit,
             )
-            candidates = [dict(r) for r in rows]
+            candidates = [
+                dict(r) for r in rows
+                if (dict(r).get("doc_status") or "ready") != "failed"
+            ]
+            from research_shared.review import filter_by_review
+
+            candidates = filter_by_review(
+                candidates, payload.parameters.get("review_statuses")
+            )
             outcome = rerank(
                 query, candidates, _rerank_config,
-                embed_fn=_rerank_embed_fn(), top_k=limit,
+                embed_fn=_rerank_embed_fn(),
+                passage_embed_fn=_rerank_passage_embed_fn() if _prefixes_on() else None,
+                top_k=limit,
             )
             results = outcome.ranked
             logger.info(

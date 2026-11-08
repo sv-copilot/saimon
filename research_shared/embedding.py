@@ -50,6 +50,47 @@ class EmbeddingConfig:
         )
 
 
+# ---------------------------------------------------------------------------
+# task-prefix text builders (SAIMON-EMBED-TASK-PREFIXES-1)
+# ---------------------------------------------------------------------------
+
+DOCUMENT_PREFIX = "search_document: "
+QUERY_PREFIX = "search_query: "
+
+# nomic-embed-text-v1.5 is trained with these prefixes; embedding both sides
+# without them wastes the contrastive objective. Default OFF: the existing corpus
+# was embedded without prefixes, so enabling this before a re-embed would put
+# queries and documents in different spaces.
+_PREFIX_ENV = "SAIMON_EMBED_TASK_PREFIXES"
+EMBED_CHAR_CAP = 8000  # matches embed_local's truncation window
+
+
+def task_prefixes_enabled() -> bool:
+    import os
+
+    return os.getenv(_PREFIX_ENV, "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def document_embed_text(body: str, *, max_chars: int = EMBED_CHAR_CAP) -> str:
+    """Text to embed for a stored passage. The stored body is never changed.
+
+    Prefix only — no title — so the ingest path and the query-time passage path
+    embed identical text for the same chunk.
+    """
+    text = (body or "").strip()
+    if len(text) > max_chars:
+        text = text[:max_chars]
+    return f"{DOCUMENT_PREFIX}{text}" if task_prefixes_enabled() else text
+
+
+def query_embed_text(query: str) -> str:
+    """Text to embed for a retrieval query."""
+    cleaned = (query or "").strip()
+    if not task_prefixes_enabled():
+        return cleaned
+    return f"{QUERY_PREFIX}{cleaned}"
+
+
 _EMBEDDING_MODEL_CACHE: dict[tuple[str, str], object] = {}
 
 
@@ -174,8 +215,14 @@ def embed_node_text(
     """Embed a KG node's searchable text (title + body) into a vector.
 
     Returns None for empty input or on embedding failure (fail-closed).
+
+    With task prefixes on, the text matches what ingest embeds (prefix + body);
+    with them off, behaviour is byte-identical to the pre-prefix path.
     """
-    text = f"{title or ''}\n{body or ''}".strip()
+    if task_prefixes_enabled():
+        text = document_embed_text(body)
+    else:
+        text = f"{title or ''}\n{body or ''}".strip()
     if not text:
         return None
     if model_path:

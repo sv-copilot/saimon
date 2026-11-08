@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import json as _json
 import logging as _logging
+import os
 import re as _re
 from typing import Any
 
+from research_shared.claims import DEFAULT_ACCEPT_THRESHOLD, score_claim_candidate
 from saimon_mcp.crew.llm import make_crew_llm
 
 _log = _logging.getLogger("saimon.crew.claim_extract")
@@ -116,4 +118,15 @@ async def run_extract_claims(source_text: str, max_claims: int = 10) -> list[dic
         raw = resolved.llm.call([{"role": "user", "content": prompt}])
     except Exception:  # noqa: BLE001 — fail-closed, never crash
         return []
-    return parse_claims(str(raw))
+
+    threshold = float(
+        os.getenv("SAIMON_CLAIM_MIN_SCORE", str(DEFAULT_ACCEPT_THRESHOLD))
+    )
+    accepted: list[dict] = []
+    for claim in parse_claims(str(raw)):
+        score, reasons = score_claim_candidate(claim.get("claim_text", ""))
+        claim["score"] = score
+        claim["reasons"] = reasons
+        if score >= threshold:
+            accepted.append(claim)
+    return accepted

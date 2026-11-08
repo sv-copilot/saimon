@@ -177,40 +177,174 @@ def extract_text(data: bytes, file_type: str | None) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+_SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'(\[])")
+_CLAUSE_BOUNDARY_RE = re.compile(r"(?<=[,;:])\s+")
+_LIST_ITEM_RE = re.compile(r"^(?:\d+[).]|[-*•])\s+")
+_LEADER_RE = re.compile(r"\.{4,}")
+
+
+def _is_low_signal_line(line: str) -> bool:
+    """Drop rules, dot leaders, bare numbers and punctuation-only lines."""
+    stripped = line.strip()
+    if not stripped:
+        return True
+    if re.fullmatch(r"[\W_]+", stripped) or _LEADER_RE.search(stripped):
+        return True
+    if re.fullmatch(r"\(?\d+\)?", stripped):
+        return True
+    alpha = sum(ch.isalpha() for ch in stripped)
+    if alpha == 0:
+        return True
+    punctuation = sum((not ch.isalnum()) and (not ch.isspace()) for ch in stripped)
+    return punctuation > alpha * 2 and len(stripped) > 12
+
+
+def _clean_paragraphs(raw_text: str) -> list[str]:
+    """Recover paragraph boundaries from the extracted text.
+
+    Blank lines end a paragraph, a list item starts its own, and a line ending in
+    a hyphen continues the previous one (PDF text extraction splits words across
+    lines). Low-signal lines are dropped rather than embedded as noise.
+    """
+    paragraphs: list[str] = []
+    current: list[str] = []
+
+    def flush() -> None:
+        if current:
+            paragraphs.append(" ".join(current).strip())
+            current.clear()
+
+    for raw_line in raw_text.splitlines():
+        line = re.sub(r"\s+", " ", raw_line).strip()
+        if not line:
+            flush()
+            continue
+        if _is_low_signal_line(line):
+            flush()
+            continue
+        if _LIST_ITEM_RE.match(line):
+            flush()
+            current.append(line)
+            continue
+        if current and current[-1].endswith("-"):
+            current[-1] = f"{current[-1][:-1]}{line}"
+            continue
+        current.append(line)
+
+    flush()
+    return [paragraph for paragraph in paragraphs if paragraph]
+
+
+def _split_words(text: str, max_chars: int) -> list[str]:
+    words = text.split()
+    if not words:
+        return []
+    chunks: list[str] = []
+    current = words[0]
+    for word in words[1:]:
+        candidate = f"{current} {word}"
+        if len(candidate) <= max_chars:
+            current = candidate
+            continue
+        chunks.append(current)
+        current = word
+    chunks.append(current)
+    return chunks
+
+
+def _split_units(paragraph: str, max_chars: int) -> list[str]:
+    """Sentences, then clauses, then words — never split a sentence needlessly."""
+    sentences = [s.strip() for s in _SENTENCE_BOUNDARY_RE.split(paragraph) if s.strip()]
+    if not sentences:
+        sentences = [paragraph.strip()]
+
+    units: list[str] = []
+    for sentence in sentences:
+        if len(sentence) <= max_chars:
+            units.append(sentence)
+            continue
+        clauses = [c.strip() for c in _CLAUSE_BOUNDARY_RE.split(sentence) if c.strip()]
+        if len(clauses) > 1:
+            for clause in clauses:
+                units.extend(
+                    [clause] if len(clause) <= max_chars else _split_words(clause, max_chars)
+                )
+            continue
+        units.extend(_split_words(sentence, max_chars))
+    return units
+
+
 def chunk_text(
     text: str,
     min_chars: int = FULLTEXT_CHUNK_MIN,
     max_chars: int = FULLTEXT_CHUNK_MAX,
     overlap: int = FULLTEXT_CHUNK_OVERLAP,
 ) -> list[str]:
-    """Split *text* into overlapping chunks of at most *max_chars*.
+    """Pack *text* into chunks that respect its form.
 
-    Chunks break on word boundaries and overlap by *overlap* characters
-    to preserve context across boundaries.  Every chunk is ≤ *max_chars*,
-    which keeps it well under the 8000-char ``embed_local`` cap.
+    Paragraph and sentence boundaries come from the source document; a chunk is
+    filled towards *min_chars* and never exceeds *max_chars*, and it only breaks
+    a sentence when that sentence alone is longer than a chunk. The last unit of
+    a chunk is repeated at the head of the next one when it fits in *overlap*,
+    so a fact split across a boundary stays retrievable from both sides.
+
+    Previously this flattened every newline before cutting a fixed window, which
+    shredded tables and headings; the form of the source is now the first input.
     """
-    text = " ".join((text or "").split())
+    text = (text or "").strip()
     if not text:
         return []
     if len(text) <= max_chars:
-        return [text]
+        cleaned = " ".join(_clean_paragraphs(text))
+        return [cleaned] if cleaned else []
+
+    units: list[str] = []
+    for paragraph in _clean_paragraphs(text):
+        units.extend(_split_units(paragraph, max_chars))
+    if not units:
+        units = _split_words(" ".join(text.split()), max_chars)
+
+    def overlap_tail(units_in_chunk: list[str]) -> list[str]:
+        if overlap <= 0:
+            return []
+        tail: list[str] = []
+        total = 0
+        for unit in reversed(units_in_chunk):
+            if total + len(unit) + (1 if tail else 0) > overlap:
+                break
+            tail.insert(0, unit)
+            total += len(unit) + (1 if len(tail) > 1 else 0)
+        return tail
 
     chunks: list[str] = []
-    start = 0
-    while start < len(text):
-        end = min(start + max_chars, len(text))
-        if end < len(text):
-            # Prefer breaking at a word boundary in the last half of the window.
-            boundary = text.rfind(" ", start + min_chars, end)
-            if boundary != -1:
-                end = boundary
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        if end >= len(text):
-            break
-        start = max(end - overlap, start + 1)
-    return chunks
+    current: list[str] = []
+
+    def flush() -> None:
+        nonlocal current
+        if current:
+            chunks.append(" ".join(current))
+            current = overlap_tail(current)
+
+    for unit in units:
+        while len(unit) > max_chars:
+            if current:
+                flush()
+                current = []
+            head = unit[:max_chars].rsplit(" ", 1)[0] or unit[:max_chars]
+            chunks.append(head)
+            unit = unit[len(head) :].strip()
+        current_len = len(" ".join(current))
+        if current and current_len + 1 + len(unit) > max_chars:
+            flush()
+            current_len = len(" ".join(current))
+        current.append(unit)
+        # Fill towards the cap rather than flushing at the floor: a chunk that
+        # stops at min_chars throws away context the next sentence would give.
+        if len(" ".join(current)) >= max_chars * 0.9:
+            flush()
+
+    flush()
+    return [c for c in chunks if c]
 
 
 # ---------------------------------------------------------------------------

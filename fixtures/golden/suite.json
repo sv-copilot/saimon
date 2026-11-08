@@ -1,0 +1,221 @@
+{
+  "schema_version": 1,
+  "description": "Golden quality corpus for Saimon. Rubrics are weighted dimensions measured by scripts/eval_golden.py; a dimension that the run did not measure makes the rubric INCOMPLETE rather than passing.",
+  "rubrics": {
+    "retrieval-rubric-v1": {
+      "pass_threshold": 0.75,
+      "dimensions": {
+        "hit_rate": 0.45,
+        "score_floor": 0.25,
+        "abstention": 0.2,
+        "provenance": 0.1
+      }
+    },
+    "claim-rubric-v1": {
+      "pass_threshold": 0.75,
+      "dimensions": {
+        "structural_precision": 0.4,
+        "numeric_signal": 0.3,
+        "noise_rejection": 0.3
+      }
+    },
+    "verification-rubric-v1": {
+      "pass_threshold": 0.75,
+      "dimensions": {
+        "evidence_binding": 0.5,
+        "ledger_completeness": 0.3,
+        "status_sanity": 0.2
+      }
+    },
+    "degraded-rubric-v1": {
+      "pass_threshold": 0.75,
+      "dimensions": {
+        "fail_closed_distinction": 0.6,
+        "degradation_reason_presence": 0.4
+      }
+    }
+  },
+  "cases": {
+    "retrieval": [
+      {
+        "id": "ret-seven-failures",
+        "query": "seven failure points when engineering a retrieval augmented generation system",
+        "expect_title": "Seven Failure Points",
+        "floor": 0.8
+      },
+      {
+        "id": "ret-entity-resolution",
+        "query": "entity resolution blocking matching clustering",
+        "expect_title": "Entity Resolution",
+        "floor": 0.75
+      },
+      {
+        "id": "ret-wip-schedules",
+        "query": "WIP overbilling underbilling contractor revenue",
+        "expect_title": "WIP schedules",
+        "floor": 0.8
+      },
+      {
+        "id": "ret-pgvector",
+        "query": "pgvector HNSW ef_search tuning",
+        "expect_title": "pgvector",
+        "floor": 0.75
+      },
+      {
+        "id": "ret-equipment-cost",
+        "query": "how to price equipment cost per hour for a landscaping job",
+        "expect_title": "Landscape Ontario",
+        "floor": 0.75
+      },
+      {
+        "id": "ret-shape-up",
+        "query": "fixed time variable scope appetite shape up",
+        "expect_title": "Shape Up",
+        "floor": 0.8
+      },
+      {
+        "id": "ret-multi-agent",
+        "query": "multi-agent system failure modes taxonomy",
+        "expect_title": "Why Do Multi-Agent",
+        "floor": 0.8
+      },
+      {
+        "id": "ret-bookkeeping-wage",
+        "query": "bookkeeping clerks median wage annual openings",
+        "expect_title": "O*NET",
+        "floor": 0.7
+      },
+      {
+        "id": "abstain-nonsense",
+        "query": "qintar blorfnax zwvx twinglewort",
+        "expect_empty": true
+      },
+      {
+        "id": "abstain-nonsense-2",
+        "query": "zzzq wobblewick frandish quintar",
+        "expect_empty": true
+      }
+    ],
+    "claim": [
+      {
+        "id": "claim-numeric",
+        "claim_text": "Accuracy degrades by 30% when relevant evidence sits in the middle of a long context.",
+        "expect": {
+          "has_number": true,
+          "has_unit": false,
+          "has_verb": true,
+          "is_name_list": false
+        }
+      },
+      {
+        "id": "claim-with-unit",
+        "claim_text": "The service handled 1,200 requests per minute during the load test.",
+        "expect": {
+          "has_number": true,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": false
+        }
+      },
+      {
+        "id": "claim-qualitative",
+        "claim_text": "Operators report that reconciliation takes six hours each week.",
+        "expect": {
+          "has_number": false,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": false
+        }
+      },
+      {
+        "id": "claim-time-anchored",
+        "claim_text": "In Q3 2025 the median invoice cycle was 41 days.",
+        "expect": {
+          "has_number": true,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": false
+        }
+      },
+      {
+        "id": "name-list",
+        "claim_text": "Smith, Jones, Alvarez, Chen",
+        "expect": {
+          "has_number": false,
+          "has_unit": false,
+          "has_verb": false,
+          "is_name_list": true
+        }
+      },
+      {
+        "id": "toc-line",
+        "claim_text": "Chapter ........ 42",
+        "expect": {
+          "has_number": true,
+          "has_unit": false,
+          "has_verb": false,
+          "is_name_list": false
+        }
+      },
+      {
+        "id": "noise-section",
+        "claim_text": "References",
+        "expect": {
+          "has_number": false,
+          "has_unit": false,
+          "has_verb": false,
+          "is_name_list": false
+        }
+      },
+      {
+        "id": "bare-number",
+        "claim_text": "17",
+        "expect": {
+          "has_number": true,
+          "has_unit": false,
+          "has_verb": false,
+          "is_name_list": false
+        }
+      }
+    ],
+    "verification": [
+      {
+        "id": "ver-supported-claim",
+        "claim_text": "Retrieval accuracy degrades when relevant evidence appears in the middle of a long context.",
+        "expect_status_any": [
+          "supported",
+          "mixed",
+          "contradicted",
+          "inconclusive"
+        ]
+      },
+      {
+        "id": "ver-unbound-claim",
+        "claim_text": "The Zorblax protocol requires 14 handshakes before any data transfer begins.",
+        "expect_status_any": [
+          "inconclusive"
+        ]
+      }
+    ],
+    "degraded": [
+      {
+        "id": "deg-empty-query",
+        "tool": "search",
+        "query": "",
+        "expect": "refused"
+      },
+      {
+        "id": "deg-private-ingest",
+        "tool": "ingest",
+        "url": "http://127.0.0.1/secret.pdf",
+        "expect": "refused"
+      },
+      {
+        "id": "deg-nonsense",
+        "tool": "search",
+        "query": "qintar blorfnax zwvx twinglewort",
+        "expect": "empty"
+      }
+    ]
+  }
+}

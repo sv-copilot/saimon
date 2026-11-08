@@ -66,6 +66,15 @@ jobs:
       - name: Run offline eval gate
         run: python3 scripts/eval.py gate --fixtures-root fixtures
 
+      # SAIMON-GOLDEN-EVAL-BASELINE-1 (#248): the committed golden report must
+      # re-score to the verdict it recorded, and no measured dimension may drift
+      # silently. Pure offline — no network, no keys.
+      - name: Golden corpus self-check
+        run: >-
+          python3 scripts/eval_golden.py verify
+          --report reports/golden-baseline.json
+          --baseline reports/golden-baseline.json
+
   # ── Build & push Docker image (dev, rc, and main branches, pushes to GHCR) ─
   # Runs on the `build`-labelled runner: the image is 3.6 GB and a build needs
   # ~6-8 GB of free layer space, which the 38 GB staging runner does not have

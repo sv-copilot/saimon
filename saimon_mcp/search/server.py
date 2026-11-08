@@ -1368,6 +1368,32 @@ def _ingest_url_error(url: str) -> str | None:
     return None
 
 
+BROWSER_UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/126.0.0.0 Safari/537.36"
+)
+MAX_INGEST_TEXT_CHARS = 4_000_000
+MIN_INGEST_TEXT_CHARS = 200
+
+
+def _ingest_headers() -> dict[str, str]:
+    """Headers for fetching a public document.
+
+    A self-identifying bot user-agent is refused outright by a large share of
+    .gov/.edu/trade sites (403/405), so the default presents a normal browser
+    identity while still fetching only public URLs the caller supplied.
+    Override with SAIMON_INGEST_USER_AGENT.
+    """
+    return {
+        "User-Agent": _os.environ.get("SAIMON_INGEST_USER_AGENT", BROWSER_UA),
+        "Accept": (
+            "text/html,application/xhtml+xml,application/pdf,"
+            "application/epub+zip;q=0.9,*/*;q=0.8"
+        ),
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+
 async def _fetch_document(url: str, max_bytes: int = 40 * 1024 * 1024) -> tuple[bytes, str | None]:
     """Fetch *url* and return (bytes, file_type). Raises on refusal/oversize."""
     from urllib.parse import urlparse
@@ -1375,7 +1401,7 @@ async def _fetch_document(url: str, max_bytes: int = 40 * 1024 * 1024) -> tuple[
     import httpx
 
     async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client, client.stream(
-        "GET", url, headers={"User-Agent": "saimon-ingest/1.0 (+spencervaradi.com)"}
+        "GET", url, headers=_ingest_headers()
     ) as resp:
         resp.raise_for_status()
         ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
@@ -1413,6 +1439,7 @@ async def ingest_document(
     url = str(payload.parameters.get("url") or "").strip()
     title = payload.parameters.get("title")
     collection = str(payload.parameters.get("collection") or "research")
+    provided_text = payload.parameters.get("text")
 
     if not url:
         return _error(payload.trace_id, "Parameter 'url' is required.")
@@ -1437,11 +1464,28 @@ async def ingest_document(
     )
 
     try:
-        data, file_type = await _fetch_document(url)
+        if provided_text is not None:
+            if not isinstance(provided_text, str):
+                return _error(payload.trace_id, "Parameter 'text' must be a string.")
+            text = provided_text.strip()
+            if len(text) < MIN_INGEST_TEXT_CHARS:
+                return _error(
+                    payload.trace_id,
+                    f"Parameter 'text' must be at least {MIN_INGEST_TEXT_CHARS} characters.",
+                )
+            if len(text) > MAX_INGEST_TEXT_CHARS:
+                return _error(
+                    payload.trace_id,
+                    f"Parameter 'text' exceeds {MAX_INGEST_TEXT_CHARS} characters.",
+                )
+            file_type = "txt"
+            data = text.encode("utf-8")
+        else:
+            data, file_type = await _fetch_document(url)
+            text = extract_text(data, file_type)
     except Exception as exc:  # noqa: BLE001 — a fetch failure is an error response
         return _error(payload.trace_id, f"download failed: {exc}")
 
-    text = extract_text(data, file_type)
     if not text:
         return _error(
             payload.trace_id,

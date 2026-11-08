@@ -364,7 +364,7 @@ async def _vector_search(
         return None
 
     select = (
-        "SELECT id, title, body, content_type, "
+        "SELECT id, title, body, content_type, unit_id, "
         "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
         "COALESCE(metadata->>'status', 'ready') as doc_status, "
         "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
@@ -422,7 +422,7 @@ async def _keyword_search(
         params = user_params + [f"%{words[0]}%", limit]
         offset = len(user_params)
         rows = await _db_pool.fetch(
-            "SELECT id, title, body, content_type, "
+            "SELECT id, title, body, content_type, unit_id, "
             "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
             "COALESCE(metadata->>'status', 'ready') as doc_status, "
             "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review "
@@ -441,7 +441,7 @@ async def _keyword_search(
             conditions.append(f"(title ILIKE ${len(params)} OR body ILIKE ${len(params)})")
         params.append(limit)
         sql = (
-            "SELECT id, title, body, content_type, "
+            "SELECT id, title, body, content_type, unit_id, "
             "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
             "COALESCE(metadata->>'status', 'ready') as doc_status, "
             "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review "

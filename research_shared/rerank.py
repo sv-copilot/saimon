@@ -137,9 +137,22 @@ def passage_text(row: dict[str, Any]) -> str:
     return _passage_text(row)
 
 
+def support_tokens(query: str) -> set[str]:
+    """Query tokens that can carry topical support.
+
+    Pure digits are excluded: a year ("2024") is a value, not evidence, and one
+    shared year was enough to keep "who won the 2024 super bowl" alive against a
+    story-mapping page at 0.732 (observed live, 2026-11-08). A query that is
+    *only* numeric keeps its digits so code and year lookups still work.
+    """
+    tokens = content_tokens(query)
+    non_numeric = {token for token in tokens if not token.isdigit()}
+    return non_numeric or tokens
+
+
 def has_lexical_support(query: str, text: str, min_overlap: int = 1) -> bool:
     """True when *text* shares at least *min_overlap* content tokens with *query*."""
-    return len(content_tokens(query) & content_tokens(text)) >= min_overlap
+    return len(support_tokens(query) & content_tokens(text)) >= min_overlap
 
 
 def bm25_scores(

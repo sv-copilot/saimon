@@ -107,6 +107,7 @@ class RerankOutcome:
     kept_count: int
     fail_safe_fired: bool
     lexical_support: bool = True
+    abstain_reason: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +130,11 @@ def _passage_text(candidate: dict[str, Any]) -> str:
 def content_tokens(text: str) -> set[str]:
     """Tokens that can carry meaning: >=3 chars, not stopwords."""
     return {tok for tok in tokenize(text) if len(tok) >= 3 and tok not in _STOPWORDS}
+
+
+def passage_text(row: dict[str, Any]) -> str:
+    """Public accessor for the text a candidate is scored/embedded on."""
+    return _passage_text(row)
 
 
 def has_lexical_support(query: str, text: str, min_overlap: int = 1) -> bool:
@@ -269,6 +275,35 @@ def gate_decision(
     return False, top_score, margin_gap
 
 
+def abstain_reason(
+    scored: list[dict[str, Any]], config: RerankConfig, lexical_support: bool = True
+) -> str | None:
+    """Why the gate abstained (None when it did not).
+
+    Callers need this: a requery helps when the phrasing was weak, but it cannot
+    help when the query shares no vocabulary with the corpus — and re-asking with
+    the reformulator's generic words ("... overview") manufactures the lexical
+    support the gate just refused. Observed live: a nonsense probe abstained,
+    was requeryied, and returned a bookkeeping page because "overview" matched.
+    """
+    if not scored:
+        return "empty"
+    top_score = float(scored[0]["relevance_score"])
+    if top_score < config.min_relevance:
+        return "floor"
+    if len(scored) > 1:
+        gap = top_score - float(scored[1]["relevance_score"])
+        if top_score < config.strong_relevance and gap < config.min_margin:
+            return "margin"
+    if (
+        config.require_lexical_below_strong
+        and top_score < config.strong_relevance
+        and not lexical_support
+    ):
+        return "no_lexical_support"
+    return None
+
+
 def rerank(
     query: str,
     candidates: list[dict[str, Any]],
@@ -332,6 +367,7 @@ def rerank(
         has_lexical_support(query, _passage_text(scored[0])) if scored else True
     )
     fail_safe_fired, top_score, margin_gap = gate_decision(scored, cfg, lexical_support)
+    reason = abstain_reason(scored, cfg, lexical_support) if fail_safe_fired else None
     second_score = float(scored[1]["relevance_score"]) if len(scored) > 1 else 0.0
     ranked = [] if fail_safe_fired else scored[:k]
 
@@ -344,4 +380,5 @@ def rerank(
         kept_count=len(ranked),
         fail_safe_fired=fail_safe_fired,
         lexical_support=lexical_support,
+        abstain_reason=reason,
     )

@@ -35,7 +35,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff pytest pytest-asyncio pip-audit
+          pip install ruff==0.17.4 pytest pytest-asyncio pip-audit
 
       - name: Ruff lint
         run: ruff check research_shared/ saimon_mcp/

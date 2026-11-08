@@ -27,6 +27,7 @@ import sys
 import uuid
 from typing import Any
 
+from research_shared.claims import claims_near_duplicate, normalise_claim
 from research_shared.db import DatabaseConfig, DatabasePool
 
 CONTENT_TYPE_CLAIM = "claim"
@@ -41,6 +42,41 @@ def normalise(claim_text: str) -> str:
 
 def claim_hash(claim_text: str) -> str:
     return hashlib.sha256(normalise(claim_text).encode("utf-8")).hexdigest()[:24]
+
+
+class NearDupIndex:
+    """In-memory token index so near-duplicate detection stays linear per claim."""
+
+    def __init__(self, rows: list[dict[str, Any]]):
+        self.texts: dict[str, str] = {}
+        self.by_token: dict[str, set[str]] = {}
+        for row in rows:
+            self.add(str(row["id"]), row["body"] or "")
+
+    def add(self, claim_id: str, text: str) -> None:
+        self.texts[claim_id] = text
+        for token in set(normalise_claim(text).split()):
+            self.by_token.setdefault(token, set()).add(claim_id)
+
+    def find(self, text: str) -> str | None:
+        tokens = set(normalise_claim(text).split())
+        candidates: set[str] = set()
+        for token in tokens:
+            candidates |= self.by_token.get(token, set())
+        # Compare against the most overlapping candidates first; cap the work so a
+        # common word cannot make one claim scan the whole corpus.
+        ranked = sorted(candidates, key=lambda cid: len(tokens & set(normalise_claim(self.texts[cid]).split())), reverse=True)
+        for cid in ranked[:50]:
+            if claims_near_duplicate(text, self.texts[cid]):
+                return cid
+        return None
+
+
+async def load_near_dup_index(db: Any) -> NearDupIndex:
+    rows = await db.fetch(
+        "SELECT id, body FROM knowledge_graph_nodes WHERE content_type = 'claim'"
+    )
+    return NearDupIndex([dict(r) for r in rows])
 
 
 async def register_claim_type(db: Any) -> None:
@@ -82,6 +118,7 @@ async def store_claim(
     claim: dict,
     chunk: dict,
     dry_run: bool,
+    index: NearDupIndex | None = None,
 ) -> str | None:
     """Insert one claim node + edge. Returns 'new', 'dupe' or None on failure."""
     text = (claim.get("claim_text") or "").strip()
@@ -96,6 +133,23 @@ async def store_claim(
         chash,
     )
     if existing:
+        return "dupe"
+
+    near_id = index.find(text) if index is not None else None
+    if near_id:
+        if not dry_run:
+            # Keep the new occurrence: the surviving claim gains provenance from
+            # this chunk instead of a second near-identical node.
+            await db.execute(
+                "INSERT INTO knowledge_graph_edges "
+                "(source_id, target_id, relation_type, weight, metadata) "
+                "VALUES ($1, $2, 'derived_from', $3, $4) "
+                "ON CONFLICT (source_id, target_id, relation_type) DO NOTHING",
+                near_id,
+                str(chunk["chunk_id"]),
+                float(claim.get("confidence_0_1") or 0.5),
+                json.dumps({"extractor": EXTRACTOR, "occurrence": True}),
+            )
         return "dupe"
     if dry_run:
         return "new"
@@ -136,6 +190,8 @@ async def store_claim(
         float(claim.get("confidence_0_1") or 0.5),
         json.dumps({"extractor": EXTRACTOR}),
     )
+    if index is not None:
+        index.add(claim_id, text)
     return "new"
 
 
@@ -159,6 +215,9 @@ async def main() -> int:
 
     db = DatabasePool(DatabaseConfig(database_url=db_url))
     await register_claim_type(db)
+
+    index = await load_near_dup_index(db)
+    print(f"{len(index.texts)} existing claim(s) indexed", flush=True)
 
     chunks = await db.fetch(
         CHUNK_SQL,
@@ -205,7 +264,7 @@ async def main() -> int:
                 continue
             stored = 0
             for claim in claims:
-                outcome = await store_claim(db, claim, chunk, args.dry_run)
+                outcome = await store_claim(db, claim, chunk, args.dry_run, index)
                 if outcome == "new":
                     counts["new"] += 1
                     stored += 1

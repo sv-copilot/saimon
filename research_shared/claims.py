@@ -117,3 +117,65 @@ def score_claim_candidate(text: str) -> tuple[float, list[str]]:
 def is_claim_candidate(text: str, threshold: float = DEFAULT_ACCEPT_THRESHOLD) -> bool:
     score, _ = score_claim_candidate(text)
     return score >= threshold
+
+
+# ---------------------------------------------------------------------------
+# near-duplicate detection (SAIMON-CLAIM-NEAR-DUP-1)
+# ---------------------------------------------------------------------------
+
+_WS_RE = re.compile(r"\s+")
+
+
+def normalise_claim(text: str) -> str:
+    """Lowercase, collapse whitespace."""
+    return _WS_RE.sub(" ", (text or "").strip().lower()).strip()
+
+
+def _numeric_signature(text: str) -> tuple[str, ...]:
+    """Numbers in a claim, so 30% and 31% never collapse into one node."""
+    return tuple(re.findall(r"\d+(?:\.\d+)?%?", text))
+
+
+def claims_near_duplicate(left: str, right: str, *, min_shared_tokens: int = 8) -> bool:
+    """True when two claims assert the same thing in different words.
+
+    Cascade, cheapest first: exact match, character ratio >= 0.94, containment of
+    an >= 8-word shorter text, token coverage >= 0.85, Jaccard >= 0.88. Claims
+    with different numeric signatures are never merged.
+    """
+    a = normalise_claim(left)
+    b = normalise_claim(right)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if _numeric_signature(a) != _numeric_signature(b):
+        return False
+
+    from difflib import SequenceMatcher
+
+    if SequenceMatcher(None, a, b).ratio() >= 0.94:
+        return True
+
+    a_tokens = set(a.split())
+    b_tokens = set(b.split())
+    if not a_tokens or not b_tokens:
+        return False
+
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    if len(shorter.split()) >= min_shared_tokens and shorter in longer:
+        return True
+
+    intersection = len(a_tokens & b_tokens)
+    if intersection < min_shared_tokens:
+        return False
+    if intersection / max(min(len(a_tokens), len(b_tokens)), 1) >= 0.85:
+        return True
+    return intersection / len(a_tokens | b_tokens) >= 0.88
+
+
+def claim_text_hash(text: str) -> str:
+    """Exact-duplicate key; near-duplicates are caught by the cascade above."""
+    import hashlib
+
+    return hashlib.sha256(normalise_claim(text).encode("utf-8")).hexdigest()[:24]

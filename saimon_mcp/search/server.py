@@ -68,12 +68,35 @@ def _rerank_embed_fn() -> Any:
     embedding backend as the vector search path, so cosine similarity can be
     computed for keyword-only passages that have no precomputed embedding.
     """
-    from research_shared.embedding import EmbeddingConfig, embed_local
+    from research_shared.embedding import EmbeddingConfig, embed_local, query_embed_text
 
     cfg = EmbeddingConfig.from_env()
 
     def embed(text: str) -> list[float] | None:
-        return embed_local(text, cfg.model, cfg.dimensions)
+        return embed_local(query_embed_text(text), cfg.model, cfg.dimensions)
+
+    return embed
+
+
+def _prefixes_on() -> bool:
+    """Prefixes are opt-in; with them off the passage path must stay unchanged."""
+    from research_shared.embedding import task_prefixes_enabled
+
+    return task_prefixes_enabled()
+
+
+def _rerank_passage_embed_fn():
+    """Passage embedder — same model, document task prefix."""
+    from research_shared.embedding import (
+        EmbeddingConfig,
+        document_embed_text,
+        embed_local,
+    )
+
+    cfg = EmbeddingConfig.from_env()
+
+    def embed(text: str) -> list[float] | None:
+        return embed_local(document_embed_text(text), cfg.model, cfg.dimensions)
 
     return embed
 
@@ -333,10 +356,10 @@ async def _vector_search(
     Returns None when the query cannot be embedded (no local model) or no DB
     pool is available, so callers fall back to keyword search.
     """
-    from research_shared.embedding import EmbeddingConfig, embed_local
+    from research_shared.embedding import EmbeddingConfig, embed_local, query_embed_text
 
     cfg = EmbeddingConfig.from_env()
-    vector = embed_local(query, cfg.model, cfg.dimensions, cfg.model_path or None)
+    vector = embed_local(query_embed_text(query), cfg.model, cfg.dimensions, cfg.model_path or None)
     if vector is None or _db_pool is None:
         return None
 
@@ -481,7 +504,12 @@ async def _retrieve_and_rerank(
     candidate_limit = max(limit * 2, config.top_k)
 
     candidates = await _search_candidates(query, candidate_limit, user_id)
-    outcome = rerank(query, candidates, config, embed_fn=embed_fn, top_k=limit)
+    outcome = rerank(
+        query, candidates, config,
+        embed_fn=embed_fn,
+        passage_embed_fn=_rerank_passage_embed_fn() if _prefixes_on() else None,
+        top_k=limit,
+    )
 
     requery_count = 0
     reformulated = query
@@ -492,7 +520,10 @@ async def _retrieve_and_rerank(
             reformulated, candidate_limit, user_id
         )
         outcome = rerank(
-            reformulated, requery_candidates, config, embed_fn=embed_fn, top_k=limit
+            reformulated, requery_candidates, config,
+            embed_fn=embed_fn,
+        passage_embed_fn=_rerank_passage_embed_fn() if _prefixes_on() else None,
+        top_k=limit,
         )
 
     logger.info(
@@ -1508,11 +1539,18 @@ async def ingest_document(
     if not chunks:
         return _error(payload.trace_id, "extracted text produced no chunks")
 
-    from research_shared.embedding import EmbeddingConfig, embed_many_local
+    from research_shared.embedding import (
+        EmbeddingConfig,
+        document_embed_text,
+        embed_many_local,
+    )
 
     emb_cfg = EmbeddingConfig.from_env()
     embeddings = embed_many_local(
-        chunks, emb_cfg.model, emb_cfg.dimensions, emb_cfg.model_path or None
+        [document_embed_text(c) for c in chunks],
+        emb_cfg.model,
+        emb_cfg.dimensions,
+        emb_cfg.model_path or None,
     )
     if all(vector is None for vector in embeddings):
         # Fail closed: chunks stored without embeddings are invisible to the

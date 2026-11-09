@@ -79,6 +79,7 @@ async def run() -> int:
     from research_shared.primacy import source_class_from_host
     from research_shared.quality import (
         QUALITY_VERSION,
+        claim_extraction_confidence,
         extraction_score,
         is_scoreable,
         observation_quality,
@@ -112,7 +113,9 @@ async def run() -> int:
     claims = await pool.fetch(CLAIM_SQL)
     from research_shared.provenance import claim_hash as _claim_hash
     for claim in claims:
-        text = f"{claim.get('title') or ''}. {claim.get('body') or ''}".strip()
+        # Truncate exactly as the verify caller does, or the hash will not match
+        # the ledger row for long claims.
+        text = f"{claim.get('title') or ''}. {claim.get('body') or ''}".strip()[:4000]
         key = _claim_hash(text)
         if key in latest:
             claim["verification_status"], claim["confidence_0_1"] = latest[key]
@@ -122,7 +125,9 @@ async def run() -> int:
     with_verification = sum(1 for c in claims if c.get("verification_status"))
     with_extraction = sum(
         1 for c in claims
-        if c.get("confidence_0_1") or _meta(c).get("extraction_confidence")
+        if claim_extraction_confidence(
+            row_confidence=c.get("confidence_0_1"), metadata=_meta(c)
+        ) is not None
     )
     ok, reason = is_scoreable(
         verification_coverage=with_verification / total,
@@ -157,9 +162,12 @@ async def run() -> int:
             has_date=claim.get("date_start") is not None,
             has_unit=bool(claim.get("unit")),
         )
-        extraction = extraction_score(
-            claim.get("confidence_0_1") or meta.get("extraction_confidence")
-        )
+        # Claims store the extractor's own confidence under `confidence`; looking
+        # only for `extraction_confidence` made every score default its heaviest
+        # component. Measured after the fix: 8,520 of 8,520 claims have it.
+        extraction = extraction_score(claim_extraction_confidence(
+            row_confidence=claim.get("confidence_0_1"), metadata=meta
+        ))
         verification = verification_score(claim.get("verification_status"))
         score, breakdown = observation_quality(
             extraction=extraction, verification=verification,

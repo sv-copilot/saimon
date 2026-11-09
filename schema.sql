@@ -187,6 +187,48 @@ CREATE INDEX IF NOT EXISTS idx_verification_ledger_created
     ON verification_ledger(created_at DESC);
 
 -- ---------------------------------------------------------------------------
+-- universes — which world a row belongs to (#264)
+--
+-- `collection` is a provenance label and must never gate visibility; scope is
+-- this. `parent_id` gives fiction -> a world -> its books without a schema change
+-- per series. `visibility='private'` is enforced where content leaves the system
+-- (export and cross-universe reads), not by a filter a caller can forget.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS universes (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug        TEXT NOT NULL UNIQUE,
+    name        TEXT NOT NULL,
+    parent_id   UUID REFERENCES universes(id) ON DELETE RESTRICT,
+    visibility  TEXT NOT NULL DEFAULT 'public'
+                CHECK (visibility IN ('public', 'private')),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Deterministic ids so a backfill is reproducible across environments.
+INSERT INTO universes (id, slug, name, visibility) VALUES
+    ('00000000-0000-4000-8000-000000000001', 'reality',  'Reality',  'public'),
+    ('00000000-0000-4000-8000-000000000002', 'fiction',  'Fiction',  'public'),
+    ('00000000-0000-4000-8000-000000000003', 'personal', 'Personal', 'private')
+ON CONFLICT (slug) DO NOTHING;
+
+ALTER TABLE knowledge_graph_nodes
+    ADD COLUMN IF NOT EXISTS universe_id UUID REFERENCES universes(id);
+ALTER TABLE observations
+    ADD COLUMN IF NOT EXISTS universe_id UUID REFERENCES universes(id);
+
+UPDATE knowledge_graph_nodes
+   SET universe_id = '00000000-0000-4000-8000-000000000001'
+ WHERE universe_id IS NULL;
+UPDATE observations
+   SET universe_id = '00000000-0000-4000-8000-000000000001'
+ WHERE universe_id IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_kg_nodes_universe
+    ON knowledge_graph_nodes(universe_id);
+CREATE INDEX IF NOT EXISTS idx_observations_universe
+    ON observations(universe_id);
+
+-- ---------------------------------------------------------------------------
 -- SAIMON-COLLECTION-COLUMN-1 (#244) — idempotent migration
 --
 -- schema.sql is applied to existing databases as well as fresh ones, so the

@@ -130,6 +130,37 @@ CREATE INDEX IF NOT EXISTS idx_observations_doi
     ON observations((metadata->>'doi'));
 
 -- ---------------------------------------------------------------------------
+-- observation_facts — the structured shape of an evidence node (#272)
+--
+-- Saimon stores claims as prose. A question about a number, a period or a place
+-- cannot be answered from structure, and the primacy / relation heuristics that
+-- compare numbers and dates have nothing to read. One row per node, fields left
+-- NULL with an explicit reason when the text does not carry them.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS observation_facts (
+    node_id        UUID PRIMARY KEY REFERENCES knowledge_graph_nodes(id) ON DELETE CASCADE,
+    value_numeric  DOUBLE PRECISION,
+    value_text     TEXT,
+    unit           TEXT,      -- 'percent' | 'usd' | 'people' | 'years' | free text
+    date_start     DATE,
+    date_end       DATE,
+    date_base_unit TEXT CHECK (date_base_unit IN ('year', 'quarter', 'month', 'day')),
+    latitude       DOUBLE PRECISION,
+    longitude      DOUBLE PRECISION,
+    topic          TEXT,
+    confidence     REAL NOT NULL DEFAULT 0.0,
+    reasons        JSONB NOT NULL DEFAULT '{}',
+    parser_version TEXT NOT NULL DEFAULT 'v1',
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_observation_facts_value
+    ON observation_facts(value_numeric);
+CREATE INDEX IF NOT EXISTS idx_observation_facts_dates
+    ON observation_facts(date_start, date_end);
+
+-- ---------------------------------------------------------------------------
 -- SAIMON-COLLECTION-COLUMN-1 (#244) — idempotent migration
 --
 -- schema.sql is applied to existing databases as well as fresh ones, so the

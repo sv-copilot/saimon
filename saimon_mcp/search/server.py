@@ -33,6 +33,7 @@ from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.fact_filter import FactFilter, parse_filter
 from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
+from research_shared.priors import apply_priors
 from research_shared.rerank import RerankConfig, reformulate_query, rerank
 from research_shared.shadow_registry import ShadowRegistry
 from research_shared.source_discovery import SOURCE_DISCOVERY_MIN_CANDIDATES
@@ -369,6 +370,8 @@ async def _vector_search(
         "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
         "COALESCE(metadata->>'status', 'ready') as doc_status, "
         "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
+        "COALESCE((metadata->>'quality_score')::float, NULL) as quality_score, "
+        "COALESCE((metadata->>'primacy_distance_score')::float, NULL) as primacy_distance_score, "
         "1 - (embedding <=> $1) as similarity "
         "FROM knowledge_graph_nodes "
         "WHERE embedding IS NOT NULL"
@@ -431,7 +434,9 @@ async def _keyword_search(
             "SELECT id, title, body, content_type, unit_id, "
             "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
             "COALESCE(metadata->>'status', 'ready') as doc_status, "
-            "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review "
+            "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
+            "COALESCE((metadata->>'quality_score')::float, NULL) as quality_score, "
+            "COALESCE((metadata->>'primacy_distance_score')::float, NULL) as primacy_distance_score "
             "FROM knowledge_graph_nodes "
             "WHERE (title ILIKE $" + str(offset + 1) + " OR body ILIKE $" + str(offset + 1) + ")"
             + user_clause + " "
@@ -456,6 +461,8 @@ async def _keyword_search(
             "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
             "COALESCE(metadata->>'status', 'ready') as doc_status, "
             "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
+            "COALESCE((metadata->>'quality_score')::float, NULL) as quality_score, "
+            "COALESCE((metadata->>'primacy_distance_score')::float, NULL) as primacy_distance_score "
             "(" + match_expr + ") as match_count "
             "FROM knowledge_graph_nodes "
             "WHERE " + " AND ".join(conditions) + user_clause + " "
@@ -609,8 +616,12 @@ async def _retrieve_and_rerank(
         reformulated_query=reformulated,
     )
 
+    # Bounded quality/primacy priors (#273). They can reorder a close pair; they
+    # cannot overturn a clear relevance winner, and an unscored row is untouched.
+    prior_ranked = apply_priors(outcome.ranked) if outcome.ranked else []
+
     return {
-        "results": outcome.ranked,
+        "results": prior_ranked or outcome.ranked,
         "total": len(outcome.ranked),
         "no_strong_evidence": outcome.fail_safe_fired,
         "abstain_reason": outcome.abstain_reason,

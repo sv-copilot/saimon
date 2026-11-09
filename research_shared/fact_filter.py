@@ -32,7 +32,7 @@ class FactFilter:
             self.topic is not None,
         ))
 
-    def clause(self, *, alias: str = "n", first_param: int = 1) -> tuple[str, list]:
+    def clause(self, *, alias: str = "knowledge_graph_nodes", first_param: int = 1) -> tuple[str, list]:
         """SQL fragment + params joining observation_facts as ``alias``.facts.
 
         Returns ``("", [])`` when no filter is set, so an unfiltered query is
@@ -41,33 +41,34 @@ class FactFilter:
         if not self.active:
             return "", []
 
+        # Leading AND: the fragment is appended to an existing WHERE clause.
         parts = [
             (
-                f"EXISTS (SELECT 1 FROM observation_facts facts_{alias} "
-                f"WHERE facts_{alias}.node_id = {alias}.id"
+                f" AND EXISTS (SELECT 1 FROM observation_facts facts_kg "
+                f"WHERE facts_kg.node_id = {alias}.id"
             )
         ]
         params: list = []
         index = first_param
 
         if self.value_min is not None:
-            parts.append(f" AND facts_{alias}.value_numeric >= ${index}")
+            parts.append(f" AND facts_kg.value_numeric >= ${index}")
             params.append(self.value_min)
             index += 1
         if self.value_max is not None:
-            parts.append(f" AND facts_{alias}.value_numeric <= ${index}")
+            parts.append(f" AND facts_kg.value_numeric <= ${index}")
             params.append(self.value_max)
             index += 1
         if self.date_from is not None:
-            parts.append(f" AND facts_{alias}.date_end >= ${index}::date")
+            parts.append(f" AND facts_kg.date_end >= ${index}::date")
             params.append(self.date_from)
             index += 1
         if self.date_to is not None:
-            parts.append(f" AND facts_{alias}.date_start <= ${index}::date")
+            parts.append(f" AND facts_kg.date_start <= ${index}::date")
             params.append(self.date_to)
             index += 1
         if self.topic is not None:
-            parts.append(f" AND facts_{alias}.topic = ${index}")
+            parts.append(f" AND facts_kg.topic = ${index}")
             params.append(self.topic)
             index += 1
 

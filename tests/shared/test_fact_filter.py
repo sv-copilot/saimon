@@ -6,6 +6,8 @@ untouched, and an active filter must never fall back to unfiltered results.
 
 from __future__ import annotations
 
+from datetime import date
+
 from research_shared.fact_filter import FactFilter, parse_filter
 
 
@@ -28,12 +30,12 @@ class TestClause:
         assert params == [1.0, 9.0]
 
     def test_date_window_uses_overlap(self):
-        clause, params = FactFilter(date_from="2015-01-01", date_to="2020-12-31").clause()
+        clause, params = FactFilter(date_from=date(2015, 1, 1), date_to=date(2020, 12, 31)).clause()
         # A fact overlaps the window when its end is after the start and its
         # start is before the end — not when either bound is contained.
         assert "date_end >= $1::date" in clause
         assert "date_start <= $2::date" in clause
-        assert params == ["2015-01-01", "2020-12-31"]
+        assert params == [date(2015, 1, 1), date(2020, 12, 31)]
 
     def test_topic(self):
         clause, params = FactFilter(topic="inflation").clause()
@@ -67,3 +69,14 @@ class TestClauseShape:
     def test_default_alias_matches_the_unaliased_from(self):
         clause, _ = FactFilter(value_min=1.0).clause()
         assert "knowledge_graph_nodes.id" in clause
+
+class TestDateParsing:
+    def test_iso_strings_become_date_objects(self):
+        fact_filter = parse_filter({"date_from": "2015-01-01", "date_to": "2020-12-31"})
+        assert fact_filter.date_from == date(2015, 1, 1)
+        assert fact_filter.date_to == date(2020, 12, 31)
+
+    def test_unparseable_date_is_ignored_not_crashed(self):
+        fact_filter = parse_filter({"date_from": "not-a-date"})
+        assert fact_filter.date_from is None
+        assert not fact_filter.active

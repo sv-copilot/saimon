@@ -27,6 +27,24 @@ from research_shared.seed_data import CONTENT_TYPES as SEED_CONTENT_TYPES
 _rerank_config = RerankConfig.from_env()
 
 
+def candidate_patterns(query: str, *, limit: int = 6) -> list[str]:
+    """ILIKE patterns that can actually match a natural-language query.
+
+    A single ``%query%`` pattern only finds the query as a contiguous phrase, so
+    "entity resolution blocking" matched nothing even though the corpus covers
+    entity resolution. Distinctive words are matched instead; the reranker then
+    does the ranking, which is its job.
+    """
+
+    from research_shared.rerank import support_tokens
+
+    tokens = sorted(support_tokens(query))
+    if not tokens:
+        stripped = query.strip()
+        return [f"%{stripped}%"] if stripped else []
+    return [f"%{token}%" for token in tokens[:limit]]
+
+
 def _rerank_embed_fn() -> Any:
     """Return a fail-closed embedding callable for the reranker.
 
@@ -275,15 +293,18 @@ async def explore_content(
             # Retrieve a broader pool than the final top-K so the gate can
             # narrow by relevance instead of by adapter order (#234).
             candidate_limit = max(limit * 2, _rerank_config.top_k)
+            patterns = candidate_patterns(query)
+            if not patterns:
+                return _error(payload.trace_id, "Parameter 'query' is required.")
             rows = await _db_pool.fetch(
                 "SELECT id, title, content_type, body, unit_id, "
                 "COALESCE(metadata->>'status', 'ready') as doc_status, "
                 "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
                 "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
                 "FROM knowledge_graph_nodes "
-                "WHERE title ILIKE $1 OR body ILIKE $1 "
+                "WHERE title ILIKE ANY($1) OR body ILIKE ANY($1) "
                 "ORDER BY created_at DESC LIMIT $2",
-                f"%{query}%", candidate_limit,
+                patterns, candidate_limit,
             )
             candidates = [
                 dict(r) for r in rows
@@ -398,6 +419,7 @@ async def browse_by_type(
                 "SELECT id, title, content_type, body, created_at "
                 "FROM knowledge_graph_nodes "
                 "WHERE content_type = $1 "
+                "AND COALESCE(metadata->>'status', 'ready') <> 'failed' "
                 "ORDER BY created_at DESC LIMIT $2 OFFSET $3",
                 content_type, limit, offset,
             )

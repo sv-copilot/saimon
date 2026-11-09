@@ -9,7 +9,12 @@ lexically, with parity to explore_content.
 
 
 class TestMergeResults:
-    def test_vector_leads_dedup_keyword(self):
+    def test_fusion_ranks_agreement_first(self):
+        """A doc both paths agree on outranks one that only the vector path saw.
+
+        This replaces the old "vector leads" contract: rank fusion is the point
+        of #256, so a hit at rank 2 in both lists beats a rank-1/absent split.
+        """
         from saimon_mcp.search import server
 
         merged = server._merge_results(
@@ -17,9 +22,10 @@ class TestMergeResults:
             [{"id": "b"}, {"id": "c"}],
             10,
         )
-        assert [r["id"] for r in merged] == ["a", "b", "c"]
+        assert [r["id"] for r in merged] == ["b", "a", "c"]
 
-    def test_limit_caps_merged(self):
+    def test_limit_caps_after_fusion(self):
+        """A lexical rank-1 hit is no longer discarded when vectors fill the quota."""
         from saimon_mcp.search import server
 
         merged = server._merge_results(
@@ -27,7 +33,7 @@ class TestMergeResults:
             [{"id": "d"}],
             2,
         )
-        assert [r["id"] for r in merged] == ["a", "b"]
+        assert [r["id"] for r in merged] == ["a", "d"]
 
     def test_keyword_fills_no_embedding_gap(self):
         """A no-embedding node (only reachable lexically) is included even when

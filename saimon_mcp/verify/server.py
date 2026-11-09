@@ -244,6 +244,15 @@ async def verify_against_kg_tool(
 # helpers
 # ---------------------------------------------------------------------------
 
+def _strict_evidence_enabled() -> bool:
+    """SAIMON-VERIFY-EVIDENCE-ALGEBRA-1: evidence-first verdicts (default off)."""
+    import os
+
+    return os.getenv("SAIMON_VERIFY_STRICT_EVIDENCE", "0").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 def _ok(
     trace_id: str,
     data: Any = None,
@@ -1267,6 +1276,47 @@ async def verify_claim(
     claim = payload.parameters.get("claim")
     if not claim:
         return _error(payload.trace_id, "Parameter 'claim' is required.")
+
+    # ── evidence-first path (SAIMON-VERIFY-EVIDENCE-ALGEBRA-1) ──────────
+    # When enabled, a verdict is a function of stored corpus evidence. No
+    # evidence means insufficient_evidence — never a self-graded "supported".
+    # Kept behind a flag so the strict default remains an operator decision (#239).
+    if _strict_evidence_enabled() and _db_pool is not None:
+        from research_shared.evidence import collect_corpus_evidence
+        from research_shared.verification import ledger, resolve_status
+
+        evidence = await collect_corpus_evidence(_db_pool, str(claim))
+        confidence = min(0.6 + 0.05 * len(evidence), 0.95) if evidence else 0.0
+        status, confidence, summary = resolve_status(
+            supporting=len(evidence), contradicting=0, confidence=confidence
+        )
+        payload_data = ledger(evidence, status, confidence)
+        payload_data["summary"] = summary
+        payload_data["methods_used"] = 1
+        payload_data["theory_anchor"] = None
+        payload_data["verifications"] = [
+            {
+                "method": "corpus_evidence",
+                "verdict": status if index == 0 else "corroborated",
+                "confidence": confidence,
+                "explanation": summary if index == 0 else f"Shares {item['overlap_tokens']} claim terms.",
+                "evidence_source": item["evidence_source"],
+            }
+            for index, item in enumerate(evidence)
+        ] or [
+            {
+                "method": "corpus_evidence",
+                "verdict": status,
+                "confidence": confidence,
+                "explanation": summary,
+                "evidence_source": None,
+            }
+        ]
+        return _ok(
+            payload.trace_id,
+            data=payload_data,
+            citations=[item["evidence_source"] for item in evidence],
+        )
 
     requested = payload.parameters.get("methods")
     if requested is not None:

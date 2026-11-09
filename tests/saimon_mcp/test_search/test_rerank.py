@@ -136,7 +136,7 @@ class TestSearchEndpointReranks:
         """The endpoint returns results sorted by relevance score, not adapter order."""
         from saimon_mcp.search import server
 
-        async def fake_search(query, limit, user_id, fact_filter=None):
+        async def fake_search(query, limit, user_id, fact_filter=None, universe_ids=None):
             # Adapter order: weak lexical hit first, strong semantic hit second.
             return [
                 _candidate("weak", "banana", "apple"),
@@ -177,7 +177,7 @@ class TestSearchEndpointFailSafe:
         """All-below-threshold candidates produce no_strong_evidence, not weak hits."""
         from saimon_mcp.search import server
 
-        async def fake_search(query, limit, user_id, fact_filter=None):
+        async def fake_search(query, limit, user_id, fact_filter=None, universe_ids=None):
             return [_candidate("low", "unrelated", "banana", similarity=0.0)]
 
         monkeypatch.setattr(server, "_search_candidates", fake_search)
@@ -212,7 +212,7 @@ class TestSearchEndpointFailSafe:
 
         calls: list[str] = []
 
-        async def fake_search(query, limit, user_id, fact_filter=None):
+        async def fake_search(query, limit, user_id, fact_filter=None, universe_ids=None):
             calls.append(query)
             if query == "original query":
                 return [_candidate("low", "unrelated", "banana", similarity=0.0)]
@@ -262,7 +262,7 @@ class TestRetrievalRerankAudit:
                 output=buffer,
             )
 
-        async def fake_search(query, limit, user_id, fact_filter=None):
+        async def fake_search(query, limit, user_id, fact_filter=None, universe_ids=None):
             return [
                 _candidate("strong", "query", "query query query", similarity=0.95),
                 _candidate("weak", "unrelated", "banana", similarity=0.1),

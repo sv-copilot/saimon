@@ -472,7 +472,7 @@ async def _keyword_search(
             "COALESCE(metadata->>'status', 'ready') as doc_status, "
             "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
             "COALESCE((metadata->>'quality_score')::float, NULL) as quality_score, "
-            "COALESCE((metadata->>'primacy_distance_score')::float, NULL) as primacy_distance_score "
+            "COALESCE((metadata->>'primacy_distance_score')::float, NULL) as primacy_distance_score, "
             "(" + match_expr + ") as match_count "
             "FROM knowledge_graph_nodes "
             "WHERE " + " AND ".join(conditions) + user_clause + " "

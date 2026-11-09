@@ -14,6 +14,7 @@ most of the corpus (95%) has no quantitative fact and must stay reachable.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 
 @dataclass(frozen=True)
@@ -88,10 +89,23 @@ def parse_filter(parameters: dict) -> FactFilter:
         raw = parameters.get(key)
         return None if raw in (None, "") else str(raw)
 
+    def day(key):
+        # The driver binds DATE parameters as date objects; passing the ISO string
+        # through raised "'str' object has no attribute 'toordinal'" at runtime.
+        raw = parameters.get(key)
+        if raw in (None, ""):
+            return None
+        if isinstance(raw, date):
+            return raw
+        try:
+            return date.fromisoformat(str(raw)[:10])
+        except ValueError:
+            return None
+
     return FactFilter(
         value_min=number("value_min"),
         value_max=number("value_max"),
-        date_from=text("date_from"),
-        date_to=text("date_to"),
+        date_from=day("date_from"),
+        date_to=day("date_to"),
         topic=text("topic"),
     )

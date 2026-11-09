@@ -1,6 +1,7 @@
 name: Saimon CI
 
 on:
+  workflow_dispatch:  # manual deploy path when a push run is dropped by the scheduler
   push:
     branches: [main, rc, dev]
   pull_request:

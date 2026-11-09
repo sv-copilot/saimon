@@ -66,6 +66,23 @@ def structure_score(*, has_value: bool, has_date: bool, has_unit: bool) -> float
     return {0: 0.30, 1: 0.60, 2: 0.85, 3: 1.00}[present]
 
 
+def claim_extraction_confidence(
+    *, row_confidence: float | None = None, metadata: dict | None = None
+) -> float | None:
+    """The extractor's own confidence, whatever key the producer used.
+
+    Claims store it as `metadata.confidence`; older rows may carry
+    `confidence_0_1` or `extraction_confidence`. Reading only one of those made
+    the heaviest component of every score fall back to a default while the data
+    sat there under another name.
+    """
+    meta = metadata or {}
+    for value in (row_confidence, meta.get("extraction_confidence"), meta.get("confidence")):
+        if value is not None:
+            return float(value)
+    return None
+
+
 def extraction_score(confidence: float | None, *, low_signal: bool = False) -> float:
     if confidence is None or confidence <= 0:
         return 0.10 if low_signal else 0.55

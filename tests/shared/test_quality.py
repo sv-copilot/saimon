@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from research_shared.quality import (
     QUALITY_VERSION,
+    claim_extraction_confidence,
     extraction_score,
     is_scoreable,
     observation_quality,
@@ -114,3 +115,16 @@ class TestScoreability:
     def test_no_extraction_data_blocks_scoring(self):
         ok, reason = is_scoreable(verification_coverage=1.0, extraction_coverage=0.0)
         assert not ok and "extraction_coverage" in reason
+
+class TestClaimExtractionConfidence:
+    def test_reads_metadata_confidence(self):
+        assert claim_extraction_confidence(metadata={"confidence": 0.9}) == 0.9
+
+    def test_reads_extraction_confidence_key(self):
+        assert claim_extraction_confidence(metadata={"extraction_confidence": 0.7}) == 0.7
+
+    def test_row_value_wins(self):
+        assert claim_extraction_confidence(row_confidence=0.8, metadata={"confidence": 0.2}) == 0.8
+
+    def test_absent_everywhere_is_none(self):
+        assert claim_extraction_confidence(metadata={}) is None

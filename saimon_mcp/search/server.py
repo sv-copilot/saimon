@@ -33,9 +33,11 @@ from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.fact_filter import FactFilter, parse_filter
 from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
+from research_shared.priors import apply_priors
 from research_shared.rerank import RerankConfig, reformulate_query, rerank
 from research_shared.shadow_registry import ShadowRegistry
 from research_shared.source_discovery import SOURCE_DISCOVERY_MIN_CANDIDATES
+from research_shared.universe import REALITY_ID, scope_ids
 
 # ── Serper.dev Tier B config ──────────────────────────────────────
 
@@ -350,7 +352,8 @@ def _error(trace_id: str, message: str) -> ResearchResponse:
 
 
 async def _vector_search(
-    query: str, limit: int, user_id: str | None, fact_filter: FactFilter | None = None
+    query: str, limit: int, user_id: str | None, fact_filter: FactFilter | None = None,
+    universe_ids: list[str] | None = None,
 ) -> list[dict[str, Any]] | None:
     """pgvector cosine-similarity search over knowledge graph embeddings.
 
@@ -369,6 +372,8 @@ async def _vector_search(
         "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
         "COALESCE(metadata->>'status', 'ready') as doc_status, "
         "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
+        "COALESCE((metadata->>'quality_score')::float, NULL) as quality_score, "
+        "COALESCE((metadata->>'primacy_distance_score')::float, NULL) as primacy_distance_score, "
         "1 - (embedding <=> $1) as similarity "
         "FROM knowledge_graph_nodes "
         "WHERE embedding IS NOT NULL"
@@ -379,6 +384,14 @@ async def _vector_search(
     clause, clause_params = ("", [])
     if fact_filter is not None and fact_filter.active:
         clause, clause_params = fact_filter.clause(first_param=(3 if user_id else 2))
+
+    # Universe scope (#265). Narrowing only: the caller's universe plus its
+    # children, or no restriction at all when an explicit cross-universe read was
+    # requested. Absent scope falls back to reality rather than everything.
+    if universe_ids:
+        next_param = (3 if user_id else 2) + len(clause_params)
+        clause += f" AND universe_id = ANY(${next_param}::uuid[])"
+        clause_params = clause_params + [universe_ids]
 
     if user_id:
         rows = await _db_pool.fetch(
@@ -431,7 +444,9 @@ async def _keyword_search(
             "SELECT id, title, body, content_type, unit_id, "
             "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
             "COALESCE(metadata->>'status', 'ready') as doc_status, "
-            "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review "
+            "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
+            "COALESCE((metadata->>'quality_score')::float, NULL) as quality_score, "
+            "COALESCE((metadata->>'primacy_distance_score')::float, NULL) as primacy_distance_score "
             "FROM knowledge_graph_nodes "
             "WHERE (title ILIKE $" + str(offset + 1) + " OR body ILIKE $" + str(offset + 1) + ")"
             + user_clause + " "
@@ -456,6 +471,8 @@ async def _keyword_search(
             "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
             "COALESCE(metadata->>'status', 'ready') as doc_status, "
             "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
+            "COALESCE((metadata->>'quality_score')::float, NULL) as quality_score, "
+            "COALESCE((metadata->>'primacy_distance_score')::float, NULL) as primacy_distance_score "
             "(" + match_expr + ") as match_count "
             "FROM knowledge_graph_nodes "
             "WHERE " + " AND ".join(conditions) + user_clause + " "
@@ -500,8 +517,47 @@ def _merge_results(
     return merged
 
 
+async def _resolve_universe(parameters: dict) -> list[str] | None:
+    """Resolve the caller's universe to ids, or None for an explicit cross-universe read.
+
+    A missing parameter means reality, not everything: defaulting to the whole
+    graph is how fiction leaked into research in the first place.
+    """
+    requested = parameters.get("universe")
+    if isinstance(requested, str) and requested.strip() == "*":
+        return None  # explicit, logged by the caller
+    slug = (requested or "reality").strip() if isinstance(requested, str) else "reality"
+    if _db_pool is None:
+        return [REALITY_ID]
+    try:
+        rows = await _db_pool.fetch("SELECT id, slug, parent_id FROM universes")
+    except Exception:  # noqa: BLE001 — pre-#264 schema: scope to reality only
+        return [REALITY_ID]
+
+    def field(row, key):
+        try:
+            return row[key]
+        except (KeyError, TypeError):
+            return None
+
+    by_id = {
+        str(field(r, "id")): (str(field(r, "parent_id")) if field(r, "parent_id") else None)
+        for r in rows
+    }
+    children: dict[str, list[str]] = {}
+    for child_id, parent_id in by_id.items():
+        if parent_id:
+            children.setdefault(parent_id, []).append(child_id)
+    slug_to_id = {field(r, "slug"): str(field(r, "id")) for r in rows}
+    root = slug_to_id.get(slug)
+    if root is None:
+        return [REALITY_ID]
+    return sorted(scope_ids(root, children))
+
+
 async def _search_candidates(
-    query: str, limit: int, user_id: str | None, fact_filter: FactFilter | None = None
+    query: str, limit: int, user_id: str | None, fact_filter: FactFilter | None = None,
+    universe_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Run vector + keyword retrieval and merge into a broad candidate pool."""
     # Structured filters (#275): when a caller asks for a value range, a date
@@ -509,7 +565,7 @@ async def _search_candidates(
     # The keyword path has no facts join, so a filtered query uses the vector
     # path only; if that path cannot run, the honest answer is nothing.
     fact_filter = fact_filter or FactFilter()
-    vector_results = await _vector_search(query, limit, user_id, fact_filter) or []
+    vector_results = await _vector_search(query, limit, user_id, fact_filter, universe_ids) or []
     keyword_results = (
         [] if fact_filter.active else await _keyword_search(query, limit, user_id)
     )
@@ -524,6 +580,7 @@ async def _retrieve_and_rerank(
     allow_failed: bool = False,
     review_statuses: list[str] | None = None,
     fact_filter: FactFilter | None = None,
+    universe_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Retrieve candidates, rerank them, and apply the fail-safe no-answer gate.
 
@@ -538,7 +595,7 @@ async def _retrieve_and_rerank(
     # can narrow by relevance rather than by adapter order.
     candidate_limit = max(limit * 2, config.top_k)
 
-    candidates = await _search_candidates(query, candidate_limit, user_id, fact_filter)
+    candidates = await _search_candidates(query, candidate_limit, user_id, fact_filter, universe_ids)
     if not allow_failed:
         candidates = [
             c for c in candidates if (c.get("doc_status") or "ready") != "failed"
@@ -609,8 +666,12 @@ async def _retrieve_and_rerank(
         reformulated_query=reformulated,
     )
 
+    # Bounded quality/primacy priors (#273). They can reorder a close pair; they
+    # cannot overturn a clear relevance winner, and an unscored row is untouched.
+    prior_ranked = apply_priors(outcome.ranked) if outcome.ranked else []
+
     return {
-        "results": outcome.ranked,
+        "results": prior_ranked or outcome.ranked,
         "total": len(outcome.ranked),
         "no_strong_evidence": outcome.fail_safe_fired,
         "abstain_reason": outcome.abstain_reason,
@@ -648,6 +709,7 @@ async def search_knowledge_graph(
             data = await _retrieve_and_rerank(
                 query, limit, user_id, logger, allow_failed, review_statuses,
                 parse_filter(payload.parameters),
+                await _resolve_universe(payload.parameters),
             )
             results = data["results"]
             resp = _ok(

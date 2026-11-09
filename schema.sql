@@ -161,6 +161,32 @@ CREATE INDEX IF NOT EXISTS idx_observation_facts_dates
     ON observation_facts(date_start, date_end);
 
 -- ---------------------------------------------------------------------------
+-- verification_ledger — every verdict, append-only (#271)
+--
+-- A verdict that leaves no trace did not happen: without this, "why was this
+-- answer accepted last month" has no answer, and quality scores have no
+-- verification input to read.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS verification_ledger (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    claim_hash     TEXT NOT NULL,
+    claim_text     TEXT NOT NULL,
+    verdict        TEXT NOT NULL,
+    confidence     REAL NOT NULL,
+    method         TEXT NOT NULL,
+    version        TEXT NOT NULL,
+    evidence_ids   UUID[] NOT NULL DEFAULT '{}',
+    locators       TEXT[] NOT NULL DEFAULT '{}',
+    evidence_count INTEGER NOT NULL DEFAULT 0,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_verification_ledger_claim
+    ON verification_ledger(claim_hash);
+CREATE INDEX IF NOT EXISTS idx_verification_ledger_created
+    ON verification_ledger(created_at DESC);
+
+-- ---------------------------------------------------------------------------
 -- SAIMON-COLLECTION-COLUMN-1 (#244) — idempotent migration
 --
 -- schema.sql is applied to existing databases as well as fresh ones, so the

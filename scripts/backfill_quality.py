@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 CLAIM_SQL = """
-SELECT n.id, n.metadata, n.unit_id,
+SELECT n.id, n.title, n.body, n.metadata, n.unit_id,
        f.value_numeric, f.unit, f.date_start,
        o.verification_status, o.confidence_0_1,
        d.id AS doc_id
@@ -34,6 +34,12 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) d ON TRUE
 WHERE n.content_type = 'claim'
+"""
+
+LEDGER_SQL = """
+SELECT claim_hash, verdict, confidence, created_at
+FROM verification_ledger
+ORDER BY created_at DESC
 """
 
 RELATION_SQL = """
@@ -94,7 +100,22 @@ async def run() -> int:
         else:
             dissenting[edge["source_id"]] += 1
 
+    # Verification input comes from the ledger first (#271), then from the legacy
+    # observations join. Latest verdict wins.
+    latest: dict[str, tuple[str, float]] = {}
+    try:
+        for row in await pool.fetch(LEDGER_SQL):
+            latest.setdefault(row["claim_hash"], (row["verdict"], float(row["confidence"] or 0.0)))
+    except Exception:  # ledger absent on an older schema: quality stays unblocked-but-blind
+        latest = {}
+
     claims = await pool.fetch(CLAIM_SQL)
+    from research_shared.provenance import claim_hash as _claim_hash
+    for claim in claims:
+        text = f"{claim.get('title') or ''}. {claim.get('body') or ''}".strip()
+        key = _claim_hash(text)
+        if key in latest:
+            claim["verification_status"], claim["confidence_0_1"] = latest[key]
     print(f"{len(claims)} claim(s)", flush=True)
 
     total = max(len(claims), 1)

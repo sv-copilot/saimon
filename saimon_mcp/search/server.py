@@ -30,6 +30,7 @@ from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.db import DatabaseError, DatabasePool
 from research_shared.envelope import ResearchRequest, ResearchResponse
+from research_shared.fact_filter import FactFilter, parse_filter
 from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
 from research_shared.rerank import RerankConfig, reformulate_query, rerank
@@ -349,7 +350,7 @@ def _error(trace_id: str, message: str) -> ResearchResponse:
 
 
 async def _vector_search(
-    query: str, limit: int, user_id: str | None
+    query: str, limit: int, user_id: str | None, fact_filter: FactFilter | None = None
 ) -> list[dict[str, Any]] | None:
     """pgvector cosine-similarity search over knowledge graph embeddings.
 
@@ -372,19 +373,24 @@ async def _vector_search(
         "FROM knowledge_graph_nodes "
         "WHERE embedding IS NOT NULL"
     )
+    # Structured filters (#275). An inactive filter adds nothing, so the
+    # unfiltered query is unchanged; an active one narrows BEFORE ranking and
+    # never falls back to the unfiltered set.
+    clause, clause_params = ("", [])
+    if fact_filter is not None and fact_filter.active:
+        clause, clause_params = fact_filter.clause(first_param=(3 if user_id else 2))
+
     if user_id:
         rows = await _db_pool.fetch(
-            select + " AND (user_id = $2 OR user_id IS NULL) "
-            "ORDER BY embedding <=> $1 LIMIT $3",
-            vector,
-            user_id,
-            limit,
+            select + " AND (user_id = $2 OR user_id IS NULL) " + clause +
+            " ORDER BY embedding <=> $1 LIMIT $" + str(3 + len(clause_params)),
+            vector, user_id, *clause_params, limit,
         )
     else:
         rows = await _db_pool.fetch(
-            select + " AND user_id IS NULL ORDER BY embedding <=> $1 LIMIT $2",
-            vector,
-            limit,
+            select + " AND user_id IS NULL " + clause +
+            " ORDER BY embedding <=> $1 LIMIT $" + str(2 + len(clause_params)),
+            vector, *clause_params, limit,
         )
     return [dict(row) for row in rows]
 
@@ -495,11 +501,18 @@ def _merge_results(
 
 
 async def _search_candidates(
-    query: str, limit: int, user_id: str | None
+    query: str, limit: int, user_id: str | None, fact_filter: FactFilter | None = None
 ) -> list[dict[str, Any]]:
     """Run vector + keyword retrieval and merge into a broad candidate pool."""
-    vector_results = await _vector_search(query, limit, user_id) or []
-    keyword_results = await _keyword_search(query, limit, user_id)
+    # Structured filters (#275): when a caller asks for a value range, a date
+    # window or a topic, an unfiltered answer is wrong even if it is larger.
+    # The keyword path has no facts join, so a filtered query uses the vector
+    # path only; if that path cannot run, the honest answer is nothing.
+    fact_filter = fact_filter or FactFilter()
+    vector_results = await _vector_search(query, limit, user_id, fact_filter) or []
+    keyword_results = (
+        [] if fact_filter.active else await _keyword_search(query, limit, user_id)
+    )
     return _merge_results(vector_results, keyword_results, limit)
 
 
@@ -510,6 +523,7 @@ async def _retrieve_and_rerank(
     logger: Any,
     allow_failed: bool = False,
     review_statuses: list[str] | None = None,
+    fact_filter: FactFilter | None = None,
 ) -> dict[str, Any]:
     """Retrieve candidates, rerank them, and apply the fail-safe no-answer gate.
 
@@ -524,7 +538,7 @@ async def _retrieve_and_rerank(
     # can narrow by relevance rather than by adapter order.
     candidate_limit = max(limit * 2, config.top_k)
 
-    candidates = await _search_candidates(query, candidate_limit, user_id)
+    candidates = await _search_candidates(query, candidate_limit, user_id, fact_filter)
     if not allow_failed:
         candidates = [
             c for c in candidates if (c.get("doc_status") or "ready") != "failed"
@@ -632,7 +646,8 @@ async def search_knowledge_graph(
             allow_failed = bool(payload.parameters.get("allow_failed_documents", False))
             review_statuses = payload.parameters.get("review_statuses")
             data = await _retrieve_and_rerank(
-                query, limit, user_id, logger, allow_failed, review_statuses
+                query, limit, user_id, logger, allow_failed, review_statuses,
+                parse_filter(payload.parameters),
             )
             results = data["results"]
             resp = _ok(

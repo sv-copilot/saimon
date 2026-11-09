@@ -18,9 +18,7 @@ _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 # Words that appear everywhere and therefore prove nothing on their own.
 _STOPWORDS = frozenset(
-    """a an and are as at be been by can could do does did for from has have had how
-    in into is it its of on or that the their them then there these this to was were
-    what when where which who why will with would you your""".split()
+    ["a", "an", "and", "are", "as", "at", "be", "been", "by", "can", "could", "do", "does", "did", "for", "from", "has", "have", "had", "how", "in", "into", "is", "it", "its", "of", "on", "or", "that", "the", "their", "them", "then", "there", "these", "this", "to", "was", "were", "what", "when", "where", "which", "who", "why", "will", "with", "would", "you", "your"]
 )
 
 MIN_SUPPORT_TOKENS = 2

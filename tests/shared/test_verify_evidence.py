@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
-from research_shared.evidence import claim_tokens, collect_corpus_evidence, quote_from, support_score
+from research_shared.evidence import (
+    claim_tokens,
+    collect_corpus_evidence,
+)
 from research_shared.verification import (
     CONTRADICTED,
     INSUFFICIENT,

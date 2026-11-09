@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-11-08T19:41:58.117568+00:00",
+  "generated_at": "2026-11-09T15:26:27.890714+00:00",
   "mode": "live",
   "environment": {
     "search_url": "http://127.0.0.1:8101",
     "verify_url": "http://127.0.0.1:8105",
-    "git_revision": "2633857"
+    "git_revision": "90a6de8"
   },
   "dimensions": {
     "retrieval-rubric-v1": {
@@ -24,9 +24,9 @@
       "degradation_reason_presence": 0.6666666666666666
     },
     "verification-rubric-v1": {
-      "evidence_binding": 0.0,
+      "evidence_binding": 1.0,
       "ledger_completeness": 1.0,
-      "status_sanity": 1.0
+      "status_sanity": 0.5
     }
   },
   "observations": {
@@ -35,11 +35,11 @@
         "id": "ret-seven-failures",
         "kind": "retrieval",
         "hit": true,
-        "top_score": 0.912657,
+        "top_score": 0.938266,
         "titles": [
-          "Seven Failure Points When Engineering a Retrieval Augmented Generation System — chunk 1",
-          "Seven Failure Points When Engineering a Retrieval Augmented Generation System — chunk 2",
-          "Seven Failure Points When Engineering a Retrieval Augmented Generation System — chunk 3"
+          "Seven Failure Points When Engineering a Retrieval Augmented Generation System",
+          "Seven Failure Points When Engineering a Retrieval Augmented Generation System \u2014 chunk 1",
+          "Seven Failure Points When Engineering a Retrieval Augmented Generation System \u2014 chunk 8"
         ],
         "status": 200
       },
@@ -47,11 +47,11 @@
         "id": "ret-entity-resolution",
         "kind": "retrieval",
         "hit": true,
-        "top_score": 0.800408,
+        "top_score": 0.83687,
         "titles": [
-          "Entity Resolution: Theory, Practice & Open Challenges — chunk 6",
-          "Entity Resolution: Theory, Practice & Open Challenges — chunk 5",
-          "Entity Resolution: Theory, Practice & Open Challenges — chunk 3"
+          "Entity Resolution: Theory, Practice & Open Challenges \u2014 chunk 6",
+          "Entity Resolution: Theory, Practice & Open Challenges \u2014 chunk 5",
+          "Entity Resolution: Theory, Practice & Open Challenges \u2014 chunk 7"
         ],
         "status": 200
       },
@@ -59,11 +59,11 @@
         "id": "ret-wip-schedules",
         "kind": "retrieval",
         "hit": true,
-        "top_score": 0.842082,
+        "top_score": 0.870047,
         "titles": [
-          "WIP schedules: Blueprints for solid construction accounting — chunk 2",
-          "WIP schedules: Blueprints for solid construction accounting — chunk 1",
-          "WIP schedules: Blueprints for solid construction accounting — chunk 3"
+          "WIP schedules: Blueprints for solid construction accounting \u2014 chunk 2",
+          "When a contractor requisitions for money, that\u2019s not revenue. They have to incur costs to create revenue.",
+          "WIP schedules: Blueprints for solid construction accounting \u2014 chunk 1"
         ],
         "status": 200
       },
@@ -71,11 +71,11 @@
         "id": "ret-pgvector",
         "kind": "retrieval",
         "hit": true,
-        "top_score": 0.806332,
+        "top_score": 0.82414,
         "titles": [
-          "pgvector README — index types, operators, and tuning — chunk 5",
-          "pgvector README — index types, operators, and tuning — chunk 8",
-          "pgvector README — index types, operators, and tuning — chunk 14"
+          "pgvector README \u2014 index types, operators, and tuning \u2014 chunk 5",
+          "If a condition matches 10% of rows, with HNSW and the default hnsw.ef_search of 40, only 4 rows will match on average.",
+          "Results are limited by the size of the dynamic candidate list ( hnsw.ef_search ), which is 40 by default."
         ],
         "status": 200
       },
@@ -83,11 +83,11 @@
         "id": "ret-equipment-cost",
         "kind": "retrieval",
         "hit": true,
-        "top_score": 0.819832,
+        "top_score": 0.857231,
         "titles": [
-          "Estimating System Overview (Landscape Ontario) — chunk 3",
-          "Estimating System Overview (Landscape Ontario) — chunk 6",
-          "Estimating System Overview (Landscape Ontario) — chunk 8"
+          "Estimating System Overview (Landscape Ontario) \u2014 chunk 3",
+          "Estimating System Overview (Landscape Ontario) \u2014 chunk 8",
+          "Estimating System Overview (Landscape Ontario) \u2014 chunk 7"
         ],
         "status": 200
       },
@@ -95,11 +95,11 @@
         "id": "ret-shape-up",
         "kind": "retrieval",
         "hit": true,
-        "top_score": 0.852107,
+        "top_score": 0.869605,
         "titles": [
-          "Shape Up — Chapter 3: Set Boundaries — chunk 2",
-          "Shape Up — Chapter 3: Set Boundaries — chunk 1",
-          "Shape Up — Chapter 6: Write the Pitch — chunk 11"
+          "Shape Up \u2014 Chapter 3: Set Boundaries",
+          "Shape Up \u2014 Chapter 3: Set Boundaries \u2014 chunk 2",
+          "Shape Up \u2014 Chapter 3: Set Boundaries \u2014 chunk 3"
         ],
         "status": 200
       },
@@ -107,11 +107,11 @@
         "id": "ret-multi-agent",
         "kind": "retrieval",
         "hit": true,
-        "top_score": 0.861332,
+        "top_score": 0.895871,
         "titles": [
-          "Why Do Multi-Agent LLM Systems Fail? — chunk 40",
-          "Why Do Multi-Agent LLM Systems Fail? — chunk 14",
-          "Why Do Multi-Agent LLM Systems Fail? — chunk 8"
+          "Why Do Multi-Agent LLM Systems Fail? \u2014 chunk 42",
+          "Why Do Multi-Agent LLM Systems Fail? \u2014 chunk 10",
+          "Why Do Multi-Agent LLM Systems Fail? \u2014 chunk 15"
         ],
         "status": 200
       },
@@ -119,11 +119,11 @@
         "id": "ret-bookkeeping-wage",
         "kind": "retrieval",
         "hit": true,
-        "top_score": 0.793584,
+        "top_score": 0.807807,
         "titles": [
-          "O*NET OnLine: Bookkeeping, Accounting, and Auditing Clerks (43-3031.00) — chunk 16",
-          "O*NET OnLine: Bookkeeping, Accounting, and Auditing Clerks (43-3031.00) — chunk 15",
-          "O*NET OnLine: Bookkeeping, Accounting, and Auditing Clerks (43-3031.00) — chunk 17"
+          "Median wages $24.36 hourly, $50,670 annual",
+          "O*NET OnLine: Bookkeeping, Accounting, and Auditing Clerks (43-3031.00) \u2014 chunk 16",
+          "O*NET OnLine: Bookkeeping, Accounting, and Auditing Clerks (43-3031.00) \u2014 chunk 18"
         ],
         "status": 200
       },
@@ -135,6 +135,12 @@
       },
       {
         "id": "abstain-nonsense-2",
+        "kind": "abstain",
+        "ok": true,
+        "hits": 0
+      },
+      {
+        "id": "abstain-worldly-offtopic",
         "kind": "abstain",
         "ok": true,
         "hits": 0
@@ -340,24 +346,24 @@
     "verification": [
       {
         "id": "ver-supported-claim",
-        "verdict": "inconclusive",
+        "verdict": "supported",
         "evidence_items": 5,
-        "has_evidence_source": false,
+        "has_evidence_source": true,
         "ledger_ok": true,
-        "ms": 60653
+        "ms": 38
       },
       {
         "id": "ver-unbound-claim",
-        "verdict": "inconclusive",
+        "verdict": "supported",
         "evidence_items": 5,
-        "has_evidence_source": false,
+        "has_evidence_source": true,
         "ledger_ok": true,
-        "ms": 8819
+        "ms": 17
       }
     ]
   },
   "scored": {
-    "overall_verdict": "FAIL",
+    "overall_verdict": "PASS",
     "rubrics": {
       "retrieval-rubric-v1": {
         "rubric": "retrieval-rubric-v1",
@@ -377,12 +383,10 @@
       },
       "verification-rubric-v1": {
         "rubric": "verification-rubric-v1",
-        "score": 0.5,
-        "verdict": "FAIL",
+        "score": 0.9,
+        "verdict": "PASS",
         "missing_dimensions": [],
-        "failed_dimensions": [
-          "evidence_binding"
-        ],
+        "failed_dimensions": [],
         "threshold": 0.75
       },
       "degraded-rubric-v1": {

@@ -124,9 +124,9 @@ async def run() -> int:
     with_verification = sum(1 for c in claims if c.get("verification_status"))
     with_extraction = sum(
         1 for c in claims
-        if c.get("confidence_0_1")
-        or _meta(c).get("extraction_confidence")
-        or _meta(c).get("confidence")
+        if claim_extraction_confidence(
+            row_confidence=c.get("confidence_0_1"), metadata=_meta(c)
+        ) is not None
     )
     ok, reason = is_scoreable(
         verification_coverage=with_verification / total,
@@ -164,11 +164,9 @@ async def run() -> int:
         # Claims store the extractor's own confidence under `confidence`; looking
         # only for `extraction_confidence` made every score default its heaviest
         # component. Measured after the fix: 8,520 of 8,520 claims have it.
-        extraction = extraction_score(
-            claim.get("confidence_0_1")
-            or meta.get("extraction_confidence")
-            or meta.get("confidence")
-        )
+        extraction = extraction_score(claim_extraction_confidence(
+            row_confidence=claim.get("confidence_0_1"), metadata=meta
+        ))
         verification = verification_score(claim.get("verification_status"))
         score, breakdown = observation_quality(
             extraction=extraction, verification=verification,

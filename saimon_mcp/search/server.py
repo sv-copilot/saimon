@@ -409,7 +409,7 @@ async def _vector_search(
 
 
 async def _keyword_search(
-    query: str, limit: int, user_id: str | None
+    query: str, limit: int, user_id: str | None, universe_ids: list[str] | None = None
 ) -> list[dict[str, Any]]:
     """Lexical search over title/body (parity with ``explore_content``).
 
@@ -446,7 +446,8 @@ async def _keyword_search(
             "COALESCE(metadata->>'status', 'ready') as doc_status, "
             "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
             "COALESCE((metadata->>'quality_score')::float, NULL) as quality_score, "
-            "COALESCE((metadata->>'primacy_distance_score')::float, NULL) as primacy_distance_score "
+            "COALESCE((metadata->>'primacy_distance_score')::float, NULL) as primacy_distance_score, "
+            "universe_id "
             "FROM knowledge_graph_nodes "
             "WHERE (title ILIKE $" + str(offset + 1) + " OR body ILIKE $" + str(offset + 1) + ")"
             + user_clause + " "
@@ -473,13 +474,20 @@ async def _keyword_search(
             "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
             "COALESCE((metadata->>'quality_score')::float, NULL) as quality_score, "
             "COALESCE((metadata->>'primacy_distance_score')::float, NULL) as primacy_distance_score, "
+            "universe_id, "
             "(" + match_expr + ") as match_count "
             "FROM knowledge_graph_nodes "
             "WHERE " + " AND ".join(conditions) + user_clause + " "
             "ORDER BY match_count DESC, created_at DESC LIMIT $" + str(len(params))
         )
         rows = await _db_pool.fetch(sql, *params)
-    return [dict(row) for row in rows]
+    result = [dict(row) for row in rows]
+    if universe_ids:
+        # The lexical path has no universe predicate, so a scoped query would
+        # otherwise leak rows from another universe through the fusion step.
+        allowed = {str(u) for u in universe_ids}
+        result = [row for row in result if str(row.get("universe_id")) in allowed]
+    return result
 
 
 def _merge_results(
@@ -567,7 +575,8 @@ async def _search_candidates(
     fact_filter = fact_filter or FactFilter()
     vector_results = await _vector_search(query, limit, user_id, fact_filter, universe_ids) or []
     keyword_results = (
-        [] if fact_filter.active else await _keyword_search(query, limit, user_id)
+        [] if fact_filter.active
+        else await _keyword_search(query, limit, user_id, universe_ids)
     )
     return _merge_results(vector_results, keyword_results, limit)
 

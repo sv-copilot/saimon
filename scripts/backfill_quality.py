@@ -79,6 +79,7 @@ async def run() -> int:
     from research_shared.primacy import source_class_from_host
     from research_shared.quality import (
         QUALITY_VERSION,
+        claim_extraction_confidence,
         extraction_score,
         is_scoreable,
         observation_quality,

@@ -106,7 +106,7 @@ async def run() -> int:
     try:
         for row in await pool.fetch(LEDGER_SQL):
             latest.setdefault(row["claim_hash"], (row["verdict"], float(row["confidence"] or 0.0)))
-    except Exception:  # ledger absent on an older schema: quality stays unblocked-but-blind
+    except Exception:  # noqa: BLE001 — ledger absent on an older schema; scoring stays blind, not crashed
         latest = {}
 
     claims = await pool.fetch(CLAIM_SQL)

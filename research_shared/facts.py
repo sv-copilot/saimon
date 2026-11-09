@@ -141,12 +141,14 @@ def _extract_dates(text: str, fact: Fact) -> list[tuple[int, int]]:
         spans.append(match.span())
         return spans
 
-    match = _YEAR_RE.search(text)
-    if match:
-        year = int(match.group(1))
+    years = list(_YEAR_RE.finditer(text))
+    if years:
+        year = int(years[0].group(1))
         fact.date_start, fact.date_end = date(year, 1, 1), date(year, 12, 31)
         fact.date_base_unit = "year"
-        spans.append(match.span())
+        # Every year is masked, not just the first: a claim that repeats its year
+        # otherwise yields that year as its "value".
+        spans.extend(match.span() for match in years)
 
     return spans
 
@@ -205,9 +207,19 @@ def _extract_value(text: str, fact: Fact) -> None:
     if not match:
         fact.reasons["value_numeric"] = "no_number_in_text"
         return
-    fact.value_numeric = _to_float(match.group(1)) * _magnitude_after(text, match.end())
 
     unit = _unit_word(text.lower())
+    magnitude = _magnitude_after(text, match.end())
+
+    # A bare integer is almost always an enumeration ("options (1) and (2)") or a
+    # stray reference, not a comparable quantity. Writing it as a fact would poison
+    # the relation and prior stages with numbers that mean nothing.
+    if unit is None and magnitude == 1.0:
+        fact.reasons["value_numeric"] = "number_without_unit_or_scale"
+        fact.reasons["unit"] = "number_without_unit"
+        return
+
+    fact.value_numeric = _to_float(match.group(1)) * magnitude
     if unit:
         fact.unit = unit
     else:

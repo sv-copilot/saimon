@@ -149,3 +149,20 @@ class TestMagnitudesAndDimensions:
     def test_magnitude_without_currency(self):
         fact = parse_fact("The index grew 3.5 million points")
         assert fact.value_numeric == pytest.approx(3.5e6)
+
+class TestRejectUnquantifiedNumbers:
+    """A bare integer is an enumeration or a stray citation year, not a quantity."""
+
+    def test_enumeration_is_not_a_value(self):
+        fact = parse_fact("options (1) and (2) are more commonly pursued using rules")
+        assert fact.value_numeric is None
+        assert "value_numeric" in fact.reasons
+
+    def test_citation_year_is_a_date_not_a_value(self):
+        fact = parse_fact("Mohammad Yani and Adila Krisnadhi. 2021. Challenges and approaches")
+        assert fact.value_numeric is None
+        assert fact.date_start == date(2021, 1, 1)
+
+    def test_bare_integer_without_unit_is_rejected(self):
+        fact = parse_fact("Analytics have also been used to rank 151 query results")
+        assert fact.value_numeric is None

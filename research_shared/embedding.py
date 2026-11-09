@@ -204,6 +204,13 @@ def embed_many_local(
     return out[: len(texts)]
 
 
+def node_embed_text(title: str, body: str = "") -> str:
+    """The text a node is embedded on: prefixed body, or title + body."""
+    if task_prefixes_enabled():
+        return document_embed_text(body)
+    return f"{title or ''}\n{body or ''}".strip()
+
+
 def embed_node_text(
     title: str,
     body: str = "",
@@ -219,10 +226,7 @@ def embed_node_text(
     With task prefixes on, the text matches what ingest embeds (prefix + body);
     with them off, behaviour is byte-identical to the pre-prefix path.
     """
-    if task_prefixes_enabled():
-        text = document_embed_text(body)
-    else:
-        text = f"{title or ''}\n{body or ''}".strip()
+    text = node_embed_text(title, body)
     if not text:
         return None
     if model_path:
@@ -242,7 +246,19 @@ async def backfill_null_embeddings(
     ``embed_fn`` is injectable for tests; defaults to :func:`embed_node_text`.
     Returns ``{"embedded": n, "failed": n}``.
     """
-    embed = embed_fn or embed_node_text
+    if embed_fn is None:
+        # The bundled model path has to be passed explicitly: without it fastembed
+        # looks in its own cache, finds nothing under local_files_only, and every
+        # row fails closed (observed: 8,574 of 8,574 "failed").
+        cfg = EmbeddingConfig.from_env()
+
+        def embed(title: str, body: str) -> list[float] | None:
+            return embed_node_text(
+                title, body, model_name=cfg.model, dimensions=cfg.dimensions,
+                model_path=cfg.model_path or None,
+            )
+    else:
+        embed = embed_fn
     rows = await pool.fetch(
         "SELECT id, title, body FROM knowledge_graph_nodes "
         "WHERE embedding IS NULL ORDER BY created_at LIMIT $1",
@@ -250,16 +266,30 @@ async def backfill_null_embeddings(
     )
     embedded = 0
     failed = 0
-    for row in rows:
-        vector = embed(row.get("title") or "", row.get("body") or "")
-        if vector is None:
-            failed += 1
-            continue
-        await pool.execute(
-            "UPDATE knowledge_graph_nodes "
-            "SET embedding = $1, updated_at = now() WHERE id = $2",
-            str(vector),
-            row["id"],
-        )
-        embedded += 1
+    # Embed in batches: one-at-a-time costs ~0.5 s per row on a 2 GB container,
+    # which turns an 8k-row backfill into hours.
+    batch_size = 64
+    for start in range(0, len(rows), batch_size):
+        batch = rows[start : start + batch_size]
+        vectors = None
+        if embed_fn is None:
+            cfg = EmbeddingConfig.from_env()
+            vectors = embed_many_local(
+                [node_embed_text(r.get("title") or "", r.get("body") or "") for r in batch],
+                cfg.model, cfg.dimensions, cfg.model_path or None,
+            )
+        for index, row in enumerate(batch):
+            vector = vectors[index] if vectors is not None else embed(
+                row.get("title") or "", row.get("body") or ""
+            )
+            if vector is None:
+                failed += 1
+                continue
+            await pool.execute(
+                "UPDATE knowledge_graph_nodes "
+                "SET embedding = $1, updated_at = now() WHERE id = $2",
+                str(vector),
+                row["id"],
+            )
+            embedded += 1
     return {"embedded": embedded, "failed": failed}

@@ -186,13 +186,14 @@
           "supported",
           "mixed",
           "contradicted",
-          "inconclusive"
+          "insufficient_evidence"
         ]
       },
       {
         "id": "ver-unbound-claim",
         "claim_text": "The Zorblax protocol requires 14 handshakes before any data transfer begins.",
         "expect_status_any": [
+          "insufficient_evidence",
           "inconclusive"
         ]
       }

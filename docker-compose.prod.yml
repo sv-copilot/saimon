@@ -213,8 +213,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.5"
-          memory: "256M"
+          cpus: "1"
+          memory: "2G"  # reranker loads the embedding model in-process
         reservations:
           cpus: "0.1"
           memory: "128M"

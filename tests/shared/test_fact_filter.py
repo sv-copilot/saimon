@@ -45,7 +45,7 @@ class TestClause:
 
     def test_joins_are_scoped_to_the_alias(self):
         clause, _ = FactFilter(value_min=1.0).clause(alias="kgn")
-        assert "facts_kgn.node_id = kgn.id" in clause
+        assert "facts_kg.node_id = kgn.id" in clause
 
 
 class TestParse:
@@ -56,3 +56,14 @@ class TestParse:
     def test_active_only_when_set(self):
         assert parse_filter({}).active is False
         assert parse_filter({"topic": "rates"}).active is True
+
+class TestClauseShape:
+    """The fragment is appended to a WHERE clause, so it must carry its own AND."""
+
+    def test_clause_starts_with_and(self):
+        clause, _ = FactFilter(value_min=1.0).clause()
+        assert clause.lstrip().startswith("AND EXISTS")
+
+    def test_default_alias_matches_the_unaliased_from(self):
+        clause, _ = FactFilter(value_min=1.0).clause()
+        assert "knowledge_graph_nodes.id" in clause

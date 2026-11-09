@@ -56,7 +56,9 @@ def _rerank_embed_fn() -> Any:
     cfg = EmbeddingConfig.from_env()
 
     def embed(text: str) -> list[float] | None:
-        return embed_local(query_embed_text(text), cfg.model, cfg.dimensions)
+        return embed_local(
+            query_embed_text(text), cfg.model, cfg.dimensions, cfg.model_path or None
+        )
 
     return embed
 
@@ -78,7 +80,9 @@ def _rerank_passage_embed_fn():
     cfg = EmbeddingConfig.from_env()
 
     def embed(text: str) -> list[float] | None:
-        return embed_local(document_embed_text(text), cfg.model, cfg.dimensions)
+        return embed_local(
+            document_embed_text(text), cfg.model, cfg.dimensions, cfg.model_path or None
+        )
 
     return embed
 

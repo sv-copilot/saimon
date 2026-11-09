@@ -42,11 +42,15 @@ def write_snapshot(snapshot: dict[str, Any], directory: str | Path = SNAPSHOT_DI
     target = Path(directory)
     target.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    path = target / f"golden-{stamp}.json"
-    suffix = 1
+    # A zero-padded sequence keeps filename order equal to insertion order even
+    # when two snapshots share a timestamp and the filesystem mtime resolution
+    # cannot separate them ("-1" sorts before ".json", so a bare suffix is not
+    # enough).
+    sequence = len(list(target.glob("golden-*.json"))) + 1
+    path = target / f"golden-{stamp}-{sequence:06d}.json"
     while path.exists():  # never overwrite
-        path = target / f"golden-{stamp}-{suffix}.json"
-        suffix += 1
+        sequence += 1
+        path = target / f"golden-{stamp}-{sequence:06d}.json"
     path.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\n")
     return path
 
@@ -56,9 +60,7 @@ def load_snapshots(directory: str | Path = SNAPSHOT_DIR) -> list[dict[str, Any]]
     if not target.is_dir():
         return []
     snapshots = []
-    # Sort by mtime: two snapshots in the same second share a timestamp stem, so
-    # filename order is not insertion order.
-    for path in sorted(target.glob("golden-*.json"), key=lambda item: item.stat().st_mtime):
+    for path in sorted(target.glob("golden-*.json")):
         try:
             snapshots.append(json.loads(path.read_text()))
         except json.JSONDecodeError:

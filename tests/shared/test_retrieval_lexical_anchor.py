@@ -84,3 +84,18 @@ class TestRerankEndToEnd:
         assert out.fail_safe_fired is False
         assert out.lexical_support is True
         assert out.ranked[0]["relevance_score"] >= 0.8
+
+
+class TestGenericWordsDoNotAnchor:
+    """A question about the world must not anchor on its question words."""
+
+    def test_won_and_super_alone_do_not_anchor(self):
+        passage = (
+            "We introduce Self-RAG, which trains a model to retrieve and critique "
+            "its own output. The approach won strong results and is super efficient."
+        )
+        assert has_lexical_support("who won the 2024 super bowl", passage) is False
+
+    def test_two_real_content_words_still_anchor(self):
+        passage = "The Super Bowl is an annual championship game of the National Football League."
+        assert has_lexical_support("who won the 2024 super bowl", passage) is True

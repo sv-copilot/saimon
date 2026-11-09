@@ -318,6 +318,33 @@ def cmd_live(args: argparse.Namespace) -> int:
     return 0 if report["scored"]["overall_verdict"] != VERDICT_INCOMPLETE else 1
 
 
+def cmd_snapshot(args: argparse.Namespace) -> int:
+    from research_shared.policy import build_snapshot, write_snapshot
+
+    report = json.loads(Path(args.report).read_text())
+    snapshot = build_snapshot(report, revision=_git_revision())
+    path = write_snapshot(snapshot, args.dir)
+    print(f"snapshot written to {path}")
+    return 0
+
+
+def cmd_drift(args: argparse.Namespace) -> int:
+    from research_shared.policy import check_drift
+
+    baseline = json.loads(Path(args.baseline).read_text())
+    current = json.loads(Path(args.current).read_text())
+    result = check_drift(baseline, current, tolerance=args.tolerance)
+    print(json.dumps(result, indent=2))
+    return 0 if result["verdict"] == "OK" else 1
+
+
+def cmd_trend(args: argparse.Namespace) -> int:
+    from research_shared.policy import load_snapshots, trend
+
+    print(json.dumps(trend(load_snapshots(args.dir)), indent=2))
+    return 0
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     rubrics = load_rubrics(SUITE)
     report = json.loads(Path(args.report).read_text())
@@ -366,6 +393,21 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--with-verify", action="store_true", help="also measure verify_claim (slow)")
     live.add_argument("--out", help="report path (default reports/golden-<stamp>.json)")
     live.set_defaults(func=cmd_live)
+
+    snapshot = sub.add_parser("snapshot", help="append a policy snapshot for a golden report")
+    snapshot.add_argument("--report", required=True)
+    snapshot.add_argument("--dir", default="reports/snapshots")
+    snapshot.set_defaults(func=cmd_snapshot)
+
+    drift = sub.add_parser("drift", help="compare two snapshots and fail on drift")
+    drift.add_argument("--baseline", required=True)
+    drift.add_argument("--current", required=True)
+    drift.add_argument("--tolerance", type=float, default=0.05)
+    drift.set_defaults(func=cmd_drift)
+
+    trends = sub.add_parser("trend", help="list snapshots and their metrics")
+    trends.add_argument("--dir", default="reports/snapshots")
+    trends.set_defaults(func=cmd_trend)
 
     verify = sub.add_parser("verify", help="re-score a report offline and compare to a baseline")
     verify.add_argument("--report", required=True)

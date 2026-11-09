@@ -41,11 +41,24 @@ _BM25_B = 0.75
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
+# Function words plus the highest-frequency generic words. The generic list is
+# what stops "who won the 2024 super bowl" from anchoring on "who" and "won":
+# a query about the Super Bowl has to share "super" and "bowl", or nothing.
 _STOPWORDS = frozenset(
     {
-        "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
-        "in", "is", "it", "of", "on", "or", "that", "the", "to", "was",
-        "were", "what", "with",
+        "a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "can",
+        "could", "did", "do", "does", "for", "from", "had", "has", "have", "he",
+        "her", "his", "how", "in", "is", "it", "its", "may", "might", "must",
+        "no", "not", "of", "on", "or", "our", "she", "should", "so", "some",
+        "such", "than", "that", "the", "their", "them", "then", "there", "these",
+        "they", "this", "those", "to", "was", "we", "were", "what", "when",
+        "where", "which", "who", "whom", "why", "will", "with", "would", "you",
+        "your",
+        # Generic verbs and quantity words: present everywhere, evidence of nothing.
+        "get", "gets", "got", "make", "makes", "made", "say", "says", "said",
+        "win", "wins", "won", "take", "takes", "took", "use", "uses", "used",
+        "one", "two", "new", "first", "last", "best", "top", "more", "most",
+        "any", "all", "each", "every", "many", "much",
     }
 )
 

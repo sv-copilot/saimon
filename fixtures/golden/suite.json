@@ -94,6 +94,11 @@
         "id": "abstain-nonsense-2",
         "query": "zzzq wobblewick frandish quintar",
         "expect_empty": true
+      },
+      {
+        "id": "abstain-worldly-offtopic",
+        "query": "who won the 2024 super bowl",
+        "expect_empty": true
       }
     ],
     "claim": [

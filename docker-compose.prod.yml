@@ -199,6 +199,7 @@ services:
     environment:
       PORT: "8006"
       SAIMON_API_KEY: ${SAIMON_EXPLORE_API_KEY}
+      SAIMON_EMBED_TASK_PREFIXES: "1"
       DATABASE_URL: ${EXPLORE_DATABASE_URL}
       SAIMON_ENV: production
     ports: !override

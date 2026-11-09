@@ -296,16 +296,35 @@ async def explore_content(
             patterns = candidate_patterns(query)
             if not patterns:
                 return _error(payload.trace_id, "Parameter 'query' is required.")
-            rows = await _db_pool.fetch(
-                "SELECT id, title, content_type, body, unit_id, "
-                "COALESCE(metadata->>'status', 'ready') as doc_status, "
-                "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
-                "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
-                "FROM knowledge_graph_nodes "
-                "WHERE title ILIKE ANY($1) OR body ILIKE ANY($1) "
-                "ORDER BY created_at DESC LIMIT $2",
-                patterns, candidate_limit,
-            )
+            # Similarity is computed in SQL against the stored embedding, the
+            # same quantity the search path ranks on. Computing it in Python
+            # over a whole document body diluted it to ~0.5 and every query then
+            # fell under the 0.62 floor (observed live for "pgvector").
+            query_vector = _rerank_embed_fn()(query)
+            if query_vector is not None:
+                rows = await _db_pool.fetch(
+                    "SELECT id, title, content_type, body, unit_id, "
+                    "COALESCE(metadata->>'status', 'ready') as doc_status, "
+                    "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
+                    "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
+                    "CASE WHEN embedding IS NOT NULL "
+                    "THEN 1 - (embedding <=> $2) END as similarity "
+                    "FROM knowledge_graph_nodes "
+                    "WHERE title ILIKE ANY($1) OR body ILIKE ANY($1) "
+                    "ORDER BY similarity DESC NULLS LAST, created_at DESC LIMIT $3",
+                    patterns, query_vector, candidate_limit,
+                )
+            else:
+                rows = await _db_pool.fetch(
+                    "SELECT id, title, content_type, body, unit_id, "
+                    "COALESCE(metadata->>'status', 'ready') as doc_status, "
+                    "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
+                    "COALESCE((metadata->>'relevance')::float, 0.5) as relevance "
+                    "FROM knowledge_graph_nodes "
+                    "WHERE title ILIKE ANY($1) OR body ILIKE ANY($1) "
+                    "ORDER BY created_at DESC LIMIT $2",
+                    patterns, candidate_limit,
+                )
             candidates = [
                 dict(r) for r in rows
                 if (dict(r).get("doc_status") or "ready") != "failed"

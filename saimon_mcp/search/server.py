@@ -440,14 +440,20 @@ async def _keyword_search(
             params.append(f"%{w}%")
             conditions.append(f"(title ILIKE ${len(params)} OR body ILIKE ${len(params)})")
         params.append(limit)
+        word_offset = len(user_params) + 1
+        match_expr = " + ".join(
+            f"CASE WHEN (title ILIKE ${word_offset + i} OR body ILIKE ${word_offset + i}) THEN 1 ELSE 0 END"
+            for i in range(len(words))
+        )
         sql = (
             "SELECT id, title, body, content_type, unit_id, "
             "COALESCE((metadata->>'relevance')::float, 0.5) as relevance, "
             "COALESCE(metadata->>'status', 'ready') as doc_status, "
-            "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review "
+            "COALESCE(metadata->>'review_status', 'accepted_research') as doc_review, "
+            "(" + match_expr + ") as match_count "
             "FROM knowledge_graph_nodes "
             "WHERE " + " AND ".join(conditions) + user_clause + " "
-            "ORDER BY created_at DESC LIMIT $" + str(len(params))
+            "ORDER BY match_count DESC, created_at DESC LIMIT $" + str(len(params))
         )
         rows = await _db_pool.fetch(sql, *params)
     return [dict(row) for row in rows]
@@ -458,27 +464,33 @@ def _merge_results(
     keyword: list[dict[str, Any]],
     limit: int,
 ) -> list[dict[str, Any]]:
-    """Merge vector + keyword results, deduplicating by id.
+    """Fuse vector and keyword results by reciprocal rank.
 
-    Vector (semantic) results lead; keyword (lexical) results fill the
-    remainder, catching no-embedding nodes the vector path cannot see.
+    The previous implementation took vector results first and truncated at
+    ``limit``, so lexical-only hits were discarded whenever the vector path
+    filled the quota. Rank fusion keeps both signals and is immune to the score
+    rescaling that corpus growth causes.
     """
-    merged: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for row in vector:
-        rid = str(row.get("id"))
-        if rid not in seen:
-            merged.append(row)
-            seen.add(rid)
-            if len(merged) >= limit:
-                return merged
+    from research_shared.fusion import reciprocal_rank_fusion
+
+    by_id: dict[str, dict[str, Any]] = {}
     for row in keyword:
-        rid = str(row.get("id"))
-        if rid not in seen:
-            merged.append(row)
-            seen.add(rid)
-            if len(merged) >= limit:
-                return merged
+        by_id.setdefault(str(row.get("id")), row)
+    for row in vector:  # vector rows win: they carry `similarity`
+        by_id[str(row.get("id"))] = row
+
+    fused = reciprocal_rank_fusion(
+        [
+            [str(row.get("id")) for row in vector],
+            [str(row.get("id")) for row in keyword],
+        ],
+        limit=limit,
+    )
+    merged: list[dict[str, Any]] = []
+    for item_id, score in fused:
+        row = by_id.get(item_id)
+        if row is not None:
+            merged.append({**row, "rrf_score": score})
     return merged
 
 

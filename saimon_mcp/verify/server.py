@@ -1290,8 +1290,49 @@ async def verify_claim(
         status, confidence, summary = resolve_status(
             supporting=len(evidence), contradicting=0, confidence=confidence
         )
+        # Provenance: a locator a reader can open, never a bare id (#271).
+        citations_data = []
+        for item in evidence:
+            raw = (item.get("doi") or "").strip()
+            if raw.startswith("url:"):
+                locator, reason = raw.split("url:", 1)[1] or None, None
+            elif raw:
+                locator, reason = f"doi:{raw}", None
+            else:
+                locator, reason = None, "no_doi_or_url_in_metadata"
+            citations_data.append({
+                "id": item["evidence_source"],
+                "title": item.get("title"),
+                "content_type": item.get("content_type"),
+                "locator": locator,
+                "locator_reason": reason,
+            })
+
         payload_data = ledger(evidence, status, confidence)
         payload_data["summary"] = summary
+        payload_data["citations"] = citations_data
+
+        # Append the verdict to the ledger. If it cannot be written, say so in
+        # the response rather than returning a verdict with no trace.
+        payload_data["ledger_recorded"] = False
+        try:
+            from research_shared.provenance import LEDGER_VERSION, claim_hash
+
+            await _db_pool.execute(
+                "INSERT INTO verification_ledger "
+                "(claim_hash, claim_text, verdict, confidence, method, version, "
+                " evidence_ids, locators, evidence_count) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7::uuid[], $8::text[], $9)",
+                claim_hash(str(claim)), str(claim), status, confidence,
+                "corpus_evidence", LEDGER_VERSION,
+                [item["evidence_source"] for item in evidence],
+                [c["locator"] for c in citations_data if c.get("locator")],
+                len(evidence),
+            )
+            payload_data["ledger_recorded"] = True
+            payload_data["ledger_version"] = LEDGER_VERSION
+        except Exception as exc:  # noqa: BLE001 — the verdict still returns, explicitly untraced
+            payload_data["ledger_error"] = f"{type(exc).__name__}: {str(exc)[:120]}"
         payload_data["methods_used"] = 1
         payload_data["theory_anchor"] = None
         payload_data["verifications"] = [
@@ -1315,7 +1356,7 @@ async def verify_claim(
         return _ok(
             payload.trace_id,
             data=payload_data,
-            citations=[item["evidence_source"] for item in evidence],
+            citations=[c["locator"] or c["id"] for c in citations_data],
         )
 
     requested = payload.parameters.get("methods")

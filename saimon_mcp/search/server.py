@@ -752,19 +752,18 @@ async def search_knowledge_graph(
             pass  # fall through to fallback
 
     # ── fallback (no DB, or DB not implemented) ──
-    results = [
-        {
-            "id": f"kg-{i}",
-            "title": f"Knowledge graph result {i} for: {query}",
-            "relevance": round(1.0 - (i * 0.15), 2),
-        }
-        for i in range(min(limit, 5))
-    ]
-
+    # No synthetic rows. A fabricated result ("Knowledge graph result 0 for: ...")
+    # is indistinguishable from a real one downstream: an agent will quote it, a
+    # report will cite it, and nothing in the payload says it was invented. Empty
+    # plus a reason is the only honest degradation.
     resp = _degraded(
         trace_id=payload.trace_id,
-        data={"results": results, "total": len(results)},
-        citations=[r["id"] for r in results],
+        data={
+            "results": [],
+            "total": 0,
+            "reason": "knowledge graph unavailable — no results returned",
+        },
+        citations=[],
     )
     logger.log_response(status=resp.status, citations_count=len(resp.citations or []))
     return resp

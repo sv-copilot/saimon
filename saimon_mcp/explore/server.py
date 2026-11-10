@@ -374,28 +374,18 @@ async def explore_content(
             pass
 
     # ── fallback ──
-    results: list[dict[str, Any]] = [
-        {
-            "id": f"kg-{i:03d}",
-            "title": f"Result {i} for: {query[:40]}...",
-            "content_type": "research_note" if i % 2 == 0 else "article",
-            "relevance": round(1.0 - (i * 0.08), 2),
-            "summary": (
-                f"A {_random_type(i)} about {query} with key insights "
-                f"and references to related work."
-            ),
-        }
-        for i in range(min(limit, 8))
-    ]
-
+    # No synthetic rows. Escape hatches that invent content are worse than an
+    # outage: a fabricated "Result 0 for: <query>" with a made-up summary and a
+    # made-up date reads exactly like research, and nothing downstream can tell.
     resp = _degraded(
         trace_id=payload.trace_id,
         data={
             "query": query,
-            "results": results,
-            "total": len(results),
+            "results": [],
+            "total": 0,
+            "reason": "knowledge graph unavailable — no results returned",
         },
-        citations=[str(r["id"]) for r in results],
+        citations=[],
     )
     logger.log_response(
         status=resp.status, citations_count=len(resp.citations or [])
@@ -465,29 +455,18 @@ async def browse_by_type(
             pass
 
     # ── fallback ──
-    items: list[dict[str, Any]] = [
-        {
-            "id": f"{content_type}-{offset + i:03d}",
-            "title": f"{content_type.replace('_', ' ').title()} Item {offset + i}",
-            "content_type": content_type,
-            "summary": (
-                f"A {content_type.replace('_', ' ')} covering important "
-                f"discoveries and insights in the knowledge graph."
-            ),
-            "created_at": f"2026-07-{(20 - i):02d}T10:00:00Z",
-        }
-        for i in range(min(limit, 6))
-    ]
-
+    # Empty, not invented. Fake items with plausible summaries and dates are the
+    # most dangerous shape of degradation: they look like a partial browse.
     resp = _degraded(
         trace_id=payload.trace_id,
         data={
             "content_type": content_type,
-            "items": items,
-            "total": len(items),
+            "items": [],
+            "total": 0,
             "offset": offset,
+            "reason": "knowledge graph unavailable — no items returned",
         },
-        citations=[item["id"] for item in items],
+        citations=[],
     )
     logger.log_response(
         status=resp.status, citations_count=len(resp.citations or [])
@@ -555,35 +534,16 @@ async def discover_connections(
             pass
 
     # ── fallback ──
-    isolated = {"isolated-node", "another-isolated"}
-    if source_id in isolated or target_id in isolated:
-        paths: list[dict[str, Any]] = []
-    else:
-        paths = [
-            {
-                "nodes": [source_id, "kg-intermediate", target_id],
-                "edges": [
-                    {
-                        "from": source_id,
-                        "to": "kg-intermediate",
-                        "type": "references",
-                    },
-                    {
-                        "from": "kg-intermediate",
-                        "to": target_id,
-                        "type": "extends",
-                    },
-                ],
-                "length": 2,
-            }
-        ]
-
-    resp = _ok(
+    # An invented path between two real ids is a fabricated relationship: the two
+    # endpoints look genuine, so nothing downstream can tell the connection was
+    # made up. Empty is the only honest answer when the graph is unreachable.
+    resp = _degraded(
         trace_id=payload.trace_id,
         data={
             "source_id": source_id,
             "target_id": target_id,
-            "paths": paths,
+            "paths": [],
+            "reason": "knowledge graph unavailable — no paths returned",
         },
     )
     logger.log_response(status=resp.status)

@@ -260,10 +260,27 @@ def reformulate_query(query: str) -> str:
 
 
 def _same_unit(first: dict[str, Any], second: dict[str, Any]) -> bool:
-    """True when two candidates are chunks of the same document."""
+    """True when two candidates are not two different answers.
+
+    Same document is the obvious case. The second case is a duplicate *record* of
+    one entity: fiction canon carried two "Sergeant Kade" nodes, and the margin
+    gate read that as two equally good answers and abstained on a question the
+    corpus could answer. Duplicate rows are a tidy-up problem, not ambiguity.
+    """
     a = first.get("unit_id") or first.get("document_id")
     b = second.get("unit_id") or second.get("document_id")
-    return bool(a) and str(a) == str(b)
+    if a and str(a) == str(b):
+        return True
+    title_a = _normalise_title(first.get("title"))
+    title_b = _normalise_title(second.get("title"))
+    # Two untitled candidates are not "the same record" — they are two unknowns,
+    # and treating them as one would switch the margin gate off for every caller
+    # that never sets a title.
+    return bool(title_a) and title_a == title_b
+
+
+def _normalise_title(title: Any) -> str:
+    return " ".join(str(title or "").lower().split())
 
 
 def gate_decision(

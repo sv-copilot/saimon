@@ -388,6 +388,10 @@ async def _vector_search(
     # Universe scope (#265). Narrowing only: the caller's universe plus its
     # children, or no restriction at all when an explicit cross-universe read was
     # requested. Absent scope falls back to reality rather than everything.
+    if universe_ids is not None and not universe_ids:
+        # An empty scope is a refusal (private universe, no owner). Returning the
+        # unrestricted set here would answer a refused query with public content.
+        return []
     if universe_ids:
         next_param = (3 if user_id else 2) + len(clause_params)
         clause += f" AND universe_id = ANY(${next_param}::uuid[])"
@@ -482,7 +486,7 @@ async def _keyword_search(
         )
         rows = await _db_pool.fetch(sql, *params)
     result = [dict(row) for row in rows]
-    if universe_ids:
+    if universe_ids is not None:
         # The lexical path has no universe predicate, so a scoped query would
         # otherwise leak rows from another universe through the fusion step.
         allowed = {str(u) for u in universe_ids}
@@ -538,7 +542,9 @@ async def _resolve_universe(parameters: dict) -> list[str] | None:
     if _db_pool is None:
         return [REALITY_ID]
     try:
-        rows = await _db_pool.fetch("SELECT id, slug, parent_id FROM universes")
+        rows = await _db_pool.fetch(
+        "SELECT id, slug, parent_id, visibility FROM universes"
+    )
     except Exception:  # noqa: BLE001 — pre-#264 schema: scope to reality only
         return [REALITY_ID]
 
@@ -560,6 +566,16 @@ async def _resolve_universe(parameters: dict) -> list[str] | None:
     root = slug_to_id.get(slug)
     if root is None:
         return [REALITY_ID]
+
+    # A private universe is readable only by its owner (#269). Returning an empty
+    # scope is a refusal, not a fallback: falling back to reality would answer a
+    # private query with public content, which reads like success.
+    visibility = next(
+        (field(r, "visibility") for r in rows if str(field(r, "id")) == root), "private"
+    )
+    if (visibility or "private") == "private" and not parameters.get("user_id"):
+        return []
+
     return sorted(scope_ids(root, children))
 
 

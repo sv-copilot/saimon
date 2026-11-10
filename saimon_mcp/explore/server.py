@@ -510,16 +510,51 @@ async def discover_connections(
     # ── try DB backend ──
     if _db_pool is not None:
         try:
-            rows = await _db_pool.fetch(
+            direct = await _db_pool.fetch(
                 "SELECT source_id AS from_id, target_id AS to_id, "
-                "relationship_type AS type "
+                "relation_type AS type "
                 "FROM knowledge_graph_edges "
                 "WHERE source_id = $1 AND target_id = $2 "
                 "LIMIT 5",
                 source_id, target_id,
             )
-            edges = [dict(r) for r in rows]
-            paths = [{"edges": edges, "length": len(edges)}] if edges else []
+            paths: list[dict[str, Any]] = [
+                {
+                    "nodes": [source_id, target_id],
+                    "edges": [dict(r) for r in direct],
+                    "length": 1,
+                }
+            ] if direct else []
+
+            # One intermediate hop. A "connection" that only reports direct edges
+            # answers the least interesting case and returns nothing for most
+            # pairs of entities in a graph this size.
+            if not paths:
+                hops = await _db_pool.fetch(
+                    "SELECT a.source_id AS start_id, a.target_id AS middle_id, "
+                    "a.relation_type AS first_type, b.target_id AS end_id, "
+                    "b.relation_type AS second_type "
+                    "FROM knowledge_graph_edges a "
+                    "JOIN knowledge_graph_edges b ON b.source_id = a.target_id "
+                    "WHERE a.source_id = $1 AND b.target_id = $2 "
+                    "AND a.target_id <> $2 "
+                    "LIMIT 5",
+                    source_id, target_id,
+                )
+                paths = [
+                    {
+                        "nodes": [str(r["start_id"]), str(r["middle_id"]), str(r["end_id"])],
+                        "edges": [
+                            {"from": str(r["start_id"]), "to": str(r["middle_id"]),
+                             "type": r["first_type"]},
+                            {"from": str(r["middle_id"]), "to": str(r["end_id"]),
+                             "type": r["second_type"]},
+                        ],
+                        "length": 2,
+                    }
+                    for r in hops
+                ]
+
             resp = _ok(
                 trace_id=payload.trace_id,
                 data={

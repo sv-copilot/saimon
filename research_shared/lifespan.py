@@ -80,7 +80,16 @@ def build_lifespan(
                 try:
                     from research_shared.db import DatabaseConfig, DatabasePool
 
-                    cfg = DatabaseConfig(database_url=db_url, min_pool_size=1, max_pool_size=5)
+                    # Pool budget: seven DB-backed services x 5 = 35 connections
+                    # against max_connections=100, leaving room for Metabase and
+                    # psql. Raise per service via SAIMON_DB_MAX_POOL only with
+                    # that arithmetic in mind.
+                    cfg = DatabaseConfig(
+                        database_url=db_url,
+                        min_pool_size=int(os.getenv("SAIMON_DB_MIN_POOL", "1")),
+                        max_pool_size=int(os.getenv("SAIMON_DB_MAX_POOL", "5")),
+                        application_name=service_name,
+                    )
                     pool = DatabasePool(cfg)
                     await pool.fetch("SELECT 1")  # triggers lazy init + verifies
                     db_pool_setter(pool)

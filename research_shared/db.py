@@ -40,6 +40,9 @@ class DatabaseConfig:
     database_url: str | None = None
     min_pool_size: int = 2
     max_pool_size: int = 10
+    # Without this every MCP service is anonymous in pg_stat_activity, so an
+    # exhausted pool cannot be attributed to the service that exhausted it.
+    application_name: str = "saimon"
 
     @classmethod
     def from_env(cls) -> DatabaseConfig:
@@ -48,6 +51,7 @@ class DatabaseConfig:
             database_url=os.getenv("DATABASE_URL"),
             min_pool_size=int(os.getenv("SAIMON_DB_MIN_POOL", "2")),
             max_pool_size=int(os.getenv("SAIMON_DB_MAX_POOL", "10")),
+            application_name=os.getenv("SAIMON_DB_APP_NAME", "saimon"),
         )
 
     def __repr__(self) -> str:
@@ -169,6 +173,7 @@ class DatabasePool:
                 min_size=self.config.min_pool_size,
                 max_size=self.config.max_pool_size,
                 init=_register_pgvector_codec,
+                server_settings={"application_name": self.config.application_name},
             )
         return self._pool
 

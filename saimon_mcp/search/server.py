@@ -352,8 +352,8 @@ def _error(trace_id: str, message: str) -> ResearchResponse:
 
 
 async def _vector_search(
-    query: str, limit: int, user_id: str | None, fact_filter: FactFilter | None = None,
-    universe_ids: list[str] | None = None,
+    query: str, limit: int, user_id: str | None, fact_filter: FactFilter | None,
+    universe_ids: list[str] | None,
 ) -> list[dict[str, Any]] | None:
     """pgvector cosine-similarity search over knowledge graph embeddings.
 
@@ -413,7 +413,7 @@ async def _vector_search(
 
 
 async def _keyword_search(
-    query: str, limit: int, user_id: str | None, universe_ids: list[str] | None = None
+    query: str, limit: int, user_id: str | None, universe_ids: list[str] | None
 ) -> list[dict[str, Any]]:
     """Lexical search over title/body (parity with ``explore_content``).
 
@@ -580,8 +580,8 @@ async def _resolve_universe(parameters: dict) -> list[str] | None:
 
 
 async def _search_candidates(
-    query: str, limit: int, user_id: str | None, fact_filter: FactFilter | None = None,
-    universe_ids: list[str] | None = None,
+    query: str, limit: int, user_id: str | None, fact_filter: FactFilter | None,
+    universe_ids: list[str] | None,
 ) -> list[dict[str, Any]]:
     """Run vector + keyword retrieval and merge into a broad candidate pool."""
     # Structured filters (#275): when a caller asks for a value range, a date
@@ -602,10 +602,10 @@ async def _retrieve_and_rerank(
     limit: int,
     user_id: str | None,
     logger: Any,
-    allow_failed: bool = False,
-    review_statuses: list[str] | None = None,
-    fact_filter: FactFilter | None = None,
-    universe_ids: list[str] | None = None,
+    allow_failed: bool,
+    review_statuses: list[str] | None,
+    fact_filter: FactFilter | None,
+    universe_ids: list[str] | None,
 ) -> dict[str, Any]:
     """Retrieve candidates, rerank them, and apply the fail-safe no-answer gate.
 

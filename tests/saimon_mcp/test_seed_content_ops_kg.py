@@ -43,6 +43,9 @@ class InMemoryKG:
                     "content_type": args[2],
                     "body": args[3],
                     "metadata": json.loads(args[4]),
+                    # Scope matters now: an unscoped row is invisible to every
+                    # scoped query, exactly as in production.
+                    "universe_id": "reality",
                 },
             )
         elif "INSERT INTO KNOWLEDGE_GRAPH_EDGES" in q:
@@ -79,6 +82,7 @@ class InMemoryKG:
                             "relevance": float(
                                 node.get("metadata", {}).get("relevance", 0.5)
                             ),
+                            "universe_id": node.get("universe_id", "reality"),
                         }
                     )
             return results[:limit] if limit else results
@@ -296,7 +300,7 @@ class TestRetrievalProbe:
 
         monkeypatch.setattr(search_server, "_db_pool", db)
 
-        results = await search_server._keyword_search("Self-Determination", 10, None)
+        results = await search_server._keyword_search("Self-Determination", 10, None, ["reality"])
         titles = [r["title"] for r in results]
         assert any("Self-Determination" in title for title in titles)
 

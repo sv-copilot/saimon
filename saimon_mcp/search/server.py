@@ -647,8 +647,10 @@ async def _retrieve_and_rerank(
     ):
         requery_count = 1
         reformulated = reformulate_query(query)
+        # The requery is a second retrieval path: anything the first path scopes
+        # must be scoped here too, or the reformulation quietly reopens it.
         requery_candidates = await _search_candidates(
-            reformulated, candidate_limit, user_id
+            reformulated, candidate_limit, user_id, fact_filter, universe_ids
         )
         if not allow_failed:
             requery_candidates = [

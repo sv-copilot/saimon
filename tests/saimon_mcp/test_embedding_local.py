@@ -129,7 +129,7 @@ class TestVectorSearch:
         fake_pool.fetch = AsyncMock(return_value=rows)
         monkeypatch.setattr(search_server, "_db_pool", fake_pool)
 
-        results = asyncio.run(search_server._vector_search("nearest docs", 5, None))
+        results = asyncio.run(search_server._vector_search("nearest docs", 5, None, None, ["reality"]))
         assert results == rows
         # The similarity query must use the pgvector cosine operator.
         sql = fake_pool.fetch.call_args[0][0]
@@ -143,4 +143,4 @@ class TestVectorSearch:
 
         reset_embedding_cache()
         monkeypatch.setitem(sys.modules, "fastembed", None)
-        assert asyncio.run(search_server._vector_search("x", 5, None)) is None
+        assert asyncio.run(search_server._vector_search("x", 5, None, None, ["reality"])) is None

@@ -86,6 +86,10 @@ class TestDBBackendInjection:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] in ("success", "degraded")
+        # Degraded must never invent rows: a synthetic "result" is indistinguishable
+        # from a real one once it leaves the service.
+        assert data["data"]["results"] == []
+        assert "unavailable" in data["data"]["reason"]
 
     def test_list_sources_uses_db_when_injected(
         self, monkeypatch, api_key, sample_trace_id, mock_db

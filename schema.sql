@@ -211,6 +211,18 @@ INSERT INTO universes (id, slug, name, visibility) VALUES
     ('00000000-0000-4000-8000-000000000003', 'personal', 'Personal', 'private')
 ON CONFLICT (slug) DO NOTHING;
 
+-- Worlds live under a shared parent: `fiction` is the genre, each novel is a child.
+INSERT INTO universes (id, slug, name, parent_id, visibility) VALUES
+    ('00000000-0000-4000-8000-000000000004', 'needle', 'Needle',
+     '00000000-0000-4000-8000-000000000002', 'public')
+ON CONFLICT (slug) DO NOTHING;
+
+-- Worlds live under a shared parent: `fiction` is the genre, each novel is a child.
+INSERT INTO universes (id, slug, name, parent_id, visibility) VALUES
+    ('00000000-0000-4000-8000-000000000004', 'needle', 'Needle',
+     '00000000-0000-4000-8000-000000000002', 'public')
+ON CONFLICT (slug) DO NOTHING;
+
 ALTER TABLE knowledge_graph_nodes
     ADD COLUMN IF NOT EXISTS universe_id UUID REFERENCES universes(id);
 ALTER TABLE observations

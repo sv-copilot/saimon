@@ -138,7 +138,7 @@ class TestVectorPath:
             lambda *a, **k: [0.1] * 768,
         )
 
-        result = await server._vector_search("probe query", 10, None)
+        result = await server._vector_search("probe query", 10, None, None, ["reality"])
 
         assert result is not None
         assert result == rows
@@ -154,6 +154,6 @@ class TestVectorPath:
             lambda *a, **k: None,
         )
 
-        result = await server._vector_search("probe query", 10, None)
+        result = await server._vector_search("probe query", 10, None, None, ["reality"])
 
         assert result is None

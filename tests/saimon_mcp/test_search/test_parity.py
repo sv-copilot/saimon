@@ -57,7 +57,8 @@ class TestKeywordSearch:
     async def test_returns_lexical_matches(self, monkeypatch):
         from saimon_mcp.search import server
 
-        rows = [{"id": "kw-1", "title": "Sprocket bartender", "relevance": 0.5}]
+        rows = [{"id": "kw-1", "title": "Sprocket bartender", "relevance": 0.5,
+                 "universe_id": "reality"}]
 
         class _Pool:
             async def fetch(self, query, *args):
@@ -65,12 +66,12 @@ class TestKeywordSearch:
 
         monkeypatch.setattr(server, "_db_pool", _Pool())
 
-        result = await server._keyword_search("sprocket", 10, None)
-        assert result == rows
+        result = await server._keyword_search("sprocket", 10, None, ["reality"])
+        assert [r["id"] for r in result] == ["kw-1"]
         assert result[0]["id"] == "kw-1"
 
     async def test_no_pool_returns_empty(self, monkeypatch):
         from saimon_mcp.search import server
 
         monkeypatch.setattr(server, "_db_pool", None)
-        assert await server._keyword_search("x", 10, None) == []
+        assert await server._keyword_search("x", 10, None, ["reality"]) == []

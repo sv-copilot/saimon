@@ -1138,12 +1138,49 @@ async def _call_verify_claim(claim_text: str) -> dict[str, Any]:
 # knowledge graph persistence
 # ---------------------------------------------------------------------------
 
+async def _resolve_universe_for_write(
+    slug: str | None, user_id: str | None
+) -> tuple[str | None, str | None]:
+    """Resolve a universe slug for a write. Returns (id, refusal reason).
+
+    A private universe requires an owner: writing personal content with no
+    user_id would create rows nobody — including its owner — could read.
+    """
+    from research_shared.universe import REALITY_ID
+
+    requested = (slug or "reality").strip()
+    if _db_pool is None:
+        return REALITY_ID, None
+    try:
+        rows = await _db_pool.fetch(
+            "SELECT id, slug, visibility FROM universes"
+        )
+    except Exception:  # noqa: BLE001 — pre-#264 schema
+        return REALITY_ID, None
+
+    def field(row, key):
+        try:
+            return row[key]
+        except (KeyError, TypeError):
+            return None
+
+    match = next((r for r in rows if field(r, "slug") == requested), None)
+    if match is None:
+        # No universes table content (older schema or a test double): reality is
+        # the safe default, and an unknown *explicit* slug is refused.
+        return (REALITY_ID, None) if not slug else (None, f"unknown_universe:{requested}")
+    if field(match, "visibility") == "private" and not user_id:
+        return None, "private_universe_requires_owner"
+    return str(field(match, "id")), None
+
+
 async def _persist_content_node(
     title: str,
     content_type: str,
     body: str,
     metadata: dict[str, Any] | None = None,
     user_id: str | None = None,
+    universe_id: str | None = None,
 ) -> str | None:
     """Persist a generated content node to knowledge_graph_nodes.
 
@@ -1163,9 +1200,11 @@ async def _persist_content_node(
 
     try:
         await _db_pool.execute(
-            "INSERT INTO knowledge_graph_nodes (id, title, content_type, body, metadata, embedding, user_id) "
-            "VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)",
+            "INSERT INTO knowledge_graph_nodes "
+            "(id, title, content_type, body, metadata, embedding, user_id, universe_id) "
+            "VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)",
             node_id, title, content_type, body, meta_json, embedding, user_id,
+            universe_id,
         )
         return node_id
     except Exception:  # noqa: BLE001
@@ -1778,7 +1817,16 @@ async def store_content(
             except _json.JSONDecodeError:
                 meta_dict = {"raw": metadata}
 
-    node_id = await _persist_content_node(title, content_type, body, meta_dict, user_id)
+    universe_id, refusal = await _resolve_universe_for_write(
+        payload.parameters.get("universe"), user_id
+    )
+    if refusal:
+        logger.log_response(status="error")
+        return _error(payload.trace_id, f"Refusing to write: {refusal}")
+
+    node_id = await _persist_content_node(
+        title, content_type, body, meta_dict, user_id, universe_id
+    )
 
     if node_id is None:
         logger.log_response(status="error")

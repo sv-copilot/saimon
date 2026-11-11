@@ -427,9 +427,22 @@ async def persist_fulltext_document(
 
     if existing_id:
         # Refresh: drop stale chunks + their part_of edges, then update the doc.
+        #
+        # Claims derived from those chunks must go too. They are keyed by
+        # metadata->>'source_chunk_id', not by an edge, so deleting only the edges
+        # left them pointing at row ids that no longer exist — 219 orphaned claims
+        # accumulated this way, and a re-ingest looked like it had produced nothing.
         await db.execute(
             "DELETE FROM knowledge_graph_edges WHERE source_id IN "
             f"(SELECT id FROM {FULLTEXT_STORE_TABLE} "
+            " WHERE content_type = $1 AND metadata->>'doi' = $2)",
+            CONTENT_TYPE_FULLTEXT_CHUNK,
+            doi,
+        )
+        await db.execute(
+            "DELETE FROM knowledge_graph_nodes WHERE content_type = 'claim' "
+            "AND metadata->>'source_chunk_id' IN "
+            f"(SELECT id::text FROM {FULLTEXT_STORE_TABLE} "
             " WHERE content_type = $1 AND metadata->>'doi' = $2)",
             CONTENT_TYPE_FULLTEXT_CHUNK,
             doi,

@@ -108,6 +108,9 @@ WHERE c.content_type = 'fulltext_chunk'
       SELECT 1 FROM knowledge_graph_nodes k
       WHERE k.content_type = 'claim' AND k.metadata->>'source_chunk_id' = c.id::text
   )
+  -- A chunk that was attempted and yielded nothing is settled, not pending.
+  -- Without this the sweep re-pays the LLM for the same empty chunk every run.
+  AND coalesce(c.metadata->>'claim_extraction', '') <> 'empty'
 ORDER BY d.title, (c.metadata->>'chunk_index')::int
 LIMIT $3
 """
@@ -257,6 +260,13 @@ async def main() -> int:
                 continue
             if not claims:
                 counts["empty"] += 1
+                if not args.dry_run:
+                    await db.execute(
+                        "UPDATE knowledge_graph_nodes "
+                        "SET metadata = metadata || '{\"claim_extraction\": \"empty\"}'::jsonb "
+                        "WHERE id = $1",
+                        chunk["chunk_id"],
+                    )
                 print(
                     f"{label} none  {chunk['document_title'][:50]} #{chunk['chunk_index']}",
                     flush=True,

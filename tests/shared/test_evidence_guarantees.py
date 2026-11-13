@@ -159,6 +159,25 @@ def test_cue_about_something_else_is_not_a_contradiction() -> None:
     assert classify_stance(CLAIM, passage) == "supports"
 
 
+@pytest.mark.asyncio
+async def test_negated_claim_is_contradicted_by_a_positive_passage() -> None:
+    # "X does not do Y" must not be verified by a passage saying "X does Y".
+    db = FakeDB([_row("00000000-0000-4000-8000-000000000001")])
+    items = await collect_corpus_evidence(db, "pgvector does not support HNSW indexes")
+    assert items and items[0]["polarity"] == "contradicts"
+
+
+@pytest.mark.asyncio
+async def test_negated_claim_and_negated_passage_support_each_other() -> None:
+    body = (
+        "pgvector does not support HNSW indexes in this release; the extension "
+        "documents IVFFlat only and the HNSW option is absent."
+    )
+    db = FakeDB([_row("00000000-0000-4000-8000-000000000002", body=body)])
+    items = await collect_corpus_evidence(db, "pgvector does not support HNSW indexes")
+    assert items and items[0]["polarity"] == "supports"
+
+
 def test_counts_separate_support_from_contradiction() -> None:
     evidence = [
         {"polarity": "supports"},

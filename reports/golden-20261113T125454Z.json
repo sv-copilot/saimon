@@ -1,0 +1,402 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-11-13T12:54:54.641022+00:00",
+  "mode": "live",
+  "environment": {
+    "search_url": "http://127.0.0.1:8101",
+    "verify_url": "http://127.0.0.1:8105",
+    "git_revision": "0c48494"
+  },
+  "dimensions": {
+    "retrieval-rubric-v1": {
+      "hit_rate": 1.0,
+      "score_floor": 1.0,
+      "abstention": 1.0,
+      "provenance": 1.0
+    },
+    "claim-rubric-v1": {
+      "structural_precision": 1.0,
+      "numeric_signal": 1.0,
+      "noise_rejection": 1.0
+    },
+    "degraded-rubric-v1": {
+      "fail_closed_distinction": 1.0,
+      "degradation_reason_presence": 0.6666666666666666
+    },
+    "verification-rubric-v1": {
+      "evidence_binding": 1.0,
+      "ledger_completeness": 1.0,
+      "status_sanity": 0.5
+    }
+  },
+  "observations": {
+    "retrieval": [
+      {
+        "id": "ret-seven-failures",
+        "kind": "retrieval",
+        "hit": true,
+        "top_score": 0.938266,
+        "titles": [
+          "Seven Failure Points When Engineering a Retrieval Augmented Generation System",
+          "Seven Failure Points When Engineering a Retrieval Augmented Generation System — chunk 1",
+          "Seven Failure Points When Engineering a Retrieval Augmented Generation System — chunk 8"
+        ],
+        "status": 200
+      },
+      {
+        "id": "ret-entity-resolution",
+        "kind": "retrieval",
+        "hit": true,
+        "top_score": 0.83687,
+        "titles": [
+          "Entity Resolution: Theory, Practice & Open Challenges — chunk 6",
+          "Entity Resolution: Theory, Practice & Open Challenges — chunk 5",
+          "Entity Resolution: Theory, Practice & Open Challenges — chunk 7"
+        ],
+        "status": 200
+      },
+      {
+        "id": "ret-wip-schedules",
+        "kind": "retrieval",
+        "hit": true,
+        "top_score": 0.870047,
+        "titles": [
+          "WIP schedules: Blueprints for solid construction accounting — chunk 2",
+          "When a contractor requisitions for money, that’s not revenue. They have to incur costs to create revenue.",
+          "WIP schedules: Blueprints for solid construction accounting — chunk 1"
+        ],
+        "status": 200
+      },
+      {
+        "id": "ret-pgvector",
+        "kind": "retrieval",
+        "hit": true,
+        "top_score": 0.82414,
+        "titles": [
+          "pgvector README — index types, operators, and tuning — chunk 5",
+          "Results are limited by the size of the dynamic candidate list ( hnsw.ef_search ), which is 40 by default.",
+          "If a condition matches 10% of rows, with HNSW and the default hnsw.ef_search of 40, only 4 rows will match on average."
+        ],
+        "status": 200
+      },
+      {
+        "id": "ret-equipment-cost",
+        "kind": "retrieval",
+        "hit": true,
+        "top_score": 0.857231,
+        "titles": [
+          "Estimating System Overview (Landscape Ontario) — chunk 3",
+          "Estimating System Overview (Landscape Ontario) — chunk 8",
+          "Estimating System Overview (Landscape Ontario) — chunk 7"
+        ],
+        "status": 200
+      },
+      {
+        "id": "ret-shape-up",
+        "kind": "retrieval",
+        "hit": true,
+        "top_score": 0.869605,
+        "titles": [
+          "Shape Up — Chapter 3: Set Boundaries",
+          "Shape Up — Chapter 3: Set Boundaries — chunk 2",
+          "Shape Up — Chapter 3: Set Boundaries — chunk 3"
+        ],
+        "status": 200
+      },
+      {
+        "id": "ret-multi-agent",
+        "kind": "retrieval",
+        "hit": true,
+        "top_score": 0.895871,
+        "titles": [
+          "Why Do Multi-Agent LLM Systems Fail? — chunk 42",
+          "Why Do Multi-Agent LLM Systems Fail? — chunk 10",
+          "Why Do Multi-Agent LLM Systems Fail? — chunk 15"
+        ],
+        "status": 200
+      },
+      {
+        "id": "ret-bookkeeping-wage",
+        "kind": "retrieval",
+        "hit": true,
+        "top_score": 0.818308,
+        "titles": [
+          "Median wages $24.36 hourly, $50,670 annual",
+          "O*NET OnLine: Bookkeeping, Accounting, and Auditing Clerks (43-3031.00) — chunk 16",
+          "O*NET OnLine: Bookkeeping, Accounting, and Auditing Clerks (43-3031.00) — chunk 18"
+        ],
+        "status": 200
+      },
+      {
+        "id": "abstain-nonsense",
+        "kind": "abstain",
+        "ok": true,
+        "hits": 0
+      },
+      {
+        "id": "abstain-nonsense-2",
+        "kind": "abstain",
+        "ok": true,
+        "hits": 0
+      },
+      {
+        "id": "abstain-worldly-offtopic",
+        "kind": "abstain",
+        "ok": true,
+        "hits": 0
+      }
+    ],
+    "claim": [
+      {
+        "id": "claim-numeric",
+        "observed": {
+          "has_number": true,
+          "has_unit": false,
+          "has_verb": true,
+          "is_name_list": false
+        },
+        "expected": {
+          "has_number": true,
+          "has_unit": false,
+          "has_verb": true,
+          "is_name_list": false
+        },
+        "matched": {
+          "has_number": true,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": true
+        },
+        "looks_like_claim": true
+      },
+      {
+        "id": "claim-with-unit",
+        "observed": {
+          "has_number": true,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": false
+        },
+        "expected": {
+          "has_number": true,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": false
+        },
+        "matched": {
+          "has_number": true,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": true
+        },
+        "looks_like_claim": true
+      },
+      {
+        "id": "claim-qualitative",
+        "observed": {
+          "has_number": false,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": false
+        },
+        "expected": {
+          "has_number": false,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": false
+        },
+        "matched": {
+          "has_number": true,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": true
+        },
+        "looks_like_claim": true
+      },
+      {
+        "id": "claim-time-anchored",
+        "observed": {
+          "has_number": true,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": false
+        },
+        "expected": {
+          "has_number": true,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": false
+        },
+        "matched": {
+          "has_number": true,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": true
+        },
+        "looks_like_claim": true
+      },
+      {
+        "id": "name-list",
+        "observed": {
+          "has_number": false,
+          "has_unit": false,
+          "has_verb": false,
+          "is_name_list": true
+        },
+        "expected": {
+          "has_number": false,
+          "has_unit": false,
+          "has_verb": false,
+          "is_name_list": true
+        },
+        "matched": {
+          "has_number": true,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": true
+        },
+        "looks_like_claim": false
+      },
+      {
+        "id": "toc-line",
+        "observed": {
+          "has_number": true,
+          "has_unit": false,
+          "has_verb": false,
+          "is_name_list": false
+        },
+        "expected": {
+          "has_number": true,
+          "has_unit": false,
+          "has_verb": false,
+          "is_name_list": false
+        },
+        "matched": {
+          "has_number": true,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": true
+        },
+        "looks_like_claim": false
+      },
+      {
+        "id": "noise-section",
+        "observed": {
+          "has_number": false,
+          "has_unit": false,
+          "has_verb": false,
+          "is_name_list": false
+        },
+        "expected": {
+          "has_number": false,
+          "has_unit": false,
+          "has_verb": false,
+          "is_name_list": false
+        },
+        "matched": {
+          "has_number": true,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": true
+        },
+        "looks_like_claim": false
+      },
+      {
+        "id": "bare-number",
+        "observed": {
+          "has_number": true,
+          "has_unit": false,
+          "has_verb": false,
+          "is_name_list": false
+        },
+        "expected": {
+          "has_number": true,
+          "has_unit": false,
+          "has_verb": false,
+          "is_name_list": false
+        },
+        "matched": {
+          "has_number": true,
+          "has_unit": true,
+          "has_verb": true,
+          "is_name_list": true
+        },
+        "looks_like_claim": false
+      }
+    ],
+    "degraded": [
+      {
+        "id": "deg-empty-query",
+        "ok": true,
+        "refused": true,
+        "results": 0
+      },
+      {
+        "id": "deg-private-ingest",
+        "ok": true,
+        "refused": true
+      },
+      {
+        "id": "deg-nonsense",
+        "ok": true,
+        "refused": false,
+        "results": 0
+      }
+    ],
+    "verification": [
+      {
+        "id": "ver-supported-claim",
+        "verdict": "supported",
+        "evidence_items": 5,
+        "has_evidence_source": true,
+        "ledger_ok": true,
+        "ms": 109
+      },
+      {
+        "id": "ver-unbound-claim",
+        "verdict": "supported",
+        "evidence_items": 5,
+        "has_evidence_source": true,
+        "ledger_ok": true,
+        "ms": 61
+      }
+    ]
+  },
+  "scored": {
+    "overall_verdict": "PASS",
+    "rubrics": {
+      "retrieval-rubric-v1": {
+        "rubric": "retrieval-rubric-v1",
+        "score": 1.0,
+        "verdict": "PASS",
+        "missing_dimensions": [],
+        "failed_dimensions": [],
+        "threshold": 0.75
+      },
+      "claim-rubric-v1": {
+        "rubric": "claim-rubric-v1",
+        "score": 1.0,
+        "verdict": "PASS",
+        "missing_dimensions": [],
+        "failed_dimensions": [],
+        "threshold": 0.75
+      },
+      "verification-rubric-v1": {
+        "rubric": "verification-rubric-v1",
+        "score": 0.9,
+        "verdict": "PASS",
+        "missing_dimensions": [],
+        "failed_dimensions": [],
+        "threshold": 0.75
+      },
+      "degraded-rubric-v1": {
+        "rubric": "degraded-rubric-v1",
+        "score": 0.8667,
+        "verdict": "PASS",
+        "missing_dimensions": [],
+        "failed_dimensions": [],
+        "threshold": 0.75
+      }
+    }
+  }
+}

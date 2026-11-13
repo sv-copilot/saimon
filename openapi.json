@@ -763,10 +763,10 @@
       "service": "search-mcp",
       "tools": {
         "search_knowledge_graph": { "description": "Search the PostgreSQL knowledge graph for stored research notes, verifications, and observations" },
-        "search_shadow_libraries": { "description": "Search shadow library sources (Anna's Archive, LibGen, Sci-Hub, etc.) for academic papers" },
+        "search_archives": { "description": "Search public archives (Internet Archive, OpenAlex, Crossref, arXiv) for papers and datasets" },
         "search_web": { "description": "Web search via Serper.dev (Google-backed) for current information" },
         "source_discovery": { "description": "Tier A deterministic source discovery via DOI/URL/arXiv regex extraction" },
-        "list_sources": { "description": "List all available source indexes including knowledge graph and shadow library sources" },
+        "list_sources": { "description": "List all available source indexes including the knowledge graph and public archives" },
         "list_source_indexes": { "description": "List available source indexes with tier and status information" },
         "get_source_detail": { "description": "Get detailed information about a specific source" },
         "get_source_index_detail": { "description": "Get detailed information about a specific source index" },

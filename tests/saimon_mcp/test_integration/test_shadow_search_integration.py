@@ -37,9 +37,9 @@ def client(api_key, monkeypatch):
     monkeypatch.setenv("SAIMON_API_KEY", api_key)
     sys.modules.pop("saimon_mcp.search.server", None)
     sys.modules.pop("saimon_mcp.search", None)
-    from research_shared.shadow_registry import reset_shadow_registry
+    from research_shared.archive_registry import reset_archive_registry
 
-    reset_shadow_registry()
+    reset_archive_registry()
     from saimon_mcp.search.server import app
 
     return TestClient(app)

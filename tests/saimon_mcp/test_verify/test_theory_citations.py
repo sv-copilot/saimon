@@ -88,12 +88,12 @@ class TestTheoryAnchorDetection:
         assert anchor["anchor"] == "seeded_node"
         assert anchor["source_node"]["key"] == "source/deci-ryan-1985"
 
-    def test_unseeded_doi_uses_shadow_doi_anchor(self, verify_server):
+    def test_unseeded_doi_uses_cache_doi_anchor(self, verify_server):
         anchor = verify_server._detect_theory_anchor(
             "A meta-analysis (10.1016/j.jvb.2007.09.001) links engagement to "
             "job resources."
         )
-        assert anchor["anchor"] == "shadow_doi"
+        assert anchor["anchor"] == "cache_doi"
         assert anchor["doi"] == "10.1016/j.jvb.2007.09.001"
         assert anchor["source_node"] is None
 
@@ -118,7 +118,7 @@ class TestTheoryDoiFirst:
                     {
                         "title": "Work engagement: A meta-analysis",
                         "doi": non_seeded_doi,
-                        "source_index": "scihub",
+                        "source_index": "internet_archive",
                     }
                 ],
                 False,
@@ -136,14 +136,14 @@ class TestTheoryDoiFirst:
         data = response.json()
         assert data["status"] in ("success", "degraded")
         assert data["data"]["overall_verdict"] == "supported"
-        assert data["data"]["theory_anchor"] == "shadow_doi"
+        assert data["data"]["theory_anchor"] == "cache_doi"
         # Only a precise doi: passthrough was issued — never a keyword-shaped
         # full-text query of the prose claim.
         assert queries == [f"doi:{non_seeded_doi}"]
         shadow = next(
             v
             for v in data["data"]["verifications"]
-            if v["method"] == "shadow_source_corroboration"
+            if v["method"] == "doi_cache_corroboration"
         )
         assert shadow["verdict"] == "supported"
 

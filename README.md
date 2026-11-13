@@ -118,11 +118,16 @@ retrieval-stability check (`scripts/retrieval_stability.py`).
 ## Scope and limitations
 
 - **Lawful sources only.** An earlier development line included adapters for Sci-Hub,
-  LibGen and Anna's Archive. They are **removed from this repository before the first
-  public release** (tracked as release blocker `OSS-1`): shipping scrapers for those
-  services is not something this project should do, and a knowledge base whose evidence
-  cannot be cited lawfully is not a knowledge base. The supported path is lawful sources
-  — OpenAlex, Crossref, arXiv, and PDFs you are entitled to read.
+  LibGen and Anna's Archive. The adapter code was **removed from the tree in #321**
+  (2026-11-12); the commits that added it remain in the repository's history, so a
+  reader of the history can still find them. Shipping scrapers for those services is
+  not something this project should do, and a knowledge base whose evidence cannot be
+  cited lawfully is not a knowledge base. The supported path is lawful sources —
+  OpenAlex, Crossref, arXiv, the Internet Archive, and PDFs you are entitled to read.
+- **Naming debt.** A few identifiers from that line survive — a DOI cache table named
+  `shadow_sources_cache`, an evidence type `shadow_source`, and a stored response key.
+  They are historical names for a lawful full-text cache, and renaming them needs a
+  production migration; the code that would fetch from those services is gone.
 - **Single node by design.** One Postgres, one host. It is not a distributed system and
   does not pretend to be.
 - **No bundled model.** Generation and verification call an LLM API; retrieval,

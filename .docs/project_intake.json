@@ -7,11 +7,11 @@
     "integration_branch": "dev"
   },
   "product": {
-    "goal": "A self-extending platform of 6 atomic MCP services that share one knowledge graph and adapt to new content types via research-backed self-extension.",
+    "goal": "A self-extending platform of 9 MCP services that share one knowledge graph and adapt to new content types via research-backed self-extension.",
     "target_users": [
       "Primary user (personal infrastructure)",
-      "OpenClaw agent (secondary — consumes MCPs as tools)",
-      "VS Code Cline agent (tertiary — BUILD mode dispatch only)"
+      "OpenClaw agent (secondary \u2014 consumes MCPs as tools)",
+      "VS Code Cline agent (tertiary \u2014 BUILD mode dispatch only)"
     ],
     "core_workflow": [
       "Agent requests content with a content type",
@@ -22,7 +22,7 @@
     ],
     "success_criteria": [
       "6 MCPs deploy as Docker containers and respond to health checks",
-      "Each MCP has ≤10 tools",
+      "Each MCP has \u226410 tools",
       "Content types can be registered at runtime via self-extension",
       "Platform survives DB wipe and re-seeds from seed_requests table"
     ]

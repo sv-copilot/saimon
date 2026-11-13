@@ -27,8 +27,9 @@ tag is supported.
 - **Degraded means empty.** When a datastore is unreachable the API returns
   `status: degraded` with no rows. It never synthesises placeholder data — a fabricated
   row is indistinguishable from a real one downstream.
-- **No shadow libraries.** The project does not ship adapters for Sci-Hub, LibGen or
-  Anna's Archive. Ingest is limited to URLs the caller is entitled to read, and there
-  is an SSRF guard on the ingest path.
+- **No scraper adapters.** The project does not ship adapters for Sci-Hub, LibGen or
+  Anna's Archive; that code was removed in #321 and the commits that added it remain in
+  history. Ingest is limited to URLs the caller is entitled to read, and there is an
+  SSRF guard on the ingest path.
 - **Secrets are environment-only.** No credential is committed; `.env` is ignored and
   `.env.example` carries placeholders.

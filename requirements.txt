@@ -11,7 +11,9 @@ fastembed>=0.4.0
 # (SAIMON-CREW-LLM-FIX-1, #190). The saimon service package is `saimon_mcp`,
 # so the PyPI `mcp` distribution is never shadowed.
 mcp>=1.26.0,<2.0.0
-crewai>=1.0.0,<2.0.0
+# crewai is optional: it powers the crew service (background research and claim
+# extraction) and requires Python <3.14. Install it with
+#   pip install -r requirements-crew.txt
 beautifulsoup4>=4.12
 pyjwt==2.15.1
 bcrypt==4.2.1

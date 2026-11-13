@@ -10,6 +10,10 @@ import pytest
 
 from saimon_mcp.crew.llm import CrewLLMResolution
 
+import pytest
+
+pytest.importorskip("crewai", reason="crew service dependency is optional (requirements-crew.txt)")
+
 
 class _FakeTask:
     def __init__(self, **kwargs):

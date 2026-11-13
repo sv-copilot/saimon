@@ -147,6 +147,18 @@ def test_negation_must_precede_the_claim_term() -> None:
     assert classify_stance(CLAIM, passage) == "supports"
 
 
+def test_cue_about_something_else_is_not_a_contradiction() -> None:
+    # Real false positive from the corpus: "no longer fits maintenance_work_mem"
+    # sits near the word hnsw in unpunctuated PDF text, but says nothing about
+    # whether HNSW is supported.
+    passage = (
+        "Use set local inside a transaction begin set local hnsw ef_search select commit "
+        "index build time indexes build significantly faster when the graph no longer fits "
+        "maintenance_work_mem notice pgvector supports HNSW indexes."
+    )
+    assert classify_stance(CLAIM, passage) == "supports"
+
+
 def test_counts_separate_support_from_contradiction() -> None:
     evidence = [
         {"polarity": "supports"},

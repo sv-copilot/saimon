@@ -21,7 +21,8 @@ from fastapi.responses import JSONResponse
 from research_shared.adapters.base import SourceSearchResult
 from research_shared.adapters.dedup import deduplicate
 from research_shared.adapters.internet_archive import InternetArchiveAdapter
-from research_shared.adapters.ranking import rank_shadow_results
+from research_shared.adapters.ranking import rank_archive_results
+from research_shared.archive_registry import ArchiveRegistry
 from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.db import DatabaseError, DatabasePool
@@ -31,7 +32,6 @@ from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
 from research_shared.priors import apply_priors
 from research_shared.rerank import RerankConfig, reformulate_query, rerank
-from research_shared.shadow_registry import ShadowRegistry
 from research_shared.source_discovery import SOURCE_DISCOVERY_MIN_CANDIDATES
 from research_shared.universe import REALITY_ID, scope_ids
 
@@ -115,30 +115,30 @@ app = FastAPI(title="search-mcp", version="0.1.0", lifespan=_lifespan)
 # the only public archive adapter, and it is lawful.
 # ---------------------------------------------------------------------------
 
-_shadow_registry = ShadowRegistry()
-_shadow_registry.register(InternetArchiveAdapter())
+_archive_registry = ArchiveRegistry()
+_archive_registry.register(InternetArchiveAdapter())
 
-_SHADOW_LABELS: dict[str, str] = {"internet_archive": "Internet Archive"}
+_ARCHIVE_LABELS: dict[str, str] = {"internet_archive": "Internet Archive"}
 
 # Indexes queried when the caller does not name any.
-_DEFAULT_SHADOW_INDEXES = frozenset({"internet_archive"})
+_DEFAULT_ARCHIVE_INDEXES = frozenset({"internet_archive"})
 
 
-def _get_shadow_adapters(source_indexes: list[str] | None = None) -> list:
+def _get_archive_adapters(source_indexes: list[str] | None = None) -> list:
     """Return registered adapters, optionally filtered by name."""
-    adapters = _shadow_registry.list_all()
+    adapters = _archive_registry.list_all()
     if not source_indexes:
-        return [a for a in adapters if a.name in _DEFAULT_SHADOW_INDEXES]
+        return [a for a in adapters if a.name in _DEFAULT_ARCHIVE_INDEXES]
     return [a for a in adapters if a.name in source_indexes]
 
 
-def _shadow_index_entry(adapter: Any) -> dict[str, Any]:
+def _archive_index_entry(adapter: Any) -> dict[str, Any]:
     """Serialize a source-index adapter for ``list_source_indexes``."""
     disabled = bool(getattr(adapter, "disabled", False))
     entry: dict[str, Any] = {
         "type": "public_archive",
         "identifier": adapter.name,
-        "label": _SHADOW_LABELS.get(adapter.name, adapter.name),
+        "label": _ARCHIVE_LABELS.get(adapter.name, adapter.name),
         "tier": adapter.tier,
         "trust_model": adapter.trust_model,
         "status": "disabled" if disabled else "available",
@@ -224,7 +224,7 @@ _TOOLS = [
         "name": "source_discovery",
         "description": (
             "Extract references (DOIs, URLs, arXiv IDs) from text and resolve "
-            "to real source metadata via shadow libraries."
+            "to real source metadata from public archives."
         ),
         "parameters": {
             "text": "str (required)",
@@ -233,7 +233,7 @@ _TOOLS = [
     },
     {
         "name": "list_source_indexes",
-        "description": "List available source indexes (knowledge graph, shadow libraries, web).",
+        "description": "List available source indexes (knowledge graph, public archives, web).",
         "parameters": {},
     },
     {
@@ -844,7 +844,7 @@ async def search_archives(
     )
 
     # Get adapters (filtered or default book/paper + Internet Archive set)
-    adapters = _get_shadow_adapters(requested_indexes)
+    adapters = _get_archive_adapters(requested_indexes)
 
     if not adapters:
         resp = _ok(
@@ -873,7 +873,7 @@ async def search_archives(
 
     # Deduplicate across source indexes, then rank book sources above web noise
     deduped = deduplicate(all_results)
-    ranked = rank_shadow_results(deduped)
+    ranked = rank_archive_results(deduped)
 
     # Apply limit
     ranked = ranked[:limit]
@@ -904,18 +904,18 @@ async def search_archives(
 
 
 # ---------------------------------------------------------------------------
-# helpers: shadow library resolution
+# helpers: archive resolution
 # ---------------------------------------------------------------------------
 
 async def _search_all_adapters(
     query: str, limit: int = 1, source_indexes: list[str] | None = None
 ) -> list[SourceSearchResult]:
-    """Search all shadow library adapters for a query.
+    """Search all archive adapters for a query.
 
     Queries each adapter in parallel, gracefully handling individual failures.
     Deduplicates and truncates to limit.
     """
-    adapters = _get_shadow_adapters(source_indexes)
+    adapters = _get_archive_adapters(source_indexes)
     if not adapters:
         return []
 
@@ -938,7 +938,7 @@ async def _search_all_adapters(
 async def list_source_indexes(
     payload: ResearchRequest, request: Request
 ) -> ResearchResponse:
-    """List available source indexes (knowledge graph, shadow libraries, web)."""
+    """List available source indexes (knowledge graph, public archives, web)."""
     _require_auth(request)
 
     logger = build_audit_logger(payload, request, _auth, "search-mcp")
@@ -958,8 +958,8 @@ async def list_source_indexes(
                 {"type": "knowledge_graph", "identifier": "kg-concepts", "label": "Concepts"},
                 {"type": "web_page", "identifier": "web-index", "label": "Web index"},
             ]
-            for adapter in _shadow_registry.list_all():
-                source_indexes_db.append(_shadow_index_entry(adapter))
+            for adapter in _archive_registry.list_all():
+                source_indexes_db.append(_archive_index_entry(adapter))
             # Dedupe by (type, identifier) — registry entries (appended last) win
             deduped: dict[tuple[str, str], dict[str, Any]] = {}
             for entry in source_indexes_db:
@@ -978,9 +978,9 @@ async def list_source_indexes(
         {"type": "web_page", "identifier": "web-index", "label": "Web index"},
     ]
 
-    # Add shadow library adapters
-    for adapter in _shadow_registry.list_all():
-        source_indexes.append(_shadow_index_entry(adapter))
+    # Add archive adapters
+    for adapter in _archive_registry.list_all():
+        source_indexes.append(_archive_index_entry(adapter))
 
     resp = _ok(trace_id=payload.trace_id, data={"source_indexes": source_indexes})
     logger.log_response(status=resp.status)
@@ -1165,7 +1165,7 @@ async def source_discovery(
     """Extract references from text and resolve to real source metadata.
 
     Tier A: deterministic DOI/URL/arXiv extraction via regex.
-    Resolution: queries shadow library adapters for each extracted identifier.
+    Resolution: queries the archive adapters for each extracted identifier.
     """
     _require_auth(request)
 
@@ -1261,7 +1261,7 @@ def _resolve_fulltext_consent() -> set[str]:
     return {part.strip().lower() for part in raw.split(",") if part.strip()}
 
 
-def _shadow_sources_enabled() -> bool:
+def _archive_sources_enabled() -> bool:
     return _os.environ.get("ARCHIVE_SOURCES_ENABLED", _os.environ.get("SHADOW_SOURCES_ENABLED", "true")).lower() in (
         "1",
         "true",
@@ -1303,7 +1303,7 @@ async def _download_fulltext_flow(
     )
     from research_shared.text_quality import text_quality_ok, text_quality_score
 
-    if not _shadow_sources_enabled():
+    if not _archive_sources_enabled():
         return {"ok": False, "blocked": True, "error": "shadow sources are disabled"}
 
     # ── resolve source identity ──
@@ -1343,7 +1343,7 @@ async def _download_fulltext_flow(
         await ensure_ingested_column(db)
         cached = await db.fetchrow(
             "SELECT full_text_path, file_type, title, source_index, ingested_at "
-            "FROM shadow_sources_cache WHERE doi = $1",
+            "FROM archive_cache WHERE doi = $1",
             canonical_doi,
         )
         if cached and cached.get("full_text_path") and cached.get("ingested_at"):
@@ -1359,10 +1359,10 @@ async def _download_fulltext_flow(
 
     # ── determine source index when only a DOI was supplied ──
     if resolved_source_index is None:
-        # Prefer a cached metadata row, else default to Sci-Hub for DOIs.
+        # Prefer a cached metadata row, else default to Internet Archive for DOIs.
         if db is not None:
             row = await db.fetchrow(
-                "SELECT source_index, title, file_type FROM shadow_sources_cache WHERE doi = $1",
+                "SELECT source_index, title, file_type FROM archive_cache WHERE doi = $1",
                 canonical_doi,
             )
             if row:
@@ -1775,7 +1775,7 @@ async def download_fulltext(
     result = await _download_fulltext_flow(
         _db_pool,
         storage,
-        _shadow_registry.get,
+        _archive_registry.get,
         doi=doi,
         source=source,
         fetch_only=fetch_only,

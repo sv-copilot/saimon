@@ -1,6 +1,6 @@
-"""shadow_registry.py — registry of shadow library source index adapters.
+"""archive_registry.py — registry of shadow library source index adapters.
 
-ShadowRegistry holds all registered adapters and provides lookup,
+ArchiveRegistry holds all registered adapters and provides lookup,
 filtering, and listing.  Adapters are registered at import time
 and can be filtered by tier for relevance-weighted search.
 """
@@ -10,18 +10,18 @@ from __future__ import annotations
 from research_shared.adapters.base import SourceIndexAdapter
 
 # ---------------------------------------------------------------------------
-# ShadowRegistry
+# ArchiveRegistry
 # ---------------------------------------------------------------------------
 
 
-class ShadowRegistry:
+class ArchiveRegistry:
     """A registry of SourceIndexAdapter instances.
 
     Thread-safe for reads; writes (register) should happen at startup.
 
     Usage::
 
-        registry = ShadowRegistry()
+        registry = ArchiveRegistry()
         registry.register(AnnasArchiveAdapter())
         adapters = registry.filter(tier="S")
         results = await adapters[0].search("transformer attention", limit=5)
@@ -73,18 +73,18 @@ class ShadowRegistry:
 # module-level singleton
 # ---------------------------------------------------------------------------
 
-_registry: ShadowRegistry | None = None
+_registry: ArchiveRegistry | None = None
 
 
-def get_shadow_registry() -> ShadowRegistry:
-    """Return the module-level ShadowRegistry singleton."""
+def get_archive_registry() -> ArchiveRegistry:
+    """Return the module-level ArchiveRegistry singleton."""
     global _registry
     if _registry is None:
-        _registry = ShadowRegistry()
+        _registry = ArchiveRegistry()
     return _registry
 
 
-def reset_shadow_registry() -> None:
+def reset_archive_registry() -> None:
     """Reset the singleton (for tests)."""
     global _registry
     _registry = None

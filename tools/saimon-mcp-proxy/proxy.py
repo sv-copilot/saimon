@@ -67,16 +67,16 @@ def _build_url(service: str, path: str) -> str:
 # Paths are the tool endpoint paths (e.g., /tools/search_knowledge_graph)
 TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     # ── Search Tools ────────────────────────────────────────────
-    "saimon_search_scholarly": {
+    "saimon_search_archives": {
         "description": (
-            "Search shadow library sources (Anna's Archive, LibGen, Sci-Hub, "
+            "Search public archives (Internet Archive, OpenAlex, Crossref, arXiv) "
             "Internet Archive, Academic Torrents) for academic papers, books, "
             "and datasets. Returns ranked results with DOIs, titles, authors, "
             "years, and source attribution."
         ),
         "service": "search",
         "method": "POST",
-        "path": "/tools/search_shadow_libraries",
+        "path": "/tools/search_archives",
         "body_template": {
             "content_type": "search",
             "parameters": {"query": "{query}", "limit": "{limit}"},
@@ -98,7 +98,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "saimon_list_sources": {
         "description": (
             "List all available source indexes including knowledge graph "
-            "and shadow library sources. Shows tier (S/A/B) and status."
+            "and public archive sources. Shows tier (S/A/B) and status."
         ),
         "service": "search",
         "method": "POST",
@@ -110,7 +110,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "saimon_verify_claim": {
         "description": (
             "Verify a factual claim using 5 corroboration methods. "
-            "Searches shadow libraries for evidence, then uses DeepSeek "
+            "Searches the public archives for evidence, then uses DeepSeek "
             "LLM to analyze the claim. Returns supported/refuted/inconclusive "
             "with confidence scores and evidence citations."
         ),
@@ -121,7 +121,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
             "content_type": "verify",
             "parameters": {
                 "claim": "{claim}",
-                "use_shadow_sources": True,
+                "use_archive_sources": True,
                 "adversarial": "{adversarial}",
                 "risk_profile": "{risk_profile}",
                 "verify_citations": "{verify_citations}",
@@ -132,7 +132,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "description": (
             "List all verification methods with descriptions and reliability "
             "scores. Includes source_corroboration, logical_consistency, "
-            "authority_check, temporal_validity, shadow_source_corroboration."
+            "authority_check, temporal_validity, doi_cache_corroboration."
         ),
         "service": "verify",
         "method": "POST",
@@ -455,12 +455,12 @@ async def _call_saimon(
 async def _auto_search_sources(
     prompt: str, limit: int = 5,
 ) -> list[dict[str, Any]]:
-    """Call saimon_search_scholarly and map results to SourceReference dicts.
+    """Call saimon_search_archives and map results to SourceReference dicts.
 
     Raises on network/auth errors so the caller can record degraded steps.
     Returns empty list when search succeeds but finds no results.
     """
-    search_resp = await _call_saimon("saimon_search_scholarly", {
+    search_resp = await _call_saimon("saimon_search_archives", {
         "query": prompt,
         "limit": limit,
     })
@@ -605,7 +605,7 @@ async def _run_generate_verified_pipeline(
                 "adversarial": True,
                 "risk_profile": "high",
                 "verify_citations": True,
-                "use_shadow_sources": True,
+                "use_archive_sources": True,
             }
             verify_resp = await _call_saimon("saimon_verify_claim", verify_args)
             verify_data = verify_resp.get("data", {})
@@ -651,7 +651,7 @@ async def _run_generate_verified_pipeline(
                     "adversarial": True,
                     "risk_profile": "high",
                     "verify_citations": True,
-                    "use_shadow_sources": True,
+                    "use_archive_sources": True,
                 }
                 verify_resp_2 = await _call_saimon("saimon_verify_claim", verify_args_2)
                 verify_data_2 = verify_resp_2.get("data", {})
@@ -1007,7 +1007,7 @@ async def _run_audit_pipeline(
                 "adversarial": True,
                 "risk_profile": "high",
                 "verify_citations": True,
-                "use_shadow_sources": True,
+                "use_archive_sources": True,
             }
             verify_resp = await _call_saimon("saimon_verify_claim", verify_args)
             verify_data = verify_resp.get("data", {})

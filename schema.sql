@@ -22,11 +22,11 @@ CREATE TABLE IF NOT EXISTS content_type_registry (
 );
 
 -- ---------------------------------------------------------------------------
--- sources — registered data source indexes (shadow libraries, web, KG)
+-- sources — registered data source indexes (public archives, web, KG)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sources (
     id              SERIAL PRIMARY KEY,
-    type            TEXT NOT NULL,                    -- 'shadow_library', 'knowledge_graph', 'web_page'
+    type            TEXT NOT NULL,                    -- 'public_archive', 'knowledge_graph', 'web_page'
     identifier      TEXT NOT NULL UNIQUE,             -- e.g. 'annas_archive', 'libgen', 'scihub'
     label           TEXT NOT NULL,                    -- human-readable label
     tier            TEXT NOT NULL DEFAULT 'B',        -- S, A, B, C (reliability tier)
@@ -45,11 +45,7 @@ VALUES
     ('knowledge_graph', 'kg-root',     'Knowledge Graph Root',        'S', 'Root node of the knowledge graph'),
     ('knowledge_graph', 'kg-concepts', 'Knowledge Graph Concepts',    'S', 'Concept nodes in the knowledge graph'),
     ('web_page',        'web-index',   'Web Index',                   'A', 'General web search index'),
-    ('shadow_library',  'annas_archive','Anna''s Archive',            'S', 'The largest open-source shadow library'),
-    ('shadow_library',  'libgen',      'Library Genesis (LibGen)',    'S', 'Scientific articles and books'),
-    ('shadow_library',  'scihub',      'Sci-Hub / SciDB',             'S', 'Paywalled academic paper access'),
-    ('shadow_library',  'academic_torrents', 'Academic Torrents',     'A', 'Bulk academic dataset torrents'),
-    ('shadow_library',  'internet_archive',  'Internet Archive',      'A', 'Digital library with books, papers, and web archives')
+    ('public_archive',  'internet_archive',  'Internet Archive',      'A', 'Digital library with books, papers, and web archives')
 ON CONFLICT (identifier) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
@@ -285,12 +281,12 @@ CREATE INDEX IF NOT EXISTS idx_obs_verifications_obs
     ON observation_verifications(observation_id);
 
 -- ---------------------------------------------------------------------------
--- observation_verification_evidence — shadow-source / citation evidence links
+-- observation_verification_evidence — archive-source / citation evidence links
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS observation_verification_evidence (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     verification_id     UUID NOT NULL,
-    evidence_type       TEXT NOT NULL,      -- 'citation' | 'shadow_source'
+    evidence_type       TEXT NOT NULL,      -- 'citation' | 'archive_source' (legacy rows store 'shadow_source')
     evidence_identifier TEXT NOT NULL,      -- DOI or source identifier
     relevance_score     REAL NOT NULL DEFAULT 0.5,
     metadata            JSONB NOT NULL DEFAULT '{}',
@@ -358,7 +354,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_service
     ON audit_log(service_name, created_at DESC);
 
 -- ---------------------------------------------------------------------------
--- shadow_sources_cache — cached shadow library metadata (DOI → paper)
+-- full-text cache. Historical table name; renaming needs a production migration.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS shadow_sources_cache (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),

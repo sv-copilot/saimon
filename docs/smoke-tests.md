@@ -40,23 +40,23 @@ done
 
 ---
 
-### 2. Search — Shadow Libraries (`saimon_search_scholarly`)
+### 2. Search — Public Archives (`saimon_search_archives`)
 
 ```bash
-curl -s -X POST $BASE:8101/tools/search_shadow_libraries \
+curl -s -X POST $BASE:8101/tools/search_archives \
   -H "X-Saimon-API-Key: $KEY_SEARCH" \
   -H "Content-Type: application/json" \
   -d "{\"trace_id\":\"${TID}01\",\"content_type\":\"search\",\"parameters\":{\"query\":\"deep learning optimization\",\"limit\":5}}"
 ```
 
-**Expected:** `status: success`, `total_results > 0`, results from multiple `source_index` values.
+**Expected:** `status: success`, results carry a `source_index` of `internet_archive` (the only registered archive adapter).
 
 **Follow-up — Filter by source:**
 ```bash
-# Same but with source_indexes=["libgen"]
+# Same but with source_indexes=["internet_archive"]
 ```
 
-**Expected:** All results have `source_index: "libgen"`.
+**Expected:** All results have `source_index: "internet_archive"`.
 
 ---
 
@@ -82,7 +82,7 @@ curl -s -X POST $BASE:8101/tools/list_source_indexes \
   -d "{\"trace_id\":\"${TID}03\",\"content_type\":\"search\"}"
 ```
 
-**Expected:** `source_indexes` array contains knowledge_graph + 5 shadow_library entries (annas_archive, libgen, scihub, internet_archive, academic_torrents). Each shadow library has `tier` and `status`.
+**Expected:** `source_indexes` array contains the knowledge-graph entries, the web index, and one `public_archive` entry (`internet_archive`). Each archive carries `tier` and `status`.
 
 ---
 
@@ -92,10 +92,10 @@ curl -s -X POST $BASE:8101/tools/list_source_indexes \
 curl -s -X POST $BASE:8105/tools/verify_claim \
   -H "X-Saimon-API-Key: $KEY_VERIFY" \
   -H "Content-Type: application/json" \
-  -d "{\"trace_id\":\"${TID}04\",\"content_type\":\"verify\",\"parameters\":{\"claim\":\"The Earth orbits the Sun\",\"use_shadow_sources\":true}}"
+  -d "{\"trace_id\":\"${TID}04\",\"content_type\":\"verify\",\"parameters\":{\"claim\":\"The Earth orbits the Sun\",\"use_archive_sources\":true}}"
 ```
 
-**Expected:** `overall_verdict: "supported"`, 5 verification methods, `evidence_source` field present.
+**Expected:** `overall_verdict: "supported"` with an `evidence` array; the response reports `methods_used`. On the production path the verifier is lexical (`research_shared/evidence.py`), not the five-method path.
 
 ---
 
@@ -105,7 +105,7 @@ curl -s -X POST $BASE:8105/tools/verify_claim \
 curl -s -X POST $BASE:8105/tools/verify_claim \
   -H "X-Saimon-API-Key: $KEY_VERIFY" \
   -H "Content-Type: application/json" \
-  -d "{\"trace_id\":\"${TID}05\",\"content_type\":\"verify\",\"parameters\":{\"claim\":\"The moon is made of green cheese\",\"use_shadow_sources\":true}}"
+  -d "{\"trace_id\":\"${TID}05\",\"content_type\":\"verify\",\"parameters\":{\"claim\":\"The moon is made of green cheese\",\"use_archive_sources\":true}}"
 ```
 
 **Expected:** `overall_verdict: "refuted"`, high confidence scores.
@@ -134,7 +134,7 @@ curl -s -X POST $BASE:8105/tools/list_verification_methods \
   -d "{\"trace_id\":\"${TID}07\",\"content_type\":\"verify\"}"
 ```
 
-**Expected:** 5 methods: source_corroboration, logical_consistency, authority_check, temporal_validity, shadow_source_corroboration. Each has `reliability` score.
+**Expected:** five entries — source_corroboration, logical_consistency, authority_check, temporal_validity, and doi_cache_corroboration (registered only when `DOI_CACHE_CORROBORATION_ENABLED` is on, which is the default). Each has a `reliability` score.
 
 ---
 
@@ -227,7 +227,7 @@ curl -s -X POST $BASE:8103/tools/export_content \
 
 ```bash
 # 1. Search for sources
-SEARCH=$(curl -s -X POST $BASE:8101/tools/search_shadow_libraries \
+SEARCH=$(curl -s -X POST $BASE:8101/tools/search_archives \
   -H "X-Saimon-API-Key: $KEY_SEARCH" \
   -H "Content-Type: application/json" \
   -d "{\"trace_id\":\"${TID}14\",\"content_type\":\"search\",\"parameters\":{\"query\":\"attention mechanisms neural networks\",\"limit\":3}}")
@@ -237,7 +237,7 @@ echo "Search: $(echo $SEARCH | grep -o '\"status\":\"[^\"]*\"')"
 VERIFY=$(curl -s -X POST $BASE:8105/tools/verify_claim \
   -H "X-Saimon-API-Key: $KEY_VERIFY" \
   -H "Content-Type: application/json" \
-  -d "{\"trace_id\":\"${TID}15\",\"content_type\":\"verify\",\"parameters\":{\"claim\":\"Attention mechanisms improved machine translation quality\",\"use_shadow_sources\":true}}")
+  -d "{\"trace_id\":\"${TID}15\",\"content_type\":\"verify\",\"parameters\":{\"claim\":\"Attention mechanisms improved machine translation quality\",\"use_archive_sources\":true}}")
 echo "Verify: $(echo $VERIFY | grep -o '\"overall_verdict\":\"[^\"]*\"')"
 
 # 3. Generate research note
@@ -258,7 +258,7 @@ echo "Evaluate: $(echo $EVAL | grep -o '\"status\":\"[^\"]*\"')"
 # 5. Check DB for persisted data
 echo "DB after pipeline:"
 docker exec saimon-postgres psql -U saimon -d saimon -t -c \
-  "SELECT 'audit:' || count(*) FROM audit_log; SELECT 'kg:' || count(*) FROM knowledge_graph_nodes; SELECT 'cache:' || count(*) FROM shadow_sources_cache;"
+  "SELECT 'audit:' || count(*) FROM audit_log; SELECT 'kg:' || count(*) FROM knowledge_graph_nodes; SELECT 'cache:' || count(*) FROM shadow_sources_cache; -- historical table name"
 ```
 
 **Expected:** All steps return `success`. Database shows increased counts.
@@ -348,7 +348,7 @@ python3 -m pytest tests/ -q          # 616 unit tests
 | # | Test | What It Validates |
 |---|---|---|
 | 1 | Health | All 6 services alive |
-| 2-3 | Search | shadow + KG search working |
+| 2-3 | Search | archive + KG search working |
 | 4 | List Sources | Source registry correct |
 | 5-7 | Verify | True/false/ambiguous claims |
 | 8 | Methods | Verification method registry |

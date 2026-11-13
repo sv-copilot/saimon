@@ -9,11 +9,7 @@ from __future__ import annotations
 import importlib
 
 EXPECTED_ADAPTERS = [
-    "AnnasArchiveAdapter",
-    "LibGenAdapter",
-    "SciHubAdapter",
     "InternetArchiveAdapter",
-    "AcademicTorrentsAdapter",
 ]
 
 
@@ -29,11 +25,7 @@ def test_all_adapters_exported_from_package() -> None:
 def test_all_adapters_importable() -> None:
     """Each adapter module exposes its adapter class."""
     modules = {
-        "AnnasArchiveAdapter": "research_shared.adapters.annas_archive",
-        "LibGenAdapter": "research_shared.adapters.libgen",
-        "SciHubAdapter": "research_shared.adapters.scihub",
         "InternetArchiveAdapter": "research_shared.adapters.internet_archive",
-        "AcademicTorrentsAdapter": "research_shared.adapters.academic_torrents",
     }
     for name, module_path in modules.items():
         module = importlib.import_module(module_path)

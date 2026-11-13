@@ -9,7 +9,7 @@ from __future__ import annotations
 from research_shared.adapters.base import FulltextFetchResult
 from saimon_mcp.search.server import _download_fulltext_flow
 
-ALL_FIVE = {"annas_archive", "libgen", "scihub", "internet_archive", "academic_torrents"}
+LAWFUL_SOURCES = {"internet_archive"}
 
 
 class FakeStorage:
@@ -28,12 +28,12 @@ class UnconfiguredStorage:
 
 
 class FakeAdapter:
-    name = "scihub"
+    name = "internet_archive"
 
     def __init__(self, result: FulltextFetchResult | None = None) -> None:
         self.calls = 0
         self.result = result or FulltextFetchResult(
-            source_index="scihub",
+            source_index="internet_archive",
             doi="10.1000/example",
             data=b"full text of the paper, " * 200,
             file_type="txt",
@@ -71,7 +71,7 @@ def _embed(text: str):
     return [0.1] * 768
 
 
-async def _run(source_index: str = "scihub", **kwargs) -> dict:
+async def _run(source_index: str = "internet_archive", **kwargs) -> dict:
     db = kwargs.pop("db", FakeDB())
     storage = kwargs.pop("storage", FakeStorage())
     adapter = kwargs.pop("adapter", FakeAdapter())
@@ -134,9 +134,9 @@ class TestFulltextFlow:
 
 
 class TestConsent:
-    async def test_default_allowlist_allows_all_five(self, monkeypatch) -> None:
+    async def test_default_allowlist_allows_lawful_sources(self, monkeypatch) -> None:
         monkeypatch.delenv("FULLTEXT_DOWNLOAD_CONSENT", raising=False)
-        for source_index in sorted(ALL_FIVE):
+        for source_index in sorted(LAWFUL_SOURCES):
             adapter = FakeAdapter(FulltextFetchResult(
                 source_index=source_index,
                 doi="10.1000/example",
@@ -149,14 +149,14 @@ class TestConsent:
 
     async def test_blocked_source_returns_blocked(self, monkeypatch) -> None:
         monkeypatch.setenv("FULLTEXT_DOWNLOAD_CONSENT", "libgen")
-        result = await _run(source_index="scihub")
+        result = await _run(source_index="internet_archive")
         assert result["ok"] is False
         assert result["blocked"] is True
         assert "not in FULLTEXT_DOWNLOAD_CONSENT" in result["error"]
 
     async def test_shadow_sources_disabled_blocks(self, monkeypatch) -> None:
         monkeypatch.setenv("SHADOW_SOURCES_ENABLED", "false")
-        result = await _run(source_index="scihub")
+        result = await _run(source_index="internet_archive")
         assert result["ok"] is False
         assert result["blocked"] is True
 
@@ -172,7 +172,7 @@ class TestDedup:
             "full_text_path": "fulltext/abc/1.pdf",
             "file_type": "pdf",
             "title": "Cached Paper",
-            "source_index": "scihub",
+            "source_index": "internet_archive",
             "ingested_at": "2026-08-21T00:00:00+00:00",
         })
         adapter = FakeAdapter()
@@ -212,6 +212,6 @@ class TestFailureModes:
         assert result["ok"] is False
 
     async def test_missing_adapter(self) -> None:
-        result = await _run(source_index="scihub", adapter=None)
+        result = await _run(source_index="internet_archive", adapter=None)
         assert result["ok"] is False
         assert "no adapter registered" in result["error"]

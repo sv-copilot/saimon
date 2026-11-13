@@ -33,12 +33,12 @@ class FakeStorage:
 
 
 class FakeAdapter:
-    name = "scihub"
+    name = "internet_archive"
 
     def __init__(self) -> None:
         self.calls = 0
         self.result = FulltextFetchResult(
-            source_index="scihub",
+            source_index="internet_archive",
             doi="10.1000/dedup",
             data=b"the quick brown fox jumps over the lazy dog. " * 200,
             file_type="txt",
@@ -83,7 +83,7 @@ async def _run(db: FakeDB, **kwargs) -> dict:
 
     defaults = {
         "doi": "10.1000/dedup",
-        "source": {"source_index": "scihub", "title": "Dedup Paper", "doi": "10.1000/dedup"},
+        "source": {"source_index": "internet_archive", "title": "Dedup Paper", "doi": "10.1000/dedup"},
         "fetch_only": False,
         "embed_fn": _embed,
     }
@@ -121,7 +121,7 @@ class TestDedupFix:
             "full_text_path": "fulltext/abc/1.txt",
             "file_type": "txt",
             "title": "Dedup Paper",
-            "source_index": "scihub",
+            "source_index": "internet_archive",
             "ingested_at": "2026-08-21T00:00:00+00:00",
         })
         adapter = FakeAdapter()
@@ -138,7 +138,7 @@ class TestDedupFix:
             "full_text_path": "fulltext/abc/1.txt",
             "file_type": "txt",
             "title": "Dedup Paper",
-            "source_index": "scihub",
+            "source_index": "internet_archive",
             "ingested_at": None,
         })
         adapter = FakeAdapter()
@@ -158,7 +158,7 @@ class TestPersistIdempotent:
             db,
             doi="10.1000/dedup",
             title="Dedup Paper",
-            source_index="scihub",
+            source_index="internet_archive",
             abstract="abstract",
             s3_key="fulltext/abc/1.txt",
             content_hash_value="hash",

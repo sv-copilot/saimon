@@ -2,11 +2,7 @@
 
 import pytest
 
-from research_shared.adapters.annas_archive import AnnasArchiveAdapter
-from research_shared.adapters.libgen import LibGenAdapter
-from research_shared.adapters.scihub import SciHubAdapter
 from research_shared.adapters.internet_archive import InternetArchiveAdapter
-from research_shared.adapters.academic_torrents import AcademicTorrentsAdapter
 from research_shared.adapters.base import SourceSearchResult
 
 
@@ -14,13 +10,7 @@ from research_shared.adapters.base import SourceSearchResult
 # Adapter list for parameterized tests
 # ---------------------------------------------------------------------------
 
-ADAPTERS = [
-    AnnasArchiveAdapter,
-    LibGenAdapter,
-    SciHubAdapter,
-    InternetArchiveAdapter,
-    AcademicTorrentsAdapter,
-]
+ADAPTERS = [InternetArchiveAdapter]
 
 ADAPTER_NAMES = [cls().name for cls in ADAPTERS]
 
@@ -149,63 +139,3 @@ class TestAdapterResolveDOI:
 # ---------------------------------------------------------------------------
 
 
-class TestTierSpecific:
-    """Tests for tier-appropriate behavior."""
-
-    def test_s_tier_adapters_exist(self):
-        """Anna's Archive, LibGen, and Sci-Hub are S-tier."""
-        s_tier = [
-            a for a in ADAPTERS
-            if a().tier == "S"
-        ]
-        s_names = {a().name for a in s_tier}
-        assert "annas_archive" in s_names
-        assert "libgen" in s_names
-        assert "scihub" in s_names
-
-    def test_a_tier_adapters_exist(self):
-        """Internet Archive and Academic Torrents are A-tier."""
-        a_tier = [
-            a for a in ADAPTERS
-            if a().tier == "A"
-        ]
-        a_names = {a().name for a in a_tier}
-        assert "internet_archive" in a_names
-        assert "academic_torrents" in a_names
-
-    def test_all_adapter_names_unique(self):
-        """No two adapters share the same name."""
-        names = [cls().name for cls in ADAPTERS]
-        assert len(names) == len(set(names))
-
-
-# ---------------------------------------------------------------------------
-# Adapter-specific
-# ---------------------------------------------------------------------------
-
-
-class TestAnnasArchiveAdapter:
-    """Anna's Archive specific tests."""
-
-    async def test_has_algorithmic_trust(self):
-        adapter = AnnasArchiveAdapter()
-        assert adapter.trust_model == "algorithmic"
-
-
-class TestLibGenAdapter:
-    """LibGen specific tests."""
-
-    async def test_has_community_trust(self):
-        adapter = LibGenAdapter()
-        assert adapter.trust_model == "community"
-
-
-class TestSciHubAdapter:
-    """Sci-Hub specific tests."""
-
-    async def test_download_url_present_on_resolve(self):
-        adapter = SciHubAdapter()
-        result = await adapter.resolve_doi("10.1038/test")
-        assert result is not None
-        assert result.download_url is not None
-        assert "sci-hub" in result.download_url

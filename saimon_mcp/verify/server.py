@@ -135,6 +135,46 @@ if _DOI_CACHE_CORROBORATION_ENABLED:
     }
 
 
+
+async def _evidence_scope(universe: str | None) -> tuple[set[str] | None, str | None]:
+    """Resolve a ``universe`` parameter to the ids evidence may come from.
+
+    Missing means `reality` — never "every universe". ``"*"`` is the only
+    explicit cross-universe read. A slug resolves to its id and descendants via
+    ``universes.parent_id``. Returns ``(None, None)`` for the wildcard, an empty
+    set for an unknown slug (a refusal), and a message when the caller asked for
+    a universe that does not exist.
+    """
+    from research_shared.universe import REALITY_ID, scope_ids
+
+    if universe is None:
+        return {REALITY_ID}, None
+    value = str(universe).strip()
+    if value == "*":
+        return None, None
+    if _db_pool is None:
+        return {REALITY_ID}, None
+    try:
+        rows = await _db_pool.fetch("SELECT id, slug, parent_id FROM universes")
+    except Exception:  # noqa: BLE001 — fall back to the safe default, never to everything
+        return {REALITY_ID}, None
+    by_slug = {str(r.get("slug")): str(r.get("id")) for r in rows}
+    target = value if value in by_slug else None
+    if target is None:
+        for r in rows:
+            if str(r.get("id")) == value:
+                target = value
+                break
+    if target is None:
+        return set(), f"Unknown universe {value!r}; no universe matched, so no evidence was read."
+    children: dict[str, list[str]] = {}
+    for r in rows:
+        parent = r.get("parent_id")
+        if parent:
+            children.setdefault(str(parent), []).append(str(r.get("id")))
+    return scope_ids(by_slug.get(value, target), children), None
+
+
 # ---------------------------------------------------------------------------
 # health
 # ---------------------------------------------------------------------------
@@ -1286,12 +1326,41 @@ async def verify_claim(
     # Kept behind a flag so the strict default remains an operator decision (#239).
     if _strict_evidence_enabled() and _db_pool is not None:
         from research_shared.evidence import collect_corpus_evidence
-        from research_shared.verification import ledger, resolve_status
+        from research_shared.verification import counts, ledger, resolve_status
 
-        evidence = await collect_corpus_evidence(_db_pool, str(claim))
-        confidence = min(0.6 + 0.05 * len(evidence), 0.95) if evidence else 0.0
+        # #347: evidence is read inside the caller's universe, and polarity is a
+        # property of the passage rather than a constant. Without the scope, a
+        # `needle` claim could be "verified" by a research paper; without the
+        # stance, `contradicted` could never be returned.
+        scope, scope_error = await _evidence_scope(payload.parameters.get("universe"))
+        if scope_error:
+            return _ok(
+                payload.trace_id,
+                data={
+                    "overall_verdict": "insufficient_evidence",
+                    "overall_confidence": 0.0,
+                    "summary": scope_error,
+                    "counts": {"evidence": 0, "supporting": 0, "contradicting": 0,
+                               "mentions": 0, "abstained": 1},
+                    "evidence": [],
+                    "citations": [],
+                    "methods_used": 1,
+                    "theory_anchor": None,
+                    "verifications": [],
+                },
+            )
+
+        evidence = await collect_corpus_evidence(
+            _db_pool, str(claim), universe_ids=scope
+        )
+        supporting, contradicting, _mentions = counts(evidence)
+        confidence = (
+            min(0.6 + 0.05 * supporting, 0.95) if supporting else 0.0
+        )
         status, confidence, summary = resolve_status(
-            supporting=len(evidence), contradicting=0, confidence=confidence
+            supporting=supporting,
+            contradicting=contradicting,
+            confidence=confidence,
         )
         # Provenance: a locator a reader can open, never a bare id (#271).
         citations_data = []

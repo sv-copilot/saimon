@@ -1,4 +1,4 @@
-"""Tests for search_shadow_libraries tool — shadow library search endpoint."""
+"""Tests for search_archives tool — shadow library search endpoint."""
 
 import uuid
 
@@ -42,17 +42,17 @@ def auth_headers(api_key):
 
 
 # ---------------------------------------------------------------------------
-# Tool: search_shadow_libraries
+# Tool: search_archives
 # ---------------------------------------------------------------------------
 
 
-class TestSearchShadowLibraries:
-    """Tests for POST /tools/search_shadow_libraries."""
+class TestSearchArchives:
+    """Tests for POST /tools/search_archives."""
 
     def test_endpoint_exists(self, client, sample_trace_id, auth_headers):
         """The endpoint returns 200 (not 404)."""
         response = client.post(
-            "/tools/search_shadow_libraries",
+            "/tools/search_archives",
             json={
                 "trace_id": sample_trace_id,
                 "content_type": "search",
@@ -67,7 +67,7 @@ class TestSearchShadowLibraries:
     ):
         """Missing query returns an error envelope, not empty results."""
         response = client.post(
-            "/tools/search_shadow_libraries",
+            "/tools/search_archives",
             json={
                 "trace_id": sample_trace_id,
                 "content_type": "search",
@@ -85,7 +85,7 @@ class TestSearchShadowLibraries:
     ):
         """Valid query returns success envelope with results."""
         response = client.post(
-            "/tools/search_shadow_libraries",
+            "/tools/search_archives",
             json={
                 "trace_id": sample_trace_id,
                 "content_type": "search",
@@ -105,7 +105,7 @@ class TestSearchShadowLibraries:
     ):
         """Each result has type, identifier, title, source_index."""
         response = client.post(
-            "/tools/search_shadow_libraries",
+            "/tools/search_archives",
             json={
                 "trace_id": sample_trace_id,
                 "content_type": "search",
@@ -126,7 +126,7 @@ class TestSearchShadowLibraries:
     ):
         """source_indexes filter limits which adapters are queried."""
         response = client.post(
-            "/tools/search_shadow_libraries",
+            "/tools/search_archives",
             json={
                 "trace_id": sample_trace_id,
                 "content_type": "search",
@@ -147,7 +147,7 @@ class TestSearchShadowLibraries:
     ):
         """limit parameter caps the number of results."""
         response = client.post(
-            "/tools/search_shadow_libraries",
+            "/tools/search_archives",
             json={
                 "trace_id": sample_trace_id,
                 "content_type": "search",
@@ -163,7 +163,7 @@ class TestSearchShadowLibraries:
     ):
         """Empty query returns an error envelope with a message."""
         response = client.post(
-            "/tools/search_shadow_libraries",
+            "/tools/search_archives",
             json={
                 "trace_id": sample_trace_id,
                 "content_type": "search",
@@ -181,7 +181,7 @@ class TestSearchShadowLibraries:
     def test_requires_auth(self, client, sample_trace_id):
         """Unauthenticated requests get 401."""
         response = client.post(
-            "/tools/search_shadow_libraries",
+            "/tools/search_archives",
             json={
                 "trace_id": sample_trace_id,
                 "content_type": "search",
@@ -205,15 +205,15 @@ class TestSearchShadowLibraries:
         data = response.json()
         source_indexes = data["data"]["source_indexes"]
         types = {s.get("type") for s in source_indexes}
-        assert "shadow_library" in types, (
-            f"Expected shadow_library type in source indexes, got: {types}"
+        assert "public_archive" in types, (
+            f"Expected public_archive type in source indexes, got: {types}"
         )
 
-    def test_tool_manifest_includes_search_shadow_libraries(
+    def test_tool_manifest_includes_search_archives(
         self, client, auth_headers
     ):
-        """The /tools endpoint lists search_shadow_libraries."""
+        """The /tools endpoint lists search_archives."""
         response = client.get("/tools", headers=auth_headers)
         data = response.json()
         tool_names = {t["name"] for t in data["tools"]}
-        assert "search_shadow_libraries" in tool_names
+        assert "search_archives" in tool_names

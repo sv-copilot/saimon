@@ -999,14 +999,14 @@ def _compute_source_quality_tier(source: dict[str, Any]) -> str:
     citations = source.get("citation_count", source.get("citations", 0))
 
     # Tier A indicators
-    tier_a_indexes = {"scihub", "pubmed", "crossref", "scopus", "wos"}
+    tier_a_indexes = {"pubmed", "crossref", "scopus", "wos", "internet_archive"}
     if source_index in tier_a_indexes:
         return "A"
     if isinstance(citations, (int, float)) and citations > 50:
         return "A"
 
     # Tier B indicators
-    tier_b_indexes = {"libgen", "semantic_scholar", "dblp", "ieee"}
+    tier_b_indexes = {"semantic_scholar", "dblp", "ieee"}
     if source_index in tier_b_indexes:
         return "B"
     if isinstance(year, (int, float)) and isinstance(citations, (int, float)) and citations > 10:

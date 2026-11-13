@@ -17,14 +17,14 @@ from research_shared.adapters.ranking import (
     source_priority,
 )
 
-_BOOK_INDEXES = {"annas_archive", "libgen", "scihub"}
+_DOCUMENT_INDEXES = {"internet_archive"}
 
 
 def _result(
     source_index: str, title: str, score: float | None = None
 ) -> SourceSearchResult:
     return SourceSearchResult(
-        type="book" if source_index in _BOOK_INDEXES else "web",
+        type="book" if source_index in _DOCUMENT_INDEXES else "web",
         identifier=f"{source_index}:{title}",
         title=title,
         source_index=source_index,
@@ -35,22 +35,22 @@ def _result(
 
 class TestRelevancePrefersBooks:
     def test_book_sources_rank_above_internet_archive(self) -> None:
-        ia = _result("internet_archive", "Some web document")
-        book = _result("libgen", "Deep Learning")
+        ia = _result("web_index", "Some web document")
+        book = _result("internet_archive", "Deep Learning")
         ranked = rank_shadow_results([ia, book])
-        assert ranked[0].source_index == "libgen"
-        assert ranked[1].source_index == "internet_archive"
+        assert ranked[0].source_index == "internet_archive"
+        assert ranked[1].source_index == "web_index"
 
     def test_noise_titles_downranked(self) -> None:
-        noise = _result("internet_archive", "VOA News broadcast archive")
-        book = _result("annas_archive", "Attention Is All You Need")
+        noise = _result("web_index", "VOA News broadcast archive")
+        book = _result("internet_archive", "Attention Is All You Need")
         ranked = rank_shadow_results([noise, book])
-        assert ranked[0].source_index == "annas_archive"
-        assert ranked[-1].source_index == "internet_archive"
+        assert ranked[0].source_index == "internet_archive"
+        assert ranked[-1].source_index == "web_index"
 
     def test_relevance_score_breaks_ties_within_priority(self) -> None:
-        high = _result("libgen", "High scoring book", score=0.9)
-        low = _result("libgen", "Low scoring book", score=0.1)
+        high = _result("internet_archive", "High scoring book", score=0.9)
+        low = _result("internet_archive", "Low scoring book", score=0.1)
         ranked = rank_shadow_results([low, high])
         assert ranked[0].title == "High scoring book"
         assert ranked[1].title == "Low scoring book"
@@ -62,6 +62,6 @@ class TestRelevancePrefersBooks:
         assert not is_noise_title("Attention Is All You Need")
 
     def test_source_priority_books_beat_web(self) -> None:
-        assert source_priority(_result("libgen", "Book")) > source_priority(
-            _result("internet_archive", "Web")
+        assert source_priority(_result("internet_archive", "Book")) > source_priority(
+            _result("web_index", "Web")
         )

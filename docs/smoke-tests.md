@@ -11,7 +11,7 @@ export BASE="http://127.0.0.1"
 
 # Keys: `sk-test-*` values are DEV-ONLY. Staging requires the per-service keys
 # from the deployed `.env` — source them WITHOUT ever printing values:
-cd /data/planning/saimon
+cd /srv/saimon
 export KEY_SEARCH=$(grep -E '^SAIMON_SEARCH_API_KEY=' .env | cut -d= -f2- | tr -d '"')
 export KEY_GENERATE=$(grep -E '^SAIMON_GENERATE_API_KEY=' .env | cut -d= -f2- | tr -d '"')
 export KEY_EXPORT=$(grep -E '^SAIMON_EXPORT_API_KEY=' .env | cut -d= -f2- | tr -d '"')

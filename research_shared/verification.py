@@ -55,10 +55,21 @@ def resolve_status(
     return status, round(confidence, 4), summary
 
 
+def counts(evidence: list[dict]) -> tuple[int, int, int]:
+    """(supporting, contradicting, mentions) — polarity is per item now.
+
+    Until #347 every item was labelled `supports` by construction, so counting
+    "not contradicts" as supporting made `contradicted` unreachable.
+    """
+    supporting = sum(1 for item in evidence if item.get("polarity") == "supports")
+    contradicting = sum(1 for item in evidence if item.get("polarity") == "contradicts")
+    mentions = len(evidence) - supporting - contradicting
+    return supporting, contradicting, mentions
+
+
 def ledger(evidence: list[dict], status: str, confidence: float) -> dict:
     """Counts plus per-item evidence, so a verdict can be audited."""
-    supporting = sum(1 for item in evidence if item.get("polarity") != "contradicts")
-    contradicting = sum(1 for item in evidence if item.get("polarity") == "contradicts")
+    supporting, contradicting, mentions = counts(evidence)
     return {
         "overall_verdict": status,
         "overall_confidence": confidence,
@@ -66,6 +77,7 @@ def ledger(evidence: list[dict], status: str, confidence: float) -> dict:
             "evidence": len(evidence),
             "supporting": supporting,
             "contradicting": contradicting,
+            "mentions": mentions,
             "abstained": 1 if status == INSUFFICIENT else 0,
         },
         "evidence": evidence,

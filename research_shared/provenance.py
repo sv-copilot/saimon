@@ -20,7 +20,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-LEDGER_VERSION = "v1"
+LEDGER_VERSION = "v2"  # v2: stance-aware verdicts (#347 follow-up)
 
 
 @dataclass

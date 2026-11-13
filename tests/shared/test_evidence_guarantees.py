@@ -128,6 +128,25 @@ def test_stance_classification(passage: str, expected: str) -> None:
     assert classify_stance(CLAIM, passage) == expected
 
 
+def test_real_pgvector_page_is_not_a_contradiction() -> None:
+    # This passage was labelled "contradicts" by the 60-char either-side window
+    # because unrelated words sat near the matched tokens. It supports the claim.
+    passage = (
+        "pgvector supports HNSW indexes. Inner product: CREATE INDEX ON items USING "
+        "hnsw (embedding vector_ip_ops); cosine distance and L2 are documented the same way."
+    )
+    assert classify_stance(CLAIM, passage) == "supports"
+
+
+def test_negation_must_precede_the_claim_term() -> None:
+    # "no data" is not a denial of the claim; the cue has to sit before the term.
+    passage = (
+        "There is no data loss reported for pgvector supports HNSW indexes in "
+        "this benchmark, and the extension documents both index types in detail."
+    )
+    assert classify_stance(CLAIM, passage) == "supports"
+
+
 def test_counts_separate_support_from_contradiction() -> None:
     evidence = [
         {"polarity": "supports"},

@@ -307,7 +307,7 @@ class TestAutoSearch:
 
         async def mock_call_saimon(tool_name, arguments):
             call_log.append(tool_name)
-            if tool_name == "saimon_search_scholarly":
+            if tool_name == "saimon_search_archives":
                 return mock_search_results
             elif tool_name == "saimon_generate_content":
                 return gen_data
@@ -324,9 +324,9 @@ class TestAutoSearch:
             })
 
         assert result["status"] == "success"
-        assert "saimon_search_scholarly" in call_log, "auto_search should call search"
+        assert "saimon_search_archives" in call_log, "auto_search should call search"
         # Search should be called before generate
-        search_idx = call_log.index("saimon_search_scholarly")
+        search_idx = call_log.index("saimon_search_archives")
         gen_idx = call_log.index("saimon_generate_content")
         assert search_idx < gen_idx, "search must happen before generate"
 
@@ -349,7 +349,7 @@ class TestAutoSearch:
         }
 
         async def mock_call_saimon(tool_name, arguments):
-            if tool_name == "saimon_search_scholarly":
+            if tool_name == "saimon_search_archives":
                 raise RuntimeError("search unavailable")
             elif tool_name == "saimon_generate_content":
                 return gen_data
@@ -407,7 +407,7 @@ class TestAutoSearch:
             })
 
         assert result["status"] == "success"
-        assert "saimon_search_scholarly" not in call_log, (
+        assert "saimon_search_archives" not in call_log, (
             "search should not be called when auto_search is false"
         )
 
@@ -431,7 +431,7 @@ class TestAutoSearch:
         }
 
         async def mock_call_saimon(tool_name, arguments):
-            if tool_name == "saimon_search_scholarly":
+            if tool_name == "saimon_search_archives":
                 return mock_search_empty
             elif tool_name == "saimon_generate_content":
                 return gen_data

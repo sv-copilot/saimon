@@ -29,8 +29,8 @@ def client(api_key, monkeypatch):
     monkeypatch.setenv("SHADOW_SOURCES_ENABLED", "true")
     sys.modules.pop("saimon_mcp.verify.server", None)
     sys.modules.pop("saimon_mcp.verify", None)
-    from research_shared.shadow_registry import reset_shadow_registry
-    reset_shadow_registry()
+    from research_shared.archive_registry import reset_archive_registry
+    reset_archive_registry()
     from saimon_mcp.verify.server import app
     return TestClient(app)
 
@@ -46,10 +46,10 @@ def auth_headers(api_key):
 
 
 class TestShadowSourceCorroboration:
-    """Tests for shadow_source_corroboration verification method."""
+    """Tests for the DOI-cache corroboration method."""
 
     def test_method_registered_in_list(self, client, sample_trace_id, auth_headers):
-        """shadow_source_corroboration appears in the methods list."""
+        """doi_cache_corroboration appears in the methods list."""
         response = client.post(
             "/tools/list_verification_methods",
             json={
@@ -60,16 +60,16 @@ class TestShadowSourceCorroboration:
         )
         data = response.json()
         method_names = {m["name"] for m in data["data"]["methods"]}
-        assert "shadow_source_corroboration" in method_names
+        assert "doi_cache_corroboration" in method_names
 
     def test_method_has_reliability_score(self, client, sample_trace_id, auth_headers):
-        """shadow_source_corroboration has a reliability score."""
+        """doi_cache_corroboration has a reliability score."""
         response = client.post(
             "/tools/get_method_detail",
             json={
                 "trace_id": sample_trace_id,
                 "content_type": "verify",
-                "parameters": {"method_name": "shadow_source_corroboration"},
+                "parameters": {"method_name": "doi_cache_corroboration"},
             },
             headers=auth_headers,
         )
@@ -78,10 +78,10 @@ class TestShadowSourceCorroboration:
         assert "reliability" in data["data"]
         assert 0.0 <= data["data"]["reliability"] <= 1.0
 
-    def test_verify_claim_supports_use_shadow_sources(
+    def test_verify_claim_supports_use_doi_caches(
         self, client, sample_trace_id, auth_headers
     ):
-        """verify_claim accepts use_shadow_sources parameter."""
+        """verify_claim accepts use_doi_caches parameter."""
         response = client.post(
             "/tools/verify_claim",
             json={
@@ -89,7 +89,7 @@ class TestShadowSourceCorroboration:
                 "content_type": "verify",
                 "parameters": {
                     "claim": "The Earth orbits the Sun.",
-                    "use_shadow_sources": True,
+                    "use_doi_caches": True,
                 },
             },
             headers=auth_headers,
@@ -97,10 +97,10 @@ class TestShadowSourceCorroboration:
         data = response.json()
         assert data["status"] in ("success", "degraded")
 
-    def test_verify_claim_without_use_shadow_sources_behaves_normally(
+    def test_verify_claim_without_use_doi_caches_behaves_normally(
         self, client, sample_trace_id, auth_headers
     ):
-        """Default behavior without use_shadow_sources is unchanged."""
+        """Default behavior without use_doi_caches is unchanged."""
         response = client.post(
             "/tools/verify_claim",
             json={
@@ -116,7 +116,7 @@ class TestShadowSourceCorroboration:
         assert data["status"] in ("success", "degraded")
         assert "overall_verdict" in data["data"]
 
-    def test_shadow_sources_disabled_by_env(
+    def test_doi_caches_disabled_by_env(
         self, client, sample_trace_id, monkeypatch
     ):
         """When SHADOW_SOURCES_ENABLED=false, shadow method is excluded."""
@@ -137,4 +137,4 @@ class TestShadowSourceCorroboration:
         )
         data = response.json()
         method_names = {m["name"] for m in data["data"]["methods"]}
-        assert "shadow_source_corroboration" not in method_names
+        assert "doi_cache_corroboration" not in method_names

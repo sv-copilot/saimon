@@ -114,18 +114,22 @@ _METHODS: dict[str, dict[str, Any]] = {
     },
 }
 
-# ── shadow source corroboration (configurable) ────────────────────
+# ── DOI-cache corroboration (configurable) ───────────────────────
 
-_SHADOW_SOURCES_ENABLED = _os.environ.get("SHADOW_SOURCES_ENABLED", "true").lower() in (
+_DOI_CACHE_CORROBORATION_ENABLED = _os.environ.get(
+    "DOI_CACHE_CORROBORATION_ENABLED",
+    _os.environ.get("SHADOW_SOURCES_ENABLED", "true"),  # legacy name, read for compatibility
+).lower() in (
     "1", "true", "yes", "on",
 )
 
-if _SHADOW_SOURCES_ENABLED:
-    _METHODS["shadow_source_corroboration"] = {
-        "name": "shadow_source_corroboration",
+if _DOI_CACHE_CORROBORATION_ENABLED:
+    _METHODS["doi_cache_corroboration"] = {
+        "name": "doi_cache_corroboration",
         "description": (
-            "Cross-reference the claim against paywalled academic sources "
-            "accessible via shadow libraries (Sci-Hub, LibGen, Anna's Archive)."
+            "Cross-reference the claim against the local full-text cache: a DOI "
+            "resolves to a stored document, and the claim is corroborated when "
+            "that document is present."
         ),
         "reliability": 0.88,
     }
@@ -295,12 +299,12 @@ def _search_api_key() -> str:
     """
     return _os.environ.get("SEARCH_API_KEY", "")
 
-_VERIFY_PROMPT = """You are an expert fact-checker with access to shadow library
-sources. Verify the following claim using these methods: {methods}.
+_VERIFY_PROMPT = """You are an expert fact-checker with access to a local
+full-text cache of documents the operator is entitled to read. Verify the following claim using these methods: {methods}.
 
 CLAIM: {claim}
 
-SOURCES FOUND VIA SHADOW LIBRARIES:
+SOURCES FOUND IN THE FULL-TEXT CACHE:
 {sources_text}
 
 For each method, analyze the claim against the sources above. If a source
@@ -333,7 +337,7 @@ _PUNCT_STRIP = _re.compile(r"[^\w\s]")
 def _extract_keyword_query(claim: str, max_terms: int = 8) -> str:
     """Derive a keyword query from a claim sentence.
 
-    SAIMON-VERIFY-QUERY-SHAPING-1 (#199): shadow search returns 0 results for
+    SAIMON-VERIFY-QUERY-SHAPING-1 (#199): archive search returns 0 results for
     full-sentence queries but 5 for keyword queries. Strip punctuation, drop
     stopwords, keep key terms/entities/numbers, and cap length.
     """
@@ -366,7 +370,7 @@ _VERIFY_TRANSPORT_ERRORS = (httpx.ReadTimeout, httpx.ConnectError)
 
 
 def _search_payload(query: str, limit: int) -> dict[str, Any]:
-    """Build the ``search_shadow_libraries`` request envelope for *query*."""
+    """Build the ``search_archives`` request envelope for *query*."""
     return {
         "trace_id": "00000000-0000-0000-0000-000000000000",
         "content_type": "search",
@@ -377,7 +381,7 @@ def _search_payload(query: str, limit: int) -> dict[str, Any]:
 async def _search_sources_with_status(
     claim: str, limit: int = 5,
 ) -> tuple[list[dict[str, Any]], bool]:
-    """Search shadow libraries, returning ``(results, degraded)``.
+    """Search the archive indexes, returning ``(results, degraded)``.
 
     Retries each query once on transport errors (timeout/connect) and logs
     ``verify_search_degraded`` with reason and attempt, so the ledger can
@@ -400,7 +404,7 @@ async def _search_sources_with_status(
                 for attempt in range(_VERIFY_SEARCH_RETRIES + 1):
                     try:
                         resp = await client.post(
-                            f"{_SEARCH_MCP_URL}/tools/search_shadow_libraries",
+                            f"{_SEARCH_MCP_URL}/tools/search_archives",
                             json=_search_payload(query, limit),
                             headers={"X-Saimon-API-Key": key},
                         )
@@ -443,7 +447,7 @@ async def _search_sources_with_status(
     except Exception as exc:  # noqa: BLE001
         degraded = True
         _log.error(
-            "verify_search_degraded: unexpected error during shadow search "
+            "verify_search_degraded: unexpected error during archive search "
             "(%s: %s)",
             exc.__class__.__name__,
             exc,
@@ -454,7 +458,7 @@ async def _search_sources_with_status(
 async def _search_sources(
     claim: str, limit: int = 5,
 ) -> list[dict[str, Any]]:
-    """Search shadow libraries for sources relevant to the claim.
+    """Search the archive indexes for sources relevant to the claim.
 
     Queries are keyword-shaped (see ``_search_queries``) with a progressive
     fallback when a formulation returns zero results.
@@ -550,9 +554,9 @@ def _detect_theory_anchor(claim: str) -> dict[str, Any]:
     """Determine the verification anchor path for a claim.
 
     Returns a dict with:
-      - ``anchor``: ``"seeded_node"`` | ``"shadow_doi"`` | ``"full_text"``
+      - ``anchor``: ``"seeded_node"`` | ``"cache_doi"`` | ``"full_text"``
       - ``source_node``: matched seeded source node (seeded_node only)
-      - ``doi``: canonical DOI (seeded_node / shadow_doi)
+      - ``doi``: canonical DOI (seeded_node / cache_doi)
       - ``theory``: theory slug (seeded_node only)
     """
     seeded = _match_seeded_source_node(claim)
@@ -568,7 +572,7 @@ def _detect_theory_anchor(claim: str) -> dict[str, Any]:
     claim_dois = _extract_dois(claim or "")
     if claim_dois:
         return {
-            "anchor": "shadow_doi",
+            "anchor": "cache_doi",
             "source_node": None,
             "doi": _clean_doi(claim_dois[0]),
             "theory": None,
@@ -579,7 +583,7 @@ def _detect_theory_anchor(claim: str) -> dict[str, Any]:
 
 def _theory_anchor_verifications(
     anchor: dict[str, Any],
-    shadow_results: list[dict[str, Any]] | None,
+    archive_results: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
     """Build deterministic verifications for an anchored theory claim.
 
@@ -606,19 +610,19 @@ def _theory_anchor_verifications(
             }
         ]
 
-    if anchor["anchor"] == "shadow_doi":
+    if anchor["anchor"] == "cache_doi":
         doi = anchor["doi"]
         found = any(
             _clean_doi(result.get("doi", "")) == doi
-            for result in (shadow_results or [])
+            for result in (archive_results or [])
         )
         return [
             {
-                "method": "shadow_source_corroboration",
+                "method": "doi_cache_corroboration",
                 "verdict": "supported" if found else "inconclusive",
                 "confidence": 0.9 if found else 0.4,
                 "explanation": (
-                    "Claim resolved via DOI passthrough to shadow sources"
+                    "Claim resolved via DOI passthrough to the full-text cache"
                     + (" and corroborated." if found else " but the DOI did not resolve.")
                 ),
                 "evidence_source": f"doi:{doi}",
@@ -987,7 +991,7 @@ async def _llm_extract_claims(
 
 
 def _compute_source_quality_tier(source: dict[str, Any]) -> str:
-    """Compute source quality tier (A/B/C/unknown) from shadow library metadata.
+    """Compute source quality tier (A/B/C/unknown) from archive metadata.
 
     Tier A: peer-reviewed journal, high citation count
     Tier B: conference paper, moderate reputation
@@ -1199,16 +1203,15 @@ def _verify_method(
                 "real temporal validation."
             ),
         },
-        "shadow_source_corroboration": lambda: {
+        "doi_cache_corroboration": lambda: {
             "verdict": "inconclusive",
             "confidence": 0.25,
             "explanation": (
                 f"Could not cross-reference claim '{claim[:60]}...' "
-                "against shadow library sources (Sci-Hub, LibGen, "
-                "Anna's Archive). "
+                "against the full-text cache. "
                 "LLM backend not available — stub returns inconclusive. "
                 "Set DEEPSEEK_API_KEY and inject an LLMClient for "
-                "real shadow source corroboration."
+                "real cache corroboration."
             ),
         },
     }
@@ -1394,25 +1397,26 @@ async def verify_claim(
     # ── theory-citation anchor detection ────────────────────
     theory_anchor = _detect_theory_anchor(claim)
 
-    # ── shadow source search ─────────────────────────────────
-    use_shadow = payload.parameters.get("use_shadow_sources", False)
-    shadow_results: list[dict[str, Any]] = []
-    shadow_search_degraded = False
+    # ── archive source search ────────────────────────────────
+    use_archive = payload.parameters.get("use_archive_sources",
+                                       payload.parameters.get("use_shadow_sources", False))  # legacy key, kept for callers
+    archive_results: list[dict[str, Any]] = []
+    archive_search_degraded = False
     # A DOI-anchored claim gets its precise `doi:` lookup even when the caller
-    # did not ask for a general shadow sweep — the passthrough query is exact,
-    # not a prose full-text search, and without it the shadow_doi anchor can
+    # did not ask for a general archive sweep — the passthrough query is exact,
+    # not a prose full-text search, and without it the cache_doi anchor can
     # only ever resolve to "inconclusive".
-    doi_anchor = theory_anchor["anchor"] == "shadow_doi"
-    if use_shadow or doi_anchor:
+    doi_anchor = theory_anchor["anchor"] == "cache_doi"
+    if use_archive or doi_anchor:
         query = f"doi:{theory_anchor['doi']}" if doi_anchor else claim
         try:
-            shadow_results, shadow_search_degraded = await _search_sources_with_status(
+            archive_results, archive_search_degraded = await _search_sources_with_status(
                 query, limit=5
             )
         except Exception:  # noqa: BLE001
-            shadow_search_degraded = True
+            archive_search_degraded = True
             _log.exception(
-                "verify_search_degraded: unexpected error during shadow search"
+                "verify_search_degraded: unexpected error during archive search"
             )
 
     logger = build_audit_logger(payload, request, _auth, "verify-mcp")
@@ -1421,8 +1425,8 @@ async def verify_claim(
         tool="verify_claim",
         claim_length=len(claim),
         methods_count=len(method_names),
-        shadow_sources_found=len(shadow_results),
-        shadow_search_degraded=shadow_search_degraded,
+        archive_sources_found=len(archive_results),
+        archive_search_degraded=archive_search_degraded,
     )
 
     # ── risk profile: detect items for boosted checking ─────
@@ -1436,19 +1440,19 @@ async def verify_claim(
     anchor_method = (
         "source_corroboration"
         if theory_anchor["anchor"] == "seeded_node"
-        else "shadow_source_corroboration"
-        if theory_anchor["anchor"] == "shadow_doi"
+        else "doi_cache_corroboration"
+        if theory_anchor["anchor"] == "cache_doi"
         else None
     )
     use_theory_shortcut = anchor_method is not None and anchor_method in method_names
 
     if use_theory_shortcut:
-        verifications = _theory_anchor_verifications(theory_anchor, shadow_results)
+        verifications = _theory_anchor_verifications(theory_anchor, archive_results)
     elif _llm_client is not None:
         try:
             # Build risk-boosted prompt if needed
             sources_for_verify: list[dict[str, Any]] | None = (
-                shadow_results if shadow_results else sources
+                archive_results if archive_results else sources
             )
             if risk_profile == "high" and sources_for_verify:
                 # Re-run _llm_verify with boosted prompt via a manual approach
@@ -1468,7 +1472,7 @@ async def verify_claim(
                 verifications = result.get("verifications", [])
             else:
                 verifications = await _llm_verify(
-                    method_names, claim, shadow_results if shadow_results else sources
+                    method_names, claim, archive_results if archive_results else sources
                 )
         except (LLMError, NotImplementedError, _json.JSONDecodeError):
             verifications = [
@@ -1493,7 +1497,7 @@ async def verify_claim(
     if adversarial and _llm_client is not None:
         try:
             adversarial_result = await _llm_refute(
-                claim, shadow_results if shadow_results else sources
+                claim, archive_results if archive_results else sources
             )
         except (LLMError, NotImplementedError, _json.JSONDecodeError):
             adversarial_result = None
@@ -1532,7 +1536,7 @@ async def verify_claim(
                     "claim": claim,
                     "verdict": overall,
                     "verifications": verifications,
-                    "shadow_results_count": len(shadow_results),
+                    "archive_results_count": len(archive_results),
                 })
                 # Best-effort embed at creation (fail-open): the backfill sweep
                 # catches any NULL-embedding node left behind by an embed failure.
@@ -1553,7 +1557,7 @@ async def verify_claim(
                     _json.dumps({
                         "source": "verify-mcp",
                         "methods_used": method_names,
-                        "shadow_sources": bool(shadow_results),
+                        "archive_sources": bool(archive_results),
                     }),
                     embedding,
                 )
@@ -1589,10 +1593,10 @@ async def verify_claim(
                         v.get("explanation", ""),
                     )
 
-            # ── compute source quality from shadow results ─────
-            if obs_id and shadow_results:
+            # ── compute source quality from archive results ────
+            if obs_id and archive_results:
                 quality_tiers = [
-                    _compute_source_quality_tier(s) for s in shadow_results
+                    _compute_source_quality_tier(s) for s in archive_results
                 ]
                 best_tier = "unknown"
                 for tier in ("A", "B", "C"):
@@ -1607,7 +1611,7 @@ async def verify_claim(
                 )
 
                 # Compute primacy from best source
-                best_source = shadow_results[0] if shadow_results else None
+                best_source = archive_results[0] if archive_results else None
                 primacy = _compute_primacy_score(best_source)
                 primacy_tier = (
                     "primary" if primacy >= 0.8
@@ -1621,8 +1625,8 @@ async def verify_claim(
                 )
 
             # ── create supporting relations between observations ──
-            if obs_id and shadow_results:
-                for sr in shadow_results[:3]:
+            if obs_id and archive_results:
+                for sr in archive_results[:3]:
                     sr_doi = sr.get("doi", "")
                     if sr_doi:
                         # Find existing observations with same source
@@ -1644,9 +1648,11 @@ async def verify_claim(
                     verification_node_id,
                 )
 
-                # Store shadow source evidence
+                # Store archive-source evidence
+                # `shadow_source` is the stored evidence_type written by earlier
+                # releases; kept so existing rows stay queryable.
                 import uuid as _obs_uuid
-                for sr in shadow_results[:5]:
+                for sr in archive_results[:5]:
                     sr_doi = sr.get("doi", "")
                     sr_title = sr.get("title", "")
                     if sr_doi and sr_title:
@@ -1678,8 +1684,8 @@ async def verify_claim(
 
     citations = [
         r.get("doi") or r.get("identifier", "")
-        for r in shadow_results
-    ] if shadow_results else (
+        for r in archive_results
+    ] if archive_results else (
         [s.identifier for s in payload.sources] if payload.sources else []
     )
 

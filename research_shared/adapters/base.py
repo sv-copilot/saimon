@@ -30,7 +30,7 @@ class SourceSearchResult(BaseModel):
     authors: list[str] = Field(default_factory=list, description="Author names.")
     year: int | None = Field(default=None, description="Publication year.")
     abstract_snippet: str | None = Field(default=None, description="Abstract or snippet.")
-    source_index: str = Field(..., description="Adapter identifier: 'annas_archive', 'libgen', etc.")
+    source_index: str = Field(..., description="Adapter identifier, e.g. 'internet_archive'.")
     source_index_label: str = Field(..., description="Human-readable label: 'Anna\'s Archive', 'LibGen', etc.")
     relevance_score: float | None = Field(default=None, ge=0.0, le=1.0, description="Relevance score 0.0–1.0.")
     full_text_available: bool = Field(default=False, description="Whether full text is downloadable.")

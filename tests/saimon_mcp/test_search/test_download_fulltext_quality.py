@@ -24,12 +24,12 @@ class FakeStorage:
 
 
 class FakeAdapter:
-    name = "scihub"
+    name = "internet_archive"
 
     def __init__(self, data: bytes) -> None:
         self.calls = 0
         self.result = FulltextFetchResult(
-            source_index="scihub",
+            source_index="internet_archive",
             doi="10.1000/quality",
             data=data,
             file_type="txt",
@@ -69,7 +69,7 @@ async def _run(data: bytes, **kwargs) -> dict:
 
     defaults = {
         "doi": "10.1000/quality",
-        "source": {"source_index": "scihub", "title": "Quality Paper", "doi": "10.1000/quality"},
+        "source": {"source_index": "internet_archive", "title": "Quality Paper", "doi": "10.1000/quality"},
         "fetch_only": False,
         "embed_fn": _embed,
     }

@@ -1,8 +1,7 @@
 """Tests for list_source_indexes dedupe.
 
-The DB `sources` table already contains shadow-library rows (seeded), and
-the endpoint also appends the shadow registry adapters — producing one
-duplicate per shadow library. The endpoint must dedupe by (type, identifier).
+The DB `sources` table may already carry a row for a source that the registry
+also returns; the endpoint must dedupe by (type, identifier).
 """
 
 import sys
@@ -20,7 +19,7 @@ def api_key() -> str:
 
 @pytest.fixture
 def client(api_key, monkeypatch):
-    """Return a TestClient with a mocked DB pool containing shadow rows."""
+    """Return a TestClient with a mocked DB pool containing a duplicate source row."""
     monkeypatch.setenv("SAIMON_API_KEY", api_key)
     sys.modules.pop("saimon_mcp.search.server", None)
     sys.modules.pop("saimon_mcp.search", None)
@@ -33,8 +32,8 @@ def client(api_key, monkeypatch):
     db_pool.fetch = AsyncMock(
         return_value=[
             {"type": "knowledge_graph", "identifier": "kg-root", "label": "Root node"},
-            {"type": "shadow_library", "identifier": "annas_archive", "label": "[Tier S] Anna's Archive"},
-            {"type": "shadow_library", "identifier": "libgen", "label": "[Tier S] LibGen"},
+            {"type": "public_archive", "identifier": "internet_archive", "label": "Internet Archive"},
+            {"type": "public_archive", "identifier": "internet_archive", "label": "Internet Archive"},
         ]
     )
     search_server._db_pool = db_pool
@@ -57,5 +56,5 @@ def test_no_duplicate_source_identifiers(client, api_key):
     keys = [(s.get("type"), s.get("identifier")) for s in indexes]
     assert len(keys) == len(set(keys)), f"duplicate source indexes: {keys}"
     # Shadow libraries come from the registry (with tier info), not the DB rows
-    shadow = [s for s in indexes if s.get("type") == "shadow_library"]
+    shadow = [s for s in indexes if s.get("type") == "public_archive"]
     assert all("tier" in s for s in shadow)

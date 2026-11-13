@@ -1324,7 +1324,22 @@ async def verify_claim(
     # When enabled, a verdict is a function of stored corpus evidence. No
     # evidence means insufficient_evidence — never a self-graded "supported".
     # Kept behind a flag so the strict default remains an operator decision (#239).
-    if _strict_evidence_enabled() and _db_pool is not None:
+    if _strict_evidence_enabled() and _db_pool is None:
+        # An outage must never look like a verdict. Without a pool the strict
+        # path cannot run, and falling through to the LLM branch would return a
+        # confident "success" while the corpus was unreachable.
+        return ResearchResponse(
+            trace_id=payload.trace_id,
+            status="degraded",
+            data={
+                "reason": (
+                    "knowledge graph unavailable — verification needs the corpus; "
+                    "no verdict was produced"
+                )
+            },
+        )
+
+    if _strict_evidence_enabled():
         from research_shared.evidence import collect_corpus_evidence
         from research_shared.verification import counts, ledger, resolve_status
 

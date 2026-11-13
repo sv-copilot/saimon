@@ -56,10 +56,19 @@ _BRACKET_CITATION_RE = re.compile(r"\[\d{1,3}\]")
 
 
 def source_class_from_host(host: str | None) -> str:
-    """Classify a source by its host. Unknown hosts stay unknown, never direct."""
+    """Classify a source by its host. Unknown hosts stay unknown, never direct.
+
+    Accepts a bare host or a full URL: callers store DOIs as ``url:https://…``
+    and the URL's scheme was previously taken as the host, so every document in
+    the corpus classified as ``unknown`` and the reputation component of the
+    quality score was a constant.
+    """
     if not host:
         return "unknown"
-    host = host.lower().split("/")[0]
+    host = host.strip().lower()
+    if "://" in host:
+        host = host.split("://", 1)[1]
+    host = host.split("/")[0].split("@")[-1].split(":")[0]
     if host.endswith((".gov", ".gov.uk", ".mil")):
         return "government_report"
     if any(domain in host for domain in (

@@ -17,9 +17,9 @@ env:
 
 jobs:
   # ── Validate (all branches) ──────────────────────────────────────
-  # Runs on GitHub-hosted runners. The project moved off self-hosted runners when
-  # it became public: a public repository lets fork pull requests execute the CI
-  # workflow, and that must never happen on infrastructure with deploy access.
+  # Untrusted code (validate, eval, docker-push) runs on GitHub-hosted runners:
+  # a public repository lets fork pull requests execute those jobs, and they must
+  # never run on infrastructure that holds deploy keys.
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -130,7 +130,12 @@ jobs:
 
   # ── Deploy to staging (rc branch only) ──────────────────────────
   deploy-staging:
-    runs-on: ubuntu-latest
+    # Deploy jobs stay on the self-hosted runner: the production host firewalls
+    # SSH to known addresses, and a GitHub-hosted runner cannot reach it
+    # (observed: "connect to host ... port 22: Connection timed out"). This is
+    # safe for a public repo because these jobs run only on pushes to rc/main,
+    # never on pull requests, so fork code cannot reach them.
+    runs-on: [self-hosted, deploy]
     timeout-minutes: 10
     needs: docker-push
     if: github.ref == 'refs/heads/rc'
@@ -199,7 +204,7 @@ jobs:
 
   # ── Deploy to production (main branch only) ──────────────────────────
   deploy-production:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, deploy]
     timeout-minutes: 10
     needs: docker-push
     if: github.ref == 'refs/heads/main'

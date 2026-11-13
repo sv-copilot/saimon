@@ -143,9 +143,16 @@ class TestNoShadowing:
         mcp = pytest.importorskip("mcp")
         from mcp.shared.message import SessionMessage  # noqa: F401
 
-        # The imported `mcp` must be the PyPI distribution, not the local
-        # saimon package (which would break `import crewai`).
-        assert str(REPO_ROOT) not in str(mcp.__file__)
+        # The imported `mcp` must be the PyPI distribution, not a local package
+        # that shadows it (which would break `import crewai`).
+        #
+        # Checking "not under the repo root" is wrong: a virtualenv created inside
+        # the project — the most common layout — puts site-packages under the repo
+        # root, and the test then fails for a perfectly good install. Check that
+        # the module resolves from site-packages instead.
+        module_path = str(mcp.__file__)
+        in_site_packages = "site-packages" in module_path or "dist-packages" in module_path
+        assert in_site_packages, f"mcp resolved outside site-packages: {module_path}"
 
 
 class TestCrewIsolation:

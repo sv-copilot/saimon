@@ -161,8 +161,8 @@ jobs:
         run: |
           set -euo pipefail
           SSH_OPTS="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
-          ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" 'set -e; cd /data/planning/saimon; stamp=$(date +%Y%m%d); cp -n docker-compose.yml docker-compose.yml.bak-$stamp; cp -n docker-compose.staging.yml docker-compose.staging.yml.bak-$stamp; cp -n schema.sql schema.sql.bak-$stamp'
-          scp $SSH_OPTS docker-compose.yml docker-compose.staging.yml schema.sql "$SSH_USER@$SSH_HOST:/data/planning/saimon/"
+          ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" 'set -e; cd /srv/saimon; stamp=$(date +%Y%m%d); cp -n docker-compose.yml docker-compose.yml.bak-$stamp; cp -n docker-compose.staging.yml docker-compose.staging.yml.bak-$stamp; cp -n schema.sql schema.sql.bak-$stamp'
+          scp $SSH_OPTS docker-compose.yml docker-compose.staging.yml schema.sql "$SSH_USER@$SSH_HOST:/srv/saimon/"
 
       - name: Deploy via SSH
         env:
@@ -178,7 +178,7 @@ jobs:
             printf 'GHCR_ACTOR=%q\n' "$GHCR_ACTOR"
             cat <<'REMOTE'
           set -euo pipefail
-          cd /data/planning/saimon
+          cd /srv/saimon
           echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
           echo "Pulling latest rc image..."
           docker compose -f docker-compose.yml -f docker-compose.staging.yml pull

@@ -164,9 +164,9 @@ class TestPluginLoader:
     def test_registers_adapters_and_content_types(self, server):
         path = _install_fake_plugin_module()
         server._load_plugins([path])
-        from research_shared.shadow_registry import get_shadow_registry
+        from research_shared.archive_registry import get_archive_registry
 
-        registry = get_shadow_registry()
+        registry = get_archive_registry()
         assert registry.get("fake_index") is not None
         assert any(ct["name"] == "fake:widget" for ct in server._content_types)
 

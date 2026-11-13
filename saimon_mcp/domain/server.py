@@ -25,13 +25,16 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 
 from research_shared.adapters.base import SourceIndexAdapter
+from research_shared.archive_registry import (
+    get_archive_registry,
+    reset_archive_registry,
+)
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.db import DatabasePool
 from research_shared.domain_plugin import DomainPlugin
 from research_shared.envelope import ResearchRequest, ResearchResponse
 from research_shared.hardening import apply_hardening, build_audit_logger
 from research_shared.lifespan import build_lifespan
-from research_shared.shadow_registry import get_shadow_registry, reset_shadow_registry
 
 logger = logging.getLogger("saimon.domain")
 
@@ -76,7 +79,7 @@ def _register_plugin(plugin: DomainPlugin) -> None:
     """Register a plugin's adapters and content types into the shared registries."""
     _plugins[plugin.domain] = plugin
 
-    registry = get_shadow_registry()
+    registry = get_archive_registry()
     for adapter in plugin.adapters():
         name = getattr(adapter, "name", None)
         if name and isinstance(adapter, SourceIndexAdapter):
@@ -108,7 +111,7 @@ def _load_plugins(paths: list[str] | None = None) -> dict[str, DomainPlugin]:
     # Rebuild registration state so repeated loads are idempotent.
     _plugins.clear()
     _content_types.clear()
-    reset_shadow_registry()
+    reset_archive_registry()
 
     loaded: dict[str, DomainPlugin] = {}
     for path in targets:

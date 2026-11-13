@@ -13,7 +13,7 @@ from __future__ import annotations
 from research_shared.adapters.base import SourceSearchResult
 from research_shared.adapters.ranking import (
     is_noise_title,
-    rank_shadow_results,
+    rank_archive_results,
     source_priority,
 )
 
@@ -37,21 +37,21 @@ class TestRelevancePrefersBooks:
     def test_book_sources_rank_above_internet_archive(self) -> None:
         ia = _result("web_index", "Some web document")
         book = _result("internet_archive", "Deep Learning")
-        ranked = rank_shadow_results([ia, book])
+        ranked = rank_archive_results([ia, book])
         assert ranked[0].source_index == "internet_archive"
         assert ranked[1].source_index == "web_index"
 
     def test_noise_titles_downranked(self) -> None:
         noise = _result("web_index", "VOA News broadcast archive")
         book = _result("internet_archive", "Attention Is All You Need")
-        ranked = rank_shadow_results([noise, book])
+        ranked = rank_archive_results([noise, book])
         assert ranked[0].source_index == "internet_archive"
         assert ranked[-1].source_index == "web_index"
 
     def test_relevance_score_breaks_ties_within_priority(self) -> None:
         high = _result("internet_archive", "High scoring book", score=0.9)
         low = _result("internet_archive", "Low scoring book", score=0.1)
-        ranked = rank_shadow_results([low, high])
+        ranked = rank_archive_results([low, high])
         assert ranked[0].title == "High scoring book"
         assert ranked[1].title == "Low scoring book"
 

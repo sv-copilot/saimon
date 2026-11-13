@@ -401,8 +401,8 @@ RED → GREEN → REFACTOR → PROVE.
 - All 6 MCPs wired to LLM/DB backends with dependency injection
 - 616 tests passing, ruff clean, compileall OK
 - Terminology fix applied: list_sources → list_source_indexes
-- Shadow library integration: search_shadow_libraries tool, 5 adapters, dedup engine, shadow_registry
-- research_shared/: envelope, llm, db, auth, resilience, audit, self_extend, seed_data, seed_loader, shadow_registry, adapters/ (14 modules)
+- Archive integration (historical line): adapters and a dedup engine; scraper adapters removed in #321, Internet Archive remains
+- research_shared/: envelope, llm, db, auth, resilience, audit, self_extend, seed_data, seed_loader, archive_registry, adapters/ (14 modules)
 - Content types sourced from seed_data.py (14 types including bibliography, 5 voice profiles)
 - Runtime self-extension: unknown types trigger research → auto-register via SelfExtender
 - DB re-seed resilience: SeedLoader loads canonical data on demand
@@ -442,7 +442,7 @@ Current state:
 - 616 tests passing, ruff clean, compileall OK
 - Runtime self-extension: unknown types → research → auto-register via SelfExtender
 - DB re-seed resilience: SeedLoader loads canonical data on demand
-- Shadow library integration: search_shadow_libraries, 5 adapters, dedup, verify
+- Archive integration: search_archives tool, dedup, verify; scraper adapters removed in #321
 - All 4 success criteria from project_intake.json met
 
 Next: TBD — check .docs/project_intake.json

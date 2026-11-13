@@ -9,7 +9,7 @@ MCP tools for research, verification, and content generation.
 
 | Tool | Best For | Example Query |
 |---|---|---|
-| `saimon_search_scholarly` | Finding academic papers across 5 shadow libraries | `"transformer attention mechanisms survey"` |
+| `saimon_search_archives` | Finding papers in the public archives (Internet Archive, OpenAlex, Crossref, arXiv) | `"transformer attention mechanisms survey"` |
 | `saimon_search_knowledge_graph` | Finding previously stored research in the KG | `"AI monetization report"` |
 | `saimon_list_sources` | Checking which source indexes are available | (no arguments needed) |
 
@@ -77,11 +77,11 @@ User: "Research the latest advances in graph neural networks"
 ```
 User: "Write a white paper on AI monetization opportunities"
 
-1. saimon_search_scholarly(query="AI market size projections 2030", limit=10)
-2. saimon_search_scholarly(query="API monetization models AI agents", limit=10)
+1. saimon_search_archives(query="AI market size projections 2030", limit=10)
+2. saimon_search_archives(query="API monetization models AI agents", limit=10)
 
 3. For each major claim from search results:
-   saimon_verify_claim(claim="...", use_shadow_sources=true)
+   saimon_verify_claim(claim="...", use_archive_sources=true)
 
 4. saimon_explore_content(query="AI monetization")
    → Check if we already have research on this topic
@@ -135,6 +135,6 @@ User asks a question
 
 - If a tool returns `"status":"error"`, read the `errors` field for details
 - If `"status":"degraded"`, partial results are available — use what you have
-- If a shadow library is unreachable, other adapters may still return results
+- If one archive is unreachable, other adapters may still return results
 - LLM-dependent tools (verify, generate) fall back to heuristics when LLM is down
 - Database-dependent tools gracefully degrade when DB is unreachable

@@ -46,7 +46,7 @@ def source_priority(result: SourceSearchResult) -> int:
     return 2
 
 
-def rank_shadow_results(
+def rank_archive_results(
     results: list[SourceSearchResult],
 ) -> list[SourceSearchResult]:
     """Rank aggregated results: book sources first, web noise last.

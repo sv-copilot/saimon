@@ -160,6 +160,26 @@ def classify_stance(claim: str, passage: str) -> str:
     return "supports"
 
 
+def claim_is_negated(claim: str) -> bool:
+    """True when the claim itself asserts the negative.
+
+    "pgvector does not support HNSW" is contradicted by a passage that says it
+    does. Without this, a negated claim was verified as supported by passages
+    asserting the opposite — the stance of the passage alone cannot tell you
+    which way it lands.
+    """
+    text = (claim or "").lower()
+    return any(re.search(rf"\b{re.escape(cue)}\b", text) for cue in _NEGATION_CUES)
+
+
+def _invert_stance(polarity: str) -> str:
+    if polarity == "supports":
+        return "contradicts"
+    if polarity == "contradicts":
+        return "supports"
+    return polarity
+
+
 def _evidence_sql(scoped: bool) -> str:
     """SQL for one evidence query. `ORDER BY id` is what makes it deterministic."""
     scope_clause = "\n  AND universe_id = ANY($3::uuid[])" if scoped else ""
@@ -210,6 +230,7 @@ async def collect_corpus_evidence(
     else:
         rows = await db.fetch(EVIDENCE_SQL_SCOPED, patterns, limit, sorted(universe_ids))
 
+    negated_claim = claim_is_negated(claim)
     evidence: list[dict[str, Any]] = []
     for row in rows:
         text = f"{row.get('title') or ''} {row.get('body') or ''}"
@@ -227,7 +248,9 @@ async def collect_corpus_evidence(
                 "doi": row.get("doi") or None,
                 "overlap_tokens": score,
                 "quote": quote,
-                "polarity": classify_stance(claim, text),
+                "polarity": _invert_stance(classify_stance(claim, text))
+                if negated_claim
+                else classify_stance(claim, text),
             }
         )
 

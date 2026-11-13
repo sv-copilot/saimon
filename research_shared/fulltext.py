@@ -16,6 +16,8 @@ import re
 import uuid
 from typing import Any
 
+from research_shared.universe import REALITY_ID
+
 # ---------------------------------------------------------------------------
 # constants
 # ---------------------------------------------------------------------------
@@ -394,6 +396,7 @@ async def persist_fulltext_document(
     embeddings: list[list[float] | None],
     collection: str = "research",
     unit_id: str | None = None,
+    universe_id: str | None = None,
 ) -> dict[str, Any]:
     """Persist one document node + N chunk nodes with ``part_of`` edges.
 
@@ -468,8 +471,8 @@ async def persist_fulltext_document(
     else:
         await db.execute(
             "INSERT INTO knowledge_graph_nodes "
-            "(id, title, content_type, body, metadata, collection, unit_id) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            "(id, title, content_type, body, metadata, collection, unit_id, universe_id) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
             document_node_id,
             sanitize_pg_text(title),
             CONTENT_TYPE_FULLTEXT_DOCUMENT,
@@ -477,6 +480,7 @@ async def persist_fulltext_document(
             json.dumps(document_metadata),
             collection,
             unit_id,
+            universe_id or REALITY_ID,
         )
 
     chunk_node_ids: list[str] = []
@@ -494,8 +498,8 @@ async def persist_fulltext_document(
         }
         await db.execute(
             f"INSERT INTO {FULLTEXT_STORE_TABLE} "
-            "(id, title, content_type, body, metadata, embedding, collection, unit_id) "
-            "VALUES ($1, $2, $3, $4, $5, $6::vector, $7, $8)",
+            "(id, title, content_type, body, metadata, embedding, collection, unit_id, universe_id) "
+            "VALUES ($1, $2, $3, $4, $5, $6::vector, $7, $8, $9)",
             chunk_id,
             sanitize_pg_text(f"{title} — chunk {index + 1}"),
             CONTENT_TYPE_FULLTEXT_CHUNK,
@@ -504,6 +508,7 @@ async def persist_fulltext_document(
             vector,
             collection,
             unit_id,
+            universe_id or REALITY_ID,
         )
         await db.execute(
             "INSERT INTO knowledge_graph_edges "

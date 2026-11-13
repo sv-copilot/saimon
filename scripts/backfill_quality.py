@@ -21,18 +21,21 @@ CLAIM_SQL = """
 SELECT n.id, n.title, n.body, n.metadata, n.unit_id,
        f.value_numeric, f.unit, f.date_start,
        o.verification_status, o.confidence_0_1,
-       d.id AS doc_id
+       COALESCE(d.doc_id, u.id) AS doc_id,
+       COALESCE(d.doc_doi, u.metadata->>'doi') AS doc_doi
 FROM knowledge_graph_nodes n
 LEFT JOIN observation_facts f ON f.node_id = n.id
 LEFT JOIN observations o ON o.unit_id = n.unit_id
 LEFT JOIN LATERAL (
-    SELECT tgt.id
+    SELECT tgt.id AS doc_id,
+           tgt.metadata->>'doi' AS doc_doi
     FROM knowledge_graph_edges e
     JOIN knowledge_graph_nodes chunk ON chunk.id = e.target_id
     JOIN knowledge_graph_nodes tgt ON tgt.id = NULLIF(chunk.metadata->>'part_of', '')::uuid
     WHERE e.source_id = n.id AND e.relation_type = 'derived_from'
     LIMIT 1
 ) d ON TRUE
+LEFT JOIN knowledge_graph_nodes u ON u.id = n.unit_id
 WHERE n.content_type = 'claim'
 """
 
@@ -153,7 +156,10 @@ async def run() -> int:
 
     for claim in claims:
         meta = _meta(claim)
-        doi = meta.get("doi") or ""
+        # Claims carry no DOI of their own; the document does. Reading only the
+        # claim's metadata pinned every claim to the "unknown" reputation tier,
+        # so 20% of the quality score was a constant (#255 follow-up).
+        doi = claim.get("doc_doi") or meta.get("doi") or ""
         host = doi.split("url:", 1)[1] if doi.startswith("url:") else doi
         tier = TIER_BY_CLASS.get(source_class_from_host(host), "unknown")
 

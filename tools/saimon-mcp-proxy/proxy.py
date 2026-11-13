@@ -11,7 +11,7 @@ Usage (in VS Code MCP config):
         "command": "python3",
         "args": ["tools/saimon-mcp-proxy/proxy.py"],
         "env": {
-          "SAIMON_BASE_URL": "https://mcp-staging.spencervaradi.com/saimon",
+          "SAIMON_BASE_URL": "https://localhost:8001/saimon",
           "SAIMON_API_KEY": "sk-test-search-key"
         }
       }

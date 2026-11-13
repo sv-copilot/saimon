@@ -10,13 +10,13 @@ None rather than raising.
 
 from __future__ import annotations
 
-from research_shared.universe import REALITY_ID
-
 import hashlib
 import json
 import re
 import uuid
 from typing import Any
+
+from research_shared.universe import REALITY_ID
 
 # ---------------------------------------------------------------------------
 # constants

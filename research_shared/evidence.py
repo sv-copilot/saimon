@@ -66,6 +66,15 @@ _CUE_WINDOW = 25
 # Sentence terminators for the same-sentence requirement.
 _SENTENCE_RE = re.compile(r"[^.!?;\n]+")
 
+# Words that may sit between a cue and the claim term without breaking the
+# negation ("does not *support* hnsw", "no *support* for hnsw"). Anything else —
+# "no longer *fits* ... hnsw" — means the cue is about something else.
+_CUE_GAP_TOKENS = frozenset(
+    ["a", "an", "any", "are", "be", "been", "by", "directly", "for", "have",
+     "is", "it", "necessarily", "of", "support", "supported", "supports", "the",
+     "that", "to", "true", "use", "used", "uses", "was", "were", "with"]
+)
+
 MIN_SUPPORT_TOKENS = 2
 MIN_QUOTE_CHARS = 60
 MAX_EVIDENCE_ITEMS = 5
@@ -140,7 +149,12 @@ def classify_stance(claim: str, passage: str) -> str:
                     break
                 before = sentence[max(0, at - _CUE_WINDOW) : at]
                 for cue in _NEGATION_CUES:
-                    if re.search(rf"\b{re.escape(cue)}\b", before):
+                    match = re.search(rf"\b{re.escape(cue)}\b", before)
+                    if not match:
+                        continue
+                    gap = before[match.end() :]
+                    gap_tokens = [w for w in re.findall(r"[a-z0-9]+", gap) if w]
+                    if all(word in _CUE_GAP_TOKENS for word in gap_tokens):
                         return "contradicts"
                 start = at + len(token)
     return "supports"

@@ -67,6 +67,10 @@ docker compose up -d
 curl -s localhost:8001/health
 ```
 
+The database passwords have no defaults: `POSTGRES_PASSWORD` and the nine
+`*_DB_PASSWORD` values must be set in `.env` before `docker compose up`, or the
+services start with empty passwords and fail to authenticate.
+
 The stack needs PostgreSQL with `pgvector` (included in the compose file) and one LLM
 API key for generation and verification. Embeddings, retrieval and verification run
 locally.

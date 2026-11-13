@@ -38,15 +38,17 @@ class TestAbstainReason:
 
 class TestOutcomeCarriesReason:
     def test_nonsense_query_abstains_on_the_floor(self):
-        # With 50/50 lexical+semantic weights a no-overlap hit peaks at 0.5,
-        # so the floor is what stops it on the first pass.
+        # A no-overlap hit at 0.77 similarity is semantic drift. Since #361 the
+        # floor compares the stronger of the two signals, so the blend no longer
+        # halves a real cosine; the drift guard that refuses this is the lexical
+        # requirement, and the reason now names it instead of blaming the floor.
         out = rerank(
             "zzzq wobblewick frandish quintar",
             [_cand("bookkeeping clerks record transactions", 0.77)],
             RerankConfig(),
         )
         assert out.fail_safe_fired is True
-        assert out.abstain_reason == "floor"
+        assert out.abstain_reason == "no_lexical_support"
 
     def test_no_lexical_support_is_reported_when_the_floor_is_cleared(self):
         # A lexical-scoring configuration can clear the floor without overlap;

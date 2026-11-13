@@ -27,8 +27,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 CANDIDATE_SQL = """
 SELECT n.id, n.title, n.body, n.content_type, n.metadata,
-       d.doc_doi,
-       d.doc_title,
+       COALESCE(d.doc_doi, u.metadata->>'doi') AS doc_doi,
+       COALESCE(d.doc_title, u.title) AS doc_title,
        o.verification_status AS obs_status,
        o.confidence_0_1      AS obs_confidence
 FROM knowledge_graph_nodes n
@@ -43,6 +43,7 @@ LEFT JOIN LATERAL (
     WHERE e.source_id = n.id AND e.relation_type = 'derived_from'
     LIMIT 1
 ) d ON TRUE
+LEFT JOIN knowledge_graph_nodes u ON u.id = n.unit_id
 LEFT JOIN observations o ON o.unit_id = n.unit_id
 WHERE n.content_type = ANY($1)
 ORDER BY n.created_at

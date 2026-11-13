@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS content_type_registry (
 CREATE TABLE IF NOT EXISTS sources (
     id              SERIAL PRIMARY KEY,
     type            TEXT NOT NULL,                    -- 'public_archive', 'knowledge_graph', 'web_page'
-    identifier      TEXT NOT NULL UNIQUE,             -- e.g. 'annas_archive', 'libgen', 'scihub'
+    identifier      TEXT NOT NULL UNIQUE,             -- e.g. 'internet_archive', 'kg-root'
     label           TEXT NOT NULL,                    -- human-readable label
     tier            TEXT NOT NULL DEFAULT 'B',        -- S, A, B, C (reliability tier)
     status          TEXT NOT NULL DEFAULT 'active',   -- active, degraded, disabled

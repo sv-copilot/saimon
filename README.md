@@ -1,101 +1,139 @@
-# Saimon Platform
+# Saimon
 
-A self-extending platform of 6 atomic MCP services sharing one PostgreSQL
-knowledge graph. Built for AI agents, by AI agents.
+A verification-first knowledge base for AI agents: nine MCP services over one
+PostgreSQL graph with pgvector.
 
-## What It Does
+The problem it solves is not retrieval. It is that an agent will state anything in
+confident prose. Saimon stores what was claimed, what evidence exists, where that
+evidence came from, and — most importantly — **refuses to answer when the evidence is
+thin**.
 
-Saimon gives AI coding agents research superpowers: search academic shadow
-libraries, verify factual claims, generate cited content, and persist
-everything to a knowledge graph.
+## What makes it different
 
-```
-Ask a question → Search 5 shadow libraries → Verify against sources
-→ Generate cited report → Evaluate quality → Export formatted output
-```
+- **It abstains by default.** A query that finds nothing strong returns `results: []`
+  with a reason (`floor`, `margin`, `no_lexical_support`), not the nearest five chunks.
+  An empty *success* means "the corpus does not support this"; an empty *degraded*
+  means "the service is down". Those are different facts and the API keeps them apart.
+- **Every claim carries a verdict.** Claims are verified against stored passages and
+  written to an append-only ledger: `supported`, `contradicted`, or
+  `insufficient_evidence`. Nothing becomes fact because it was generated fluently.
+- **Provenance is a first-class field.** Citations carry a DOI/URL locator or a stated
+  reason there is none, plus a primacy tier. A citation without a locator is a lead,
+  not a fact.
+- **Scopes are enforced, not suggested.** Content lives in a universe (`reality`,
+  `fiction`, `personal`); retrieval resolves the caller's scope and filters before
+  ranking. A private universe with no owner returns an empty scope — a refusal, not a
+  fallback to public data.
+- **Retrieval is fused and measured.** Vector and lexical candidates are merged with
+  reciprocal rank fusion, reranked, then gated. A golden evaluation harness and a
+  perturbation test fail the build if a known query changes verdict.
 
 ## Architecture
 
 ```
-┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
-│  SEARCH  │ │ GENERATE │ │  EXPORT  │ │ EVALUATE │ │  VERIFY  │ │ EXPLORE  │
-│  :8001   │ │  :8002   │ │  :8003   │ │  :8004   │ │  :8005   │ │  :8006   │
-└────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘
-     │            │            │            │            │            │
-     └────────────┴────────────┴────────────┴────────────┴────────────┘
-                                    │
-                            ┌───────┴───────┐
-                            │  PostgreSQL 16│
-                            │  + pgvector   │
-                            │  :5432/5433   │
-                            └───────────────┘
+ search  generate  export  evaluate  verify  explore  api  domain  crew
+ :8001    :8002    :8003    :8004     :8005   :8006   :8007 :8008   :8009
+   └────────┴────────┴────────┴─────────┴───────┴───────┴──────┴───────┘
+                                   │
+                        ┌──────────┴──────────┐
+                        │   PostgreSQL 16     │
+                        │   + pgvector        │
+                        │   knowledge graph   │
+                        └─────────────────────┘
 ```
 
-**6 MCPs, 24+ tools, 1 knowledge graph, 0 external dependencies** (beyond DeepSeek LLM).
+Every service holds its own asyncpg pool and speaks HTTP. There is no message bus and
+no second datastore — the graph is the only state.
 
-## Quick Start
+| Service | Port | Tools | Responsibility |
+|---|---|---|---|
+| `search` | 8001 | 11 | graph search, web search, document ingest, source registry |
+| `generate` | 8002 | 9 | content generation, verified generation, `store_content` |
+| `export` | 8003 | 3 | format conversion |
+| `evaluate` | 8004 | 4 | quality scoring, AI-text detection, voice profiles |
+| `verify` | 8005 | 5 | claim verification against the corpus, claim extraction |
+| `explore` | 8006 | 6 | typed traversal, connection discovery, content browsing |
+| `api` | 8007 | — | OpenAPI documentation gateway |
+| `domain` | 8008 | 6 | plugin surface for domain-specific tools |
+| `crew` | 8009 | 2 | background research and claim extraction jobs |
 
-### Local Development
+## Quick start
 
 ```bash
-# Clone and start
 git clone https://github.com/sv-copilot/saimon.git
 cd saimon
+cp .env.example .env          # set the values marked REQUIRED
 docker compose up -d
-
-# Verify
-curl http://localhost:8001/health
-# → {"status":"ok","service":"search-mcp","checks":{"database":"connected"}}
-
-# Search shadow libraries
-curl -X POST http://localhost:8001/tools/search_shadow_libraries \
-  -H "X-Saimon-API-Key: sk-test-search-key" \
-  -H "Content-Type: application/json" \
-  -d '{"trace_id":"00000000-0000-0000-0000-000000000001","content_type":"search","parameters":{"query":"transformer attention mechanisms"}}'
+curl -s localhost:8001/health
 ```
 
-### VS Code Integration
+The stack needs PostgreSQL with `pgvector` (included in the compose file) and one LLM
+API key for generation and verification. Embeddings, retrieval and verification run
+locally.
 
-The Researcher agent is pre-configured in `.vscode/mcp.json`. Reload VS Code,
-select **Researcher** from the agent picker, and ask research questions.
+Each service authenticates with `X-Saimon-API-Key`. The value may be a comma-separated
+list, so several agents can share a service while staying distinguishable in the audit
+log.
 
-### Staging
+```bash
+curl -s -X POST localhost:8001/tools/search_knowledge_graph \
+  -H "X-Saimon-API-Key: $SAIMON_SEARCH_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"trace_id":"3f6c1a1e-0000-4000-8000-000000000001",
+       "content_type":"search",
+       "parameters":{"query":"vector index tuning","limit":3}}'
+```
 
-Staging runs on a Hetzner CX22 VPS at `mcp-staging.spencervaradi.com`.
+## The retrieval contract
 
-## Services
+This is the part worth reading if you are evaluating the design.
 
-| Service | Port | Tools | Description |
-|---|---|---|---|
-| search-mcp | 8001 | 5 | Knowledge graph + shadow library search |
-| generate-mcp | 8002 | 5 | LLM content generation (14 content types) |
-| export-mcp | 8003 | 3 | Output formatting (markdown, json, html) |
-| evaluate-mcp | 8004 | 3 | Quality scoring against criteria |
-| verify-mcp | 8005 | 3 | Fact-checking with 5 corroboration methods |
-| explore-mcp | 8006 | 5 | Knowledge graph discovery and browsing |
+```jsonc
+// answer found
+{"status": "success", "data": {"results": [...], "total": 3}}
 
-## Content Types
+// corpus has nothing strong enough — an answer, not an error
+{"status": "success", "data": {"results": [], "total": 0,
+ "no_strong_evidence": true, "abstain_reason": "margin"}}
 
-Saimon generates 14 content types with 5 voice profiles:
+// service unreachable — an outage, not an absence
+{"status": "degraded", "data": {"results": [], "reason": "knowledge graph unavailable"}}
+```
 
-`blog_post` `summary` `research_note` `social_post` `email_draft`
-`press_release` `case_study` `white_paper` `job_posting` `meeting_notes`
-`proposal` `tutorial` `product_review` `bibliography`
+A degraded response returns **no rows**. An earlier version returned synthetic
+placeholder results so a demo would look alive; that is worse than failing, because a
+fabricated row is indistinguishable from a real one once it leaves the service.
 
 ## Testing
 
 ```bash
-python3 -m pytest tests/ -q          # 616 tests
-ruff check research_shared/ saimon_mcp/     # Lint
-python3 -m compileall research_shared/ saimon_mcp/  # Compile check
+pytest -q          # ~2,000 tests, no external services required
+ruff check .
 ```
+
+The suite runs against fakes: no database, no network, no API keys. Live behaviour is
+covered separately by a golden evaluation harness (`scripts/eval_golden.py`) and a
+retrieval-stability check (`scripts/retrieval_stability.py`).
+
+## Scope and limitations
+
+- **Lawful sources only.** An earlier development line included adapters for Sci-Hub,
+  LibGen and Anna's Archive. They are **removed from this repository before the first
+  public release** (tracked as release blocker `OSS-1`): shipping scrapers for those
+  services is not something this project should do, and a knowledge base whose evidence
+  cannot be cited lawfully is not a knowledge base. The supported path is lawful sources
+  — OpenAlex, Crossref, arXiv, and PDFs you are entitled to read.
+- **Single node by design.** One Postgres, one host. It is not a distributed system and
+  does not pretend to be.
+- **No bundled model.** Generation and verification call an LLM API; retrieval,
+  embedding and the graph are local.
+- **Not a document manager.** Ingest is by URL or supplied text, behind a quality gate.
 
 ## Documentation
 
-- [Agent Usage Guide](docs/agent-usage-guide.md) — How AI agents should use Saimon
-- [AGENTS.md](AGENTS.md) — Development contract and slice governance
-- [Staging Deployment](docs/staging.md) — VPS setup and operations
+- [AGENTS.md](AGENTS.md) — development contract and slice governance
+- `docs/` — schema notes, operational runbooks
 
 ## License
 
-MIT
+Apache-2.0. See [LICENSE](LICENSE).

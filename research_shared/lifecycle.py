@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from research_shared.universe import REALITY_ID
+
 STATUS_KEY = "status"
 ERROR_KEY = "error_message"
 
@@ -50,12 +52,14 @@ async def ensure_document_stub(
     node_id = str(uuid.uuid4())
     await db.execute(
         "INSERT INTO knowledge_graph_nodes "
-        "(id, title, content_type, body, metadata) VALUES ($1, $2, $3, $4, $5)",
+        "(id, title, content_type, body, metadata, universe_id) "
+        "VALUES ($1, $2, $3, $4, $5, $6)",
         node_id,
         title or doi,
         DOCUMENT_CONTENT_TYPE,
         "",
         json.dumps({"doi": doi, "source_index": source_index, STATUS_KEY: STATUS_PARSING}),
+        REALITY_ID,
     )
     return node_id
 

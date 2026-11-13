@@ -32,14 +32,13 @@ _STOPWORDS = frozenset(
     ["a", "an", "and", "are", "as", "at", "be", "been", "by", "can", "could", "do", "does", "did", "for", "from", "has", "have", "had", "how", "in", "into", "is", "it", "its", "of", "on", "or", "that", "the", "their", "them", "then", "there", "these", "this", "to", "was", "were", "what", "when", "where", "which", "who", "why", "will", "with", "would", "you", "your"]
 )
 
-# Negation cues that flip a passage's stance when they sit next to a matched
-# token. Deliberately small and conservative: a missed contradiction shows up
-# as `insufficient_evidence` (safe), a false contradiction would not be.
+# Negation cues that flip a passage's stance. Only phrasal or unambiguous forms
+# are here: a bare "no" in "no data" or "Inner product ... no index" produced a
+# false contradiction on a passage that plainly supported the claim, so the
+# classifier now requires the negation to sit immediately before a claim term.
 _NEGATION_CUES = (
     "not",
-    "no",
     "never",
-    "none",
     "cannot",
     "can't",
     "doesn't",
@@ -49,14 +48,23 @@ _NEGATION_CUES = (
     "wasn't",
     "weren't",
     "without",
-    "fails",
-    "failed",
-    "false",
-    "incorrect",
+    "fails to",
+    "failed to",
+    "no longer",
+    "no support",
+    "unsupported",
     "refutes",
     "contradicts",
-    "unsupported",
 )
+
+# Distance before a matched token within which a cue counts as negating it.
+# English puts the negation before the thing it negates. 25 characters covers
+# "does not support HNSW" and "no support for HNSW" without reaching across a
+# clause such as "no data loss ... pgvector supports HNSW".
+_CUE_WINDOW = 25
+
+# Sentence terminators for the same-sentence requirement.
+_SENTENCE_RE = re.compile(r"[^.!?;\n]+")
 
 MIN_SUPPORT_TOKENS = 2
 MIN_QUOTE_CHARS = 60
@@ -105,26 +113,36 @@ def quote_from(passage: str, claim: str, width: int = 240) -> str:
 def classify_stance(claim: str, passage: str) -> str:
     """`supports`, `contradicts`, or `mentions`.
 
-    A negation cue within ``_NEGATION_WINDOW`` characters of a matched claim
-    token means the passage is arguing the other way. This is a lexical stand-in
-    for a stance model: it can be wrong, so it only ever moves a verdict toward
-    `contradicted` when the cue is adjacent to the actual claim terms.
+    A passage contradicts when a negation cue sits within ``_CUE_WINDOW``
+    characters *before* a matched claim token and in the same sentence. Both
+    restrictions matter: an earlier version searched 60 characters either side
+    of any token and labelled a pgvector install page "contradicts" because of an
+    unrelated word in the surrounding text.
+
+    This is a lexical stand-in for a stance model. It is allowed to miss a
+    contradiction (that degrades to a weaker verdict) and it is not allowed to
+    invent one, so the rules are deliberately narrow.
     """
-    lowered = (passage or "").lower()
-    matched = [t for t in claim_tokens(claim) if t in lowered]
+    text = (passage or "").lower()
+    matched = [t for t in claim_tokens(claim) if t in text]
     if len(matched) < MIN_SUPPORT_TOKENS:
         return "mentions"
-    for token in matched:
-        start = 0
-        while True:
-            at = lowered.find(token, start)
-            if at == -1:
-                break
-            window = lowered[max(0, at - _NEGATION_WINDOW) : at + len(token) + _NEGATION_WINDOW]
-            for cue in _NEGATION_CUES:
-                if re.search(rf"\b{re.escape(cue)}\b", window):
-                    return "contradicts"
-            start = at + len(token)
+
+    for sentence in _SENTENCE_RE.findall(text):
+        hits = [t for t in matched if t in sentence]
+        if len(hits) < MIN_SUPPORT_TOKENS:
+            continue
+        for token in hits:
+            start = 0
+            while True:
+                at = sentence.find(token, start)
+                if at == -1:
+                    break
+                before = sentence[max(0, at - _CUE_WINDOW) : at]
+                for cue in _NEGATION_CUES:
+                    if re.search(rf"\b{re.escape(cue)}\b", before):
+                        return "contradicts"
+                start = at + len(token)
     return "supports"
 
 

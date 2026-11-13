@@ -14,6 +14,10 @@ from saimon_mcp.crew.claim_extract import (
 )
 from saimon_mcp.crew.llm import CrewLLMResolution
 
+import pytest
+
+pytest.importorskip("crewai", reason="crew service dependency is optional (requirements-crew.txt)")
+
 
 class TestFilterQualityGate:
     def test_returns_structured_candidates_with_claim_text_and_confidence_0_1(

@@ -1,0 +1,4 @@
+# Optional: the crew service (background research / claim extraction).
+# crewai 1.x requires Python <3.14, so this file is separate from
+# requirements.txt — the core services and the test suite do not need it.
+crewai>=1.0.0,<2.0.0

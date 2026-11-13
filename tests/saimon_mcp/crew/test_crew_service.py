@@ -113,7 +113,9 @@ class TestCrewLLMFailClosed:
 
 class TestCrewPin:
     def test_crewai_version_within_1_0_to_2_0(self) -> None:
-        req = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
+        # crewai moved to its own file: 1.x requires Python <3.14, and the core
+        # services and test suite must install on any supported Python.
+        req = (REPO_ROOT / "requirements-crew.txt").read_text(encoding="utf-8")
         assert "crewai>=1.0.0,<2.0.0" in req
 
     def test_mcp_pinned_to_crewai_compatible_range(self) -> None:

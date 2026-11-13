@@ -48,9 +48,17 @@ def wired(client, monkeypatch):
     monkeypatch.setattr(server, "_db_pool", _FakePool(_rows()), raising=False)
 
     def embed(text: str):
+        # A deterministic pseudo-vector: unrelated text lands near-orthogonal.
+        # The earlier two-dimension fake mapped every non-Tufte string to the
+        # same vector, so a nonsense query scored 1.0 against a budget worksheet
+        # — a match the real model cannot produce, and the reason this test was
+        # passing on the blend's halving rather than on the gate.
+        import hashlib
+
         if "tufte" in text.lower() or "data ink" in text.lower():
-            return [1.0, 0.0]
-        return [0.0, 1.0]
+            return [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        digest = hashlib.sha256(text.lower().strip().encode()).digest()
+        return [b / 255.0 for b in digest[:8]]
 
     monkeypatch.setattr(server, "_rerank_embed_fn", lambda: embed, raising=False)
     return server

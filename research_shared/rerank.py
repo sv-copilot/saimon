@@ -284,7 +284,10 @@ def _normalise_title(title: Any) -> str:
 
 
 def gate_decision(
-    scored: list[dict[str, Any]], config: RerankConfig, lexical_support: bool = True
+    scored: list[dict[str, Any]],
+    config: RerankConfig,
+    lexical_support: bool = True,
+    gate_score: float | None = None,
 ) -> tuple[bool, float, float]:
     """Decide whether a scored candidate set must abstain.
 
@@ -308,9 +311,15 @@ def gate_decision(
     if not scored:
         return True, 0.0, 0.0
 
-    top_score = float(scored[0]["relevance_score"])
+    # The floor asks "is anything relevant at all?", which is a question about
+    # similarity, not about the blend used to rank. Comparing the floor against
+    # ``0.5*lexical + 0.5*semantic`` halved every cosine: a passage at 0.77
+    # similarity with weak lexical overlap scored 0.43 and the gate abstained on
+    # a question the corpus answered (measured: 3 of 25 benchmark queries).
+    rank_score = float(scored[0]["relevance_score"])
+    top_score = float(gate_score) if gate_score is not None else rank_score
     second_score = float(scored[1]["relevance_score"]) if len(scored) > 1 else 0.0
-    margin_gap = top_score - second_score
+    margin_gap = rank_score - second_score
 
     if top_score < config.min_relevance:
         return True, top_score, margin_gap
@@ -324,11 +333,14 @@ def gate_decision(
         # that is depth, not ambiguity. Treating it as ambiguity made whole
         # documents unfindable once a corpus change pushed them under 0.80.
         return True, top_score, margin_gap
-    # A weak top score with no shared content token is semantic drift: the
-    # embedding landed near something unrelated (observed live: a nonsense probe
-    # scored 0.767 against a bookkeeping page whose only overlap was stopwords).
-    # Requiring lexical support below ``strong_relevance`` keeps paraphrase hits
-    # that share vocabulary and rejects the rest.
+    # A result that shares no content token with the query is semantic drift,
+    # whatever its cosine says: the embedding landed near something unrelated
+    # (observed live: a nonsense probe scored 0.767 against a bookkeeping page
+    # whose only overlap was stopwords). Before #361 the blend's halving hid this
+    # by pushing such hits under the floor; now the floor reads the real
+    # similarity, so drift is refused explicitly and at any score. A paraphrase
+    # that shares no vocabulary is refused too — it cannot be checked, and the
+    # corpus is technical enough that this costs little.
     if (
         config.require_lexical_below_strong
         and top_score < config.strong_relevance
@@ -339,7 +351,10 @@ def gate_decision(
 
 
 def abstain_reason(
-    scored: list[dict[str, Any]], config: RerankConfig, lexical_support: bool = True
+    scored: list[dict[str, Any]],
+    config: RerankConfig,
+    lexical_support: bool = True,
+    gate_score: float | None = None,
 ) -> str | None:
     """Why the gate abstained (None when it did not).
 
@@ -351,7 +366,7 @@ def abstain_reason(
     """
     if not scored:
         return "empty"
-    top_score = float(scored[0]["relevance_score"])
+    top_score = float(gate_score) if gate_score is not None else float(scored[0]["relevance_score"])
     if top_score < config.min_relevance:
         return "floor"
     if len(scored) > 1:
@@ -433,8 +448,21 @@ def rerank(
     lexical_support = (
         has_lexical_support(query, _passage_text(scored[0])) if scored else True
     )
-    fail_safe_fired, top_score, margin_gap = gate_decision(scored, cfg, lexical_support)
-    reason = abstain_reason(scored, cfg, lexical_support) if fail_safe_fired else None
+    # Floor on the stronger of the two signals; rank and margin stay on the blend.
+    gate_score = (
+        max(float(scored[0].get("semantic_score") or 0.0),
+            float(scored[0].get("relevance_score") or 0.0))
+        if scored
+        else 0.0
+    )
+    fail_safe_fired, top_score, margin_gap = gate_decision(
+        scored, cfg, lexical_support, gate_score=gate_score
+    )
+    reason = (
+        abstain_reason(scored, cfg, lexical_support, gate_score=gate_score)
+        if fail_safe_fired
+        else None
+    )
     second_score = float(scored[1]["relevance_score"]) if len(scored) > 1 else 0.0
     ranked = [] if fail_safe_fired else scored[:k]
 

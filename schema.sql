@@ -220,9 +220,11 @@ INSERT INTO universes (id, slug, name, parent_id, visibility) VALUES
 ON CONFLICT (slug) DO NOTHING;
 
 ALTER TABLE knowledge_graph_nodes
-    ADD COLUMN IF NOT EXISTS universe_id UUID REFERENCES universes(id);
+    ADD COLUMN IF NOT EXISTS universe_id UUID REFERENCES universes(id)
+        DEFAULT '00000000-0000-4000-8000-000000000001';
 ALTER TABLE observations
-    ADD COLUMN IF NOT EXISTS universe_id UUID REFERENCES universes(id);
+    ADD COLUMN IF NOT EXISTS universe_id UUID REFERENCES universes(id)
+        DEFAULT '00000000-0000-4000-8000-000000000001';
 
 UPDATE knowledge_graph_nodes
    SET universe_id = '00000000-0000-4000-8000-000000000001'

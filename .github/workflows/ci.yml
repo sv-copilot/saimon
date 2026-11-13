@@ -17,11 +17,11 @@ env:
 
 jobs:
   # ── Validate (all branches) ──────────────────────────────────────
-  # Pinned to the `staging` label: general-prod-build also carries
-  # self-hosted/Linux/X64, so a bare [self-hosted, Linux, X64] target lets this
-  # 15-30 min suite land on the prod box and compete with everything else there.
+  # Runs on GitHub-hosted runners. The project moved off self-hosted runners when
+  # it became public: a public repository lets fork pull requests execute the CI
+  # workflow, and that must never happen on infrastructure with deploy access.
   validate:
-    runs-on: [self-hosted, Linux, X64, staging]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
@@ -59,7 +59,7 @@ jobs:
   # Self-hosted: pure stdlib checks (fixtures + golden self-check). Running them
   # on the staging runner keeps GitHub-hosted minutes for jobs that need them.
   eval:
-    runs-on: [self-hosted, Linux, X64, staging]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
@@ -83,12 +83,10 @@ jobs:
           --baseline reports/golden-baseline.json
 
   # ── Build & push Docker image (dev, rc, and main branches, pushes to GHCR) ─
-  # Runs on the `build`-labelled runner: the image is 3.6 GB and a build needs
-  # ~6-8 GB of free layer space, which the 38 GB staging runner does not have
-  # (its docker-push jobs died with "No space left on device"). general-prod-build
-  # gives the build a host with headroom; the staging runner keeps validate/deploy.
+  # Image build. GitHub-hosted runners have the layer space; the previous
+  # self-hosted build host is no longer used now that the repository is public.
   docker-push:
-    runs-on: [self-hosted, Linux, X64, build]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/rc' || github.ref == 'refs/heads/main'
     permissions:
@@ -132,7 +130,7 @@ jobs:
 
   # ── Deploy to staging (rc branch only) ──────────────────────────
   deploy-staging:
-    runs-on: [self-hosted, deploy]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: docker-push
     if: github.ref == 'refs/heads/rc'
@@ -163,8 +161,8 @@ jobs:
         run: |
           set -euo pipefail
           SSH_OPTS="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
-          ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" 'set -e; cd /data/planning/saimon; stamp=$(date +%Y%m%d); cp -n docker-compose.yml docker-compose.yml.bak-$stamp; cp -n docker-compose.staging.yml docker-compose.staging.yml.bak-$stamp; cp -n schema.sql schema.sql.bak-$stamp'
-          scp $SSH_OPTS docker-compose.yml docker-compose.staging.yml schema.sql "$SSH_USER@$SSH_HOST:/data/planning/saimon/"
+          ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" 'set -e; cd /srv/saimon; stamp=$(date +%Y%m%d); cp -n docker-compose.yml docker-compose.yml.bak-$stamp; cp -n docker-compose.staging.yml docker-compose.staging.yml.bak-$stamp; cp -n schema.sql schema.sql.bak-$stamp'
+          scp $SSH_OPTS docker-compose.yml docker-compose.staging.yml schema.sql "$SSH_USER@$SSH_HOST:/srv/saimon/"
 
       - name: Deploy via SSH
         env:
@@ -180,7 +178,7 @@ jobs:
             printf 'GHCR_ACTOR=%q\n' "$GHCR_ACTOR"
             cat <<'REMOTE'
           set -euo pipefail
-          cd /data/planning/saimon
+          cd /srv/saimon
           echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
           echo "Pulling latest rc image..."
           docker compose -f docker-compose.yml -f docker-compose.staging.yml pull
@@ -201,7 +199,7 @@ jobs:
 
   # ── Deploy to production (main branch only) ──────────────────────────
   deploy-production:
-    runs-on: [self-hosted, deploy]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: docker-push
     if: github.ref == 'refs/heads/main'

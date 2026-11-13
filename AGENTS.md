@@ -16,7 +16,7 @@ new MCPs.
 
 - `main` — stable production branch.  Triggers CI (validate only).
 - `dev` — agent integration branch.  Push triggers CI validate → GHCR push →
-  auto-deploy to staging VPS (95.216.208.183).
+  auto-deploy to staging VPS (your-host).
 - `slice/*` — feature branches for isolated slices.
 
 ### Branch flow

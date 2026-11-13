@@ -18,14 +18,10 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from research_shared.adapters.academic_torrents import AcademicTorrentsAdapter
-from research_shared.adapters.annas_archive import AnnasArchiveAdapter
 from research_shared.adapters.base import SourceSearchResult
 from research_shared.adapters.dedup import deduplicate
 from research_shared.adapters.internet_archive import InternetArchiveAdapter
-from research_shared.adapters.libgen import LibGenAdapter
 from research_shared.adapters.ranking import rank_shadow_results
-from research_shared.adapters.scihub import SciHubAdapter
 from research_shared.audit import AuditLogger
 from research_shared.auth import AuthConfig, AuthError, AuthValidator
 from research_shared.db import DatabaseError, DatabasePool
@@ -112,59 +108,35 @@ _lifespan = build_lifespan("search-mcp", db_pool_ref=lambda: _db_pool, db_pool_s
 app = FastAPI(title="search-mcp", version="0.1.0", lifespan=_lifespan)
 
 # ---------------------------------------------------------------------------
-# shadow library registry
+# source-index registry — lawful public archives only
+#
+# This once registered Anna's Archive, LibGen and Sci-Hub. Those adapters were
+# removed: a public build must not ship scrapers for them. Internet Archive is
+# the only public archive adapter, and it is lawful.
 # ---------------------------------------------------------------------------
 
 _shadow_registry = ShadowRegistry()
-
-# Register all Tier S + A adapters
-_shadow_registry.register(AnnasArchiveAdapter())
-_shadow_registry.register(LibGenAdapter())
-_shadow_registry.register(SciHubAdapter())
 _shadow_registry.register(InternetArchiveAdapter())
-_shadow_registry.register(AcademicTorrentsAdapter())
 
-_SHADOW_LABELS: dict[str, str] = {
-    "annas_archive": "Anna's Archive",
-    "libgen": "Library Genesis (LibGen)",
-    "scihub": "Sci-Hub / SciDB",
-    "internet_archive": "Internet Archive",
-    "academic_torrents": "Academic Torrents",
-}
+_SHADOW_LABELS: dict[str, str] = {"internet_archive": "Internet Archive"}
 
-# Default source indexes queried by search_shadow_libraries.  Academic Torrents
-# is excluded because its API 404s on every query (SAIMON-SEARCH-RELIABILITY-1).
-_DEFAULT_SHADOW_INDEXES = frozenset(
-    {"annas_archive", "libgen", "scihub", "internet_archive"}
-)
+# Indexes queried when the caller does not name any.
+_DEFAULT_SHADOW_INDEXES = frozenset({"internet_archive"})
 
 
 def _get_shadow_adapters(source_indexes: list[str] | None = None) -> list:
-    """Return adapters filtered by optional source_indexes list."""
-    if source_indexes:
-        return [
-            a for a in _shadow_registry.list_all()
-            if a.name in source_indexes
-        ]
-    # Default: Tier S book/paper sources plus Internet Archive.  Academic
-    # Torrents is excluded because its API 404s on every query (burning a 15s
-    # timeout per query with no results) — SAIMON-SEARCH-RELIABILITY-1 (#201).
-    return [
-        a for a in _shadow_registry.list_all()
-        if a.name in _DEFAULT_SHADOW_INDEXES
-    ]
+    """Return registered adapters, optionally filtered by name."""
+    adapters = _shadow_registry.list_all()
+    if not source_indexes:
+        return [a for a in adapters if a.name in _DEFAULT_SHADOW_INDEXES]
+    return [a for a in adapters if a.name in source_indexes]
 
 
 def _shadow_index_entry(adapter: Any) -> dict[str, Any]:
-    """Serialize a shadow registry adapter for list_source_indexes.
-
-    Disabled adapters (e.g. Academic Torrents, whose search endpoint was
-    removed upstream) are surfaced with ``status: "disabled"`` and a
-    ``disabled_reason`` instead of the default ``"available"``.
-    """
+    """Serialize a source-index adapter for ``list_source_indexes``."""
     disabled = bool(getattr(adapter, "disabled", False))
     entry: dict[str, Any] = {
-        "type": "shadow_library",
+        "type": "public_archive",
         "identifier": adapter.name,
         "label": _SHADOW_LABELS.get(adapter.name, adapter.name),
         "tier": adapter.tier,
@@ -172,9 +144,7 @@ def _shadow_index_entry(adapter: Any) -> dict[str, Any]:
         "status": "disabled" if disabled else "available",
     }
     if disabled:
-        entry["disabled_reason"] = getattr(
-            adapter, "disabled_reason", "source index disabled"
-        )
+        entry["disabled_reason"] = getattr(adapter, "disabled_reason", "source index disabled")
     return entry
 
 
@@ -236,17 +206,15 @@ _TOOLS = [
         "parameters": {"query": "str"},
     },
     {
-        "name": "search_shadow_libraries",
+        "name": "search_archives",
         "description": (
-            "Search shadow library source indexes (Anna's Archive, LibGen, "
-            "Sci-Hub/SciDB, Internet Archive, Academic Torrents) for "
-            "academic papers, books, and datasets. Returns ranked "
-            "SourceReferences with DOIs, abstracts, and source index "
-            "attribution."
+            "Search public archive source indexes (Internet Archive) for papers, "
+            "books and datasets. Returns ranked source references with DOIs, "
+            "abstracts and index attribution."
         ),
         "parameters": {
             "query": "str (required)",
-            "source_indexes": "list[str] (optional, default: all Tier S + A)",
+            "source_indexes": "list[str] (optional, default: all registered archives)",
             "limit": "int (optional, default 10, max 50)",
             "offset": "int (optional, default 0)",
             "sort_by": "str (optional, 'relevance' | 'year', default 'relevance')",
@@ -283,7 +251,7 @@ _TOOLS = [
         ),
         "parameters": {
             "doi": "str (optional — canonical DOI)",
-            "source": "dict (optional — source result from search_shadow_libraries)",
+            "source": "dict (optional — source result from search_archives)",
             "source_indexes": "list[str] (optional — restrict source indexes)",
             "fetch_only": "bool (optional — download + cache, skip RAG ingestion)",
         },
@@ -849,14 +817,14 @@ async def search_web(
 
 
 # ---------------------------------------------------------------------------
-# tool: search_shadow_libraries
+# tool: search_archives
 # ---------------------------------------------------------------------------
 
-@app.post("/tools/search_shadow_libraries")
-async def search_shadow_libraries(
+@app.post("/tools/search_archives")
+async def search_archives(
     payload: ResearchRequest, request: Request
 ) -> ResearchResponse:
-    """Search shadow library source indexes for academic papers, books, and datasets."""
+    """Search public archive source indexes (Internet Archive) for papers, books and datasets."""
     _require_auth(request)
 
     query = payload.parameters.get("query")
@@ -870,7 +838,7 @@ async def search_shadow_libraries(
     logger = AuditLogger(trace_id=payload.trace_id, service_name="search-mcp")
     logger.log_request(
         content_type=payload.content_type,
-        tool="search_shadow_libraries",
+        tool="search_archives",
         query=query,
         source_indexes=requested_indexes,
     )
@@ -1275,13 +1243,10 @@ async def source_discovery(
 # tool: download_fulltext
 # ---------------------------------------------------------------------------
 
-_DEFAULT_FULLTEXT_CONSENT = {
-    "annas_archive",
-    "libgen",
-    "scihub",
-    "internet_archive",
-    "academic_torrents",
-}
+# Only lawful public archives are eligible. The set previously listed Anna's
+# Archive, LibGen and Sci-Hub; those adapters no longer exist, so a default that
+# named them would silently allow nothing.
+_DEFAULT_FULLTEXT_CONSENT = {"internet_archive"}
 
 
 def _resolve_fulltext_consent() -> set[str]:
@@ -1297,7 +1262,7 @@ def _resolve_fulltext_consent() -> set[str]:
 
 
 def _shadow_sources_enabled() -> bool:
-    return _os.environ.get("SHADOW_SOURCES_ENABLED", "true").lower() in (
+    return _os.environ.get("ARCHIVE_SOURCES_ENABLED", _os.environ.get("SHADOW_SOURCES_ENABLED", "true")).lower() in (
         "1",
         "true",
         "yes",
@@ -1405,7 +1370,7 @@ async def _download_fulltext_flow(
                 title = title or row.get("title") or ""
                 file_type = file_type or row.get("file_type")
         if resolved_source_index is None:
-            resolved_source_index = "scihub"
+            resolved_source_index = "internet_archive"
 
     # ── consent check after source_index resolution ──
     if resolved_source_index not in consent:

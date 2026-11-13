@@ -1563,33 +1563,55 @@ def _ingest_headers() -> dict[str, str]:
 
 
 async def _fetch_document(url: str, max_bytes: int = 40 * 1024 * 1024) -> tuple[bytes, str | None]:
-    """Fetch *url* and return (bytes, file_type). Raises on refusal/oversize."""
+    """Fetch *url* and return (bytes, file_type). Raises on refusal/oversize.
+
+    Two identities are tried. The browser-like default gets past the majority of
+    hosts; a self-identifying bot UA carrying an operator contact is what SEC
+    EDGAR and similar registries accept, so it is retried once on a 403 when
+    ``SAIMON_INGEST_CONTACT`` is set.
+    """
     from urllib.parse import urlparse
 
     import httpx
 
-    async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client, client.stream(
-        "GET", url, headers=_ingest_headers()
-    ) as resp:
-        resp.raise_for_status()
-        ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
-        buf = bytearray()
-        async for chunk in resp.aiter_bytes():
-            buf.extend(chunk)
-            if len(buf) > max_bytes:
-                raise ValueError(f"document exceeds {max_bytes} bytes")
+    attempts: list[dict[str, str]] = [_ingest_headers()]
+    contact = _os.environ.get("SAIMON_INGEST_CONTACT")
+    if contact:
+        attempts.append(
+            {
+                "User-Agent": f"Saimon/1.0 (research ingestion; contact: {contact})",
+                "Accept": "*/*",
+            }
+        )
 
-    file_type = {
-        "application/pdf": "pdf",
-        "application/x-pdf": "pdf",
-        "text/html": "html",
-        "application/xhtml+xml": "html",
-        "text/plain": "txt",
-        "application/epub+zip": "epub",
-    }.get(ctype)
-    if file_type is None and urlparse(url).path.lower().endswith(".pdf"):
-        file_type = "pdf"
-    return bytes(buf), file_type
+    async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
+        for index, headers in enumerate(attempts):
+            try:
+                async with client.stream("GET", url, headers=headers) as resp:
+                    resp.raise_for_status()
+                    ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
+                    buf = bytearray()
+                    async for chunk in resp.aiter_bytes():
+                        buf.extend(chunk)
+                        if len(buf) > max_bytes:
+                            raise ValueError(f"document exceeds {max_bytes} bytes")
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 403 and index + 1 < len(attempts):
+                    continue
+                raise
+            file_type = {
+                "application/pdf": "pdf",
+                "application/x-pdf": "pdf",
+                "text/html": "html",
+                "application/xhtml+xml": "html",
+                "text/plain": "txt",
+                "application/epub+zip": "epub",
+            }.get(ctype)
+            if file_type is None and urlparse(url).path.lower().endswith(".pdf"):
+                file_type = "pdf"
+            return bytes(buf), file_type
+
+    raise RuntimeError("unreachable: the request loop returns or raises")
 
 
 @app.post("/tools/ingest_document")

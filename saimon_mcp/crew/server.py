@@ -104,6 +104,7 @@ _TOOLS = [
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
+    from research_shared.health import finalize_health
     db_ok = False
     if _db_pool is not None:
         try:
@@ -113,11 +114,11 @@ async def health() -> dict[str, Any]:
             _logging.getLogger("saimon.crew").debug(
                 "crew-mcp health: DB not reachable", exc_info=True
             )
-    return {
+    return finalize_health({
         "status": "ok",
         "service": "crew-mcp",
         "checks": {"database": "connected" if db_ok else "unavailable"},
-    }
+    })
 
 
 @app.get("/health/aggregate")

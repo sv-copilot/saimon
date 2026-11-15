@@ -146,6 +146,8 @@ _CONTENT_TYPES: list[dict[str, Any]] = [
 async def health() -> dict[str, Any]:
     """Unauthenticated health check."""
     import logging as _logging
+
+    from research_shared.health import finalize_health
     _log = _logging.getLogger("saimon.health")
     db_ok = False
     if _db_pool is not None:
@@ -161,12 +163,12 @@ async def health() -> dict[str, Any]:
             kg_nodes = row[0]["cnt"] if row else 0
         except Exception:  # noqa: BLE001
             _log.debug("explore-mcp health: KG node count query failed", exc_info=True)
-    return {
+    return finalize_health({
         "status": "ok",
         "service": "explore-mcp",
         "checks": {"database": "connected" if db_ok else "unavailable",
                    "kg_nodes": kg_nodes},
-    }
+    })
 
 
 # ---------------------------------------------------------------------------

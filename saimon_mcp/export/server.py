@@ -78,11 +78,13 @@ _FORMATS: dict[str, dict[str, Any]] = {
 @app.get("/health")
 async def health() -> dict[str, Any]:
     """Unauthenticated health check."""
-    return {
+    from research_shared.health import finalize_health
+
+    return finalize_health({
         "status": "ok",
         "service": "export-mcp",
         "checks": {"backend": "stateless"},
-    }
+    })
 
 
 # ---------------------------------------------------------------------------

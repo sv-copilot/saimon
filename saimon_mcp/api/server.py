@@ -309,6 +309,7 @@ async def _get_current_user(request: Request) -> dict:
 
 @app.get("/health")
 async def health():
+    from research_shared.health import finalize_health
     checks = {"database": "not connected"}
     if _db_pool is not None:
         try:
@@ -331,7 +332,7 @@ async def health():
             }
         except Exception:  # noqa: BLE001 — degrade to error state on any DB failure
             checks = {"database": "error"}
-    return {"status": "ok", "service": "api-mcp", "checks": checks}
+    return finalize_health({"status": "ok", "service": "api-mcp", "checks": checks})
 
 
 @app.get("/health/s3")

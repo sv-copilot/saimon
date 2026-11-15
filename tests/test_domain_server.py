@@ -125,12 +125,18 @@ def _call_payload(trace_id: str, tool: str, arguments: dict | None = None) -> di
 
 
 class TestHealth:
-    def test_health_returns_ok(self, client):
+    def test_health_status_reflects_the_checks(self, client):
+        """No database in the test environment means the body must say degraded.
+
+        The old assertion pinned the defect: status "ok" beside checks saying a dependency
+        was unavailable, which is the green light this suite exists to prevent.
+        """
         response = client.get("/health")
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "ok"
         assert data["service"] == "domain-mcp"
+        expected = "degraded" if "unavailable" in str(data["checks"]) else "ok"
+        assert data["status"] == expected, data["checks"]
 
 
 class TestAuth:

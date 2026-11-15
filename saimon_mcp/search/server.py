@@ -175,6 +175,8 @@ def _require_auth(request: Request) -> None:
 async def health() -> dict[str, Any]:
     """Unauthenticated health check."""
     import logging as _logging
+
+    from research_shared.health import finalize_health
     _log = _logging.getLogger("saimon.health")
     db_ok = False
     if _db_pool is not None:
@@ -183,11 +185,11 @@ async def health() -> dict[str, Any]:
             db_ok = True
         except Exception:  # noqa: BLE001  # noqa: BLE001
             _log.debug("search-mcp health: DB not reachable", exc_info=True)
-    return {
+    return finalize_health({
         "status": "ok",
         "service": "search-mcp",
         "checks": {"database": "connected" if db_ok else "unavailable"},
-    }
+    })
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ Usage in each MCP server.py:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from collections.abc import Callable
@@ -35,6 +36,71 @@ logger = logging.getLogger("saimon.lifespan")
 # ---------------------------------------------------------------------------
 # build_lifespan
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# database connection
+# ---------------------------------------------------------------------------
+
+# A service that starts while PostgreSQL is still accepting connections used to give up on
+# its first failure and run degraded until someone restarted it. It now keeps trying, so a
+# slow database costs seconds of degraded status instead of a day.
+_DB_RECONNECT_MIN_SECONDS = 1.0
+_DB_RECONNECT_MAX_SECONDS = 30.0
+
+
+async def _connect_db(
+    db_url: str, service_name: str, setter: Callable[[Any], None]
+) -> Any:
+    """Open a verified pool, hand it to the service, and wire the audit logger."""
+    from research_shared.db import DatabaseConfig, DatabasePool
+
+    # Pool budget: seven DB-backed services x 5 = 35 connections against
+    # max_connections=100, leaving room for Metabase and psql. Raise per service via
+    # SAIMON_DB_MAX_POOL only with that arithmetic in mind.
+    cfg = DatabaseConfig(
+        database_url=db_url,
+        min_pool_size=int(os.getenv("SAIMON_DB_MIN_POOL", "1")),
+        max_pool_size=int(os.getenv("SAIMON_DB_MAX_POOL", "5")),
+        application_name=service_name,
+    )
+    pool = DatabasePool(cfg)
+    await pool.fetch("SELECT 1")  # triggers lazy init + verifies
+    setter(pool)
+
+    from research_shared.audit import set_audit_db_pool
+
+    set_audit_db_pool(pool)
+    return pool
+
+
+async def _reconnect_db_until_connected(
+    db_url: str, service_name: str, setter: Callable[[Any], None]
+) -> None:
+    """Retry the pool until it connects. Cancelled at shutdown, never on failure."""
+    delay = float(os.getenv("SAIMON_DB_RECONNECT_MIN_SECONDS", _DB_RECONNECT_MIN_SECONDS))
+    cap = float(os.getenv("SAIMON_DB_RECONNECT_MAX_SECONDS", _DB_RECONNECT_MAX_SECONDS))
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            await _connect_db(db_url, service_name, setter)
+            # Warning, not info: a service that spent time degraded has recovered, and that
+            # is worth seeing in a log an operator actually reads.
+            logger.warning(
+                "%s DB pool connected on retry attempt %d — recovered from degraded startup",
+                service_name, attempt,
+            )
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "%s DB reconnect attempt %d failed: %s — next attempt in %.1fs",
+                service_name, attempt, exc, delay,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, cap)
 
 
 def build_lifespan(
@@ -78,31 +144,15 @@ def build_lifespan(
             db_url = os.environ.get("DATABASE_URL", "")
             if db_url:
                 try:
-                    from research_shared.db import DatabaseConfig, DatabasePool
-
-                    # Pool budget: seven DB-backed services x 5 = 35 connections
-                    # against max_connections=100, leaving room for Metabase and
-                    # psql. Raise per service via SAIMON_DB_MAX_POOL only with
-                    # that arithmetic in mind.
-                    cfg = DatabaseConfig(
-                        database_url=db_url,
-                        min_pool_size=int(os.getenv("SAIMON_DB_MIN_POOL", "1")),
-                        max_pool_size=int(os.getenv("SAIMON_DB_MAX_POOL", "5")),
-                        application_name=service_name,
-                    )
-                    pool = DatabasePool(cfg)
-                    await pool.fetch("SELECT 1")  # triggers lazy init + verifies
-                    db_pool_setter(pool)
-
-                    # Also inject into audit logger
-                    from research_shared.audit import set_audit_db_pool
-                    set_audit_db_pool(pool)
-
+                    await _connect_db(db_url, service_name, db_pool_setter)
                     logger.info("%s DB pool connected", service_name)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(
-                        "%s DB pool unavailable: %s — running degraded",
+                        "%s DB pool unavailable: %s — retrying in the background",
                         service_name, exc,
+                    )
+                    app.state.db_reconnect_task = asyncio.create_task(
+                        _reconnect_db_until_connected(db_url, service_name, db_pool_setter)
                     )
             else:
                 logger.info("%s no DATABASE_URL — running without DB", service_name)
@@ -132,6 +182,15 @@ def build_lifespan(
 
         # ── shutdown ─────────────────────────────────────────
         logger.info("%s shutting down", service_name)
+
+        # Stop the reconnect loop before closing anything it might hand over.
+        task = getattr(app.state, "db_reconnect_task", None)
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
         # Close DB pool if injected.
         if db_pool_ref is not None:

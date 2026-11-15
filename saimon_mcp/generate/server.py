@@ -207,6 +207,8 @@ def _get_quality_summary() -> dict[str, Any]:
 @app.get("/health")
 async def health() -> dict[str, Any]:
     import logging as _logging
+
+    from research_shared.health import finalize_health
     _log = _logging.getLogger("saimon.health")
     db_ok = False
     llm_ok = False
@@ -229,7 +231,7 @@ async def health() -> dict[str, Any]:
             llm_ok = True
         except Exception:  # noqa: BLE001
             _log.debug("generate-mcp health: LLM not reachable", exc_info=True)
-    return {
+    return finalize_health({
         "status": "ok",
         "service": "generate-mcp",
         "checks": {
@@ -238,7 +240,7 @@ async def health() -> dict[str, Any]:
             "kg_nodes": kg_nodes,
             "quality": _get_quality_summary(),
         },
-    }
+    })
 
 
 @app.get("/health/aggregate")

@@ -7,13 +7,18 @@
 # ---------------------------------------------------------------------------
 
 class TestHealth:
-    def test_health_returns_ok(self, client):
-        """GET /health returns 200 with status ok."""
+    def test_health_status_reflects_the_checks(self, client):
+        """No database in the test environment means the body must say degraded.
+
+        The old assertion pinned the defect: status "ok" beside checks saying a dependency
+        was unavailable, which is the green light this suite exists to prevent.
+        """
         response = client.get("/health")
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "ok"
         assert data["service"] == "search-mcp"
+        expected = "degraded" if "unavailable" in str(data["checks"]) else "ok"
+        assert data["status"] == expected, data["checks"]
 
     def test_health_no_auth_required(self, client):
         """Health endpoint does not require auth."""

@@ -183,6 +183,8 @@ async def _evidence_scope(universe: str | None) -> tuple[set[str] | None, str | 
 async def health() -> dict[str, Any]:
     """Unauthenticated health check."""
     import logging as _logging
+
+    from research_shared.health import finalize_health
     _log = _logging.getLogger("saimon.health")
     llm_ok = False
     if _llm_client is not None:
@@ -198,14 +200,14 @@ async def health() -> dict[str, Any]:
             observations_count = row[0]["cnt"] if row else 0
         except Exception:  # noqa: BLE001
             _log.debug("verify-mcp health: observations count query failed", exc_info=True)
-    return {
+    return finalize_health({
         "status": "ok",
         "service": "verify-mcp",
         "checks": {
             "llm": "connected" if llm_ok else "unavailable",
             "observations_count": observations_count,
         },
-    }
+    })
 
 
 # ---------------------------------------------------------------------------

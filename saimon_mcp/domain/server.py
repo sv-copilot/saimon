@@ -207,6 +207,8 @@ def _error(trace_id: str, message: str) -> ResearchResponse:
 @app.get("/health")
 async def health() -> dict[str, Any]:
     """Unauthenticated health check."""
+    from research_shared.health import finalize_health
+
     db_ok = False
     if _db_pool is not None:
         try:
@@ -214,7 +216,7 @@ async def health() -> dict[str, Any]:
             db_ok = True
         except Exception:
             logger.debug("domain-mcp health: DB not reachable", exc_info=True)
-    return {
+    return finalize_health({
         "status": "ok",
         "service": "domain-mcp",
         "checks": {
@@ -222,7 +224,7 @@ async def health() -> dict[str, Any]:
             "plugins": len(_plugins),
             "content_types": len(_content_types),
         },
-    }
+    })
 
 
 # ---------------------------------------------------------------------------

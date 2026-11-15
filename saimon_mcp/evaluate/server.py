@@ -124,6 +124,8 @@ async def health() -> dict[str, Any]:
     """Unauthenticated health check."""
     import logging as _logging
 
+    from research_shared.health import finalize_health
+
     _log = _logging.getLogger("saimon.health")
     llm_ok = False
     if _llm_client is not None:
@@ -132,11 +134,11 @@ async def health() -> dict[str, Any]:
             llm_ok = True
         except Exception:  # noqa: BLE001
             _log.debug("evaluate-mcp health: LLM not reachable", exc_info=True)
-    return {
+    return finalize_health({
         "status": "ok",
         "service": "evaluate-mcp",
         "checks": {"llm": "connected" if llm_ok else "unavailable"},
-    }
+    })
 
 
 # ---------------------------------------------------------------------------

@@ -12,12 +12,13 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class TestCrewService:
-    def test_app_builds_and_health_ok(self, client) -> None:
+    def test_app_builds_and_health_reflects_the_checks(self, client) -> None:
         resp = client.get("/health")
         assert resp.status_code == 200
         body = resp.json()
-        assert body["status"] == "ok"
         assert body["service"] == "crew-mcp"
+        expected = "degraded" if "unavailable" in str(body["checks"]) else "ok"
+        assert body["status"] == expected, body["checks"]
 
     def test_tools_registered_research_and_extract_claims(
         self, client, auth_headers

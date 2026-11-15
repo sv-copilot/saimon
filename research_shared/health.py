@@ -115,3 +115,45 @@ async def check_all_services(
         "services": services,
         "summary": f"{healthy}/{total} services healthy",
     }
+
+
+
+# ---------------------------------------------------------------------------
+# status derivation
+# ---------------------------------------------------------------------------
+
+# A check value in one of these states means the dependency is not usable. Status is derived
+# from the checks rather than hardcoded, because a body that says ok while a check says
+# unavailable is a green light over a broken dependency.
+_FAILURE_STATES = frozenset(
+    {"unavailable", "error", "failed", "failure", "down", "disconnected", "timeout", "not connected"}
+)
+
+
+def _check_failed(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in _FAILURE_STATES
+    if isinstance(value, dict):
+        return any(_check_failed(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_check_failed(v) for v in value)
+    return False
+
+
+def derive_status(checks: dict[str, Any]) -> str:
+    """Return "degraded" when any check reports a failed dependency, else "ok".
+
+    Counts, booleans and free text carry no failure vocabulary and are ignored, which keeps
+    the rule narrow enough to trust.
+    """
+    return "degraded" if any(_check_failed(v) for v in checks.values()) else "ok"
+
+
+def finalize_health(body: dict[str, Any]) -> dict[str, Any]:
+    """Set body["status"] from body["checks"] and return the body.
+
+    Every service /health endpoint returns through this, so the status field cannot drift
+    from the checks beside it.
+    """
+    body["status"] = derive_status(body.get("checks") or {})
+    return body

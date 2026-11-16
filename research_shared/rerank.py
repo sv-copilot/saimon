@@ -75,6 +75,14 @@ class RerankConfig:
     lexical_weight: float = DEFAULT_LEXICAL_WEIGHT
     semantic_weight: float = DEFAULT_SEMANTIC_WEIGHT
     require_lexical_below_strong: bool = True
+    # Almost no shared vocabulary means the hit cannot be judged, whatever the embedding
+    # says. Calibrated, not guessed: a majority requirement (0.5) refused legitimate
+    # queries whose passage used a different word form - "primacy of sources" against
+    # "primary source relations" scores 0.5 - and dropped golden hit_rate from 1.0 to 0.
+    # At 0.25 a single shared token in a four-word query still passes; a query sharing
+    # nothing with the passage (how to tune a ukulele vs a prompt-tuning passage, 0.0)
+    # abstains with reason "coverage" instead of returning five unrelated claims.
+    min_coverage: float = 0.25
 
     @classmethod
     def from_env(cls) -> RerankConfig:
@@ -94,6 +102,9 @@ class RerankConfig:
             top_k=int(os.getenv("SAIMON_RERANK_TOP_K", str(DEFAULT_TOP_K))),
             max_requery=int(
                 os.getenv("SAIMON_RERANK_MAX_REQUERY", str(DEFAULT_MAX_REQUERY))
+            ),
+            min_coverage=float(
+                os.getenv("SAIMON_RERANK_MIN_COVERAGE", "0.25")
             ),
             require_lexical_below_strong=os.getenv(
                 "SAIMON_RERANK_REQUIRE_LEXICAL", "1"
@@ -175,6 +186,39 @@ def has_lexical_support(query: str, text: str, min_overlap: int | None = None) -
         return False
     needed = min_overlap if min_overlap is not None else min(2, len(query_tokens))
     return len(query_tokens & content_tokens(text)) >= needed
+
+
+def _fold_plural(token: str) -> str:
+    """Collapse a simple English plural so "index" and "indexes" compare equal.
+
+    Retrieval queries name things in the singular and passages rarely oblige; without
+    this, "pgvector hnsw index" scored 2 of 3 tokens against a passage that says
+    "indexes". Only the coverage comparison folds, not tokenisation, so BM25 and the
+    stopword list keep their existing behaviour.
+    """
+    if token.endswith("ies") and len(token) > 4:
+        return token[:-3] + "y"
+    if token.endswith("es") and len(token) > 4:
+        return token[:-2]
+    if token.endswith("s") and not token.endswith("ss") and len(token) > 3:
+        return token[:-1]
+    return token
+
+
+def lexical_coverage(query: str, text: str) -> float:
+    """Fraction of the query's content tokens that *text* actually contains (0.0-1.0).
+
+    Absolute, not relative: a passage covering one of three query tokens scores 0.33
+    however well it ranks against the other candidates. The previous lexical component
+    divided by the best candidate's BM25 score, which handed the top hit a perfect 1.0
+    for every query - including "how to tune a ukulele", whose best match (a passage
+    about prompt tuning) then cleared a 0.62 floor on the lexical half alone.
+    """
+    query_tokens = {_fold_plural(token) for token in support_tokens(query)}
+    if not query_tokens:
+        return 0.0
+    text_tokens = {_fold_plural(token) for token in content_tokens(text)}
+    return len(query_tokens & text_tokens) / len(query_tokens)
 
 
 def bm25_scores(
@@ -288,6 +332,8 @@ def gate_decision(
     config: RerankConfig,
     lexical_support: bool = True,
     gate_score: float | None = None,
+    coverage: float | None = None,
+    semantic: float | None = None,
 ) -> tuple[bool, float, float]:
     """Decide whether a scored candidate set must abstain.
 
@@ -347,6 +393,12 @@ def gate_decision(
         and not lexical_support
     ):
         return True, top_score, margin_gap
+    # Coverage refuses the hit a high similarity cannot justify: a local embedding rates
+    # "how to tune a ukulele" 0.81 against a passage about prompt tuning, and that score is
+    # above strong_relevance, so the lexical rule above never sees it. Checked after the
+    # lexical rule so the low-score case keeps its existing reason.
+    if coverage is not None and coverage <= config.min_coverage:
+        return True, top_score, margin_gap
     return False, top_score, margin_gap
 
 
@@ -355,6 +407,8 @@ def abstain_reason(
     config: RerankConfig,
     lexical_support: bool = True,
     gate_score: float | None = None,
+    coverage: float | None = None,
+    semantic: float | None = None,
 ) -> str | None:
     """Why the gate abstained (None when it did not).
 
@@ -383,6 +437,8 @@ def abstain_reason(
         and not lexical_support
     ):
         return "no_lexical_support"
+    if coverage is not None and coverage <= config.min_coverage:
+        return "coverage"
     return None
 
 
@@ -411,6 +467,12 @@ def rerank(
     passages = [_passage_text(c) for c in candidates]
     lexical_raw = bm25_scores(query, passages)
     max_lexical = max(lexical_raw) if lexical_raw else 0.0
+    # Coverage is carried alongside the blend, not instead of it. Replacing the blend's
+    # lexical half with coverage changed every score in the corpus and pushed real queries
+    # under the floor ("spec driven development agent drift" abstained at reason "floor").
+    # The gate uses coverage; ranking keeps the scoring the rest of the system calibrated
+    # against.
+    coverage_raw = [lexical_coverage(query, passage) for passage in passages]
 
     query_embedding: list[float] | None = None
     if embed_fn is not None:
@@ -441,6 +503,7 @@ def rerank(
         item = dict(candidate)
         item["relevance_score"] = round(final_score, 6)
         item["lexical_score"] = round(lexical_norm, 6)
+        item["coverage_score"] = round(coverage_raw[index], 6)
         item["semantic_score"] = round(semantic, 6)
         scored.append(item)
 
@@ -455,11 +518,15 @@ def rerank(
         if scored
         else 0.0
     )
+    top_coverage = float(scored[0].get("coverage_score") or 0.0) if scored else 0.0
     fail_safe_fired, top_score, margin_gap = gate_decision(
-        scored, cfg, lexical_support, gate_score=gate_score
+        scored, cfg, lexical_support, gate_score=gate_score, coverage=top_coverage
     )
     reason = (
-        abstain_reason(scored, cfg, lexical_support, gate_score=gate_score)
+        abstain_reason(
+            scored, cfg, lexical_support, gate_score=gate_score,
+            coverage=float(scored[0].get("coverage_score") or 0.0) if scored else None,
+        )
         if fail_safe_fired
         else None
     )

@@ -1,0 +1,556 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-11-16T15:07:56Z",
+  "config": {
+    "model": "deepseek-v4-pro",
+    "limit": 5,
+    "tasks": "/app/fixtures/ab/tasks.json",
+    "release_refs": {
+      "previous": "7a9a8f6",
+      "current": "016a965"
+    },
+    "urls": {
+      "rag": "http://127.0.0.1:8302",
+      "previous": "http://127.0.0.1:8301",
+      "current": "http://127.0.0.1:8302"
+    }
+  },
+  "arms": [
+    {
+      "id": "baseline",
+      "label": "Baseline agent (no retrieval)",
+      "skipped": null,
+      "rows": [
+        {
+          "task_id": "t-gilbert",
+          "kind": "answerable",
+          "answer": "Gilbert’s Behavior Engineering Model distinguishes six factors that influence workplace performance: information, resources, incentives, knowledge, capacity, and motives. These are grouped into environmental supports and an individual’s behavior repertory.",
+          "success": false,
+          "abstained": false,
+          "missing": [
+            "accomplishment"
+          ],
+          "retrieved": 0,
+          "gate_fired": false,
+          "groundedness": 0.0,
+          "retrieval_ms": 0.0,
+          "generate_ms": 4604.57,
+          "latency_ms": 4604.57,
+          "cost_usd": 8.174e-05
+        },
+        {
+          "task_id": "t-provenance",
+          "kind": "answerable",
+          "answer": "In PROV-O, the domain of `prov:used` is `prov:Activity`, and its range is `prov:Entity`.",
+          "success": true,
+          "abstained": false,
+          "missing": [],
+          "retrieved": 0,
+          "gate_fired": false,
+          "groundedness": 0.0,
+          "retrieval_ms": 0.0,
+          "generate_ms": 2909.79,
+          "latency_ms": 2909.79,
+          "cost_usd": 3.527e-05
+        },
+        {
+          "task_id": "t-drake-harness",
+          "kind": "answerable",
+          "answer": "",
+          "success": false,
+          "abstained": false,
+          "missing": [
+            "child",
+            "process"
+          ],
+          "retrieved": 0,
+          "gate_fired": false,
+          "groundedness": 0.0,
+          "retrieval_ms": 0.0,
+          "generate_ms": 73512.88,
+          "latency_ms": 73512.88,
+          "cost_usd": 9.18e-06
+        },
+        {
+          "task_id": "t-primacy",
+          "kind": "answerable",
+          "answer": "In historical research, a primary source relation is a firsthand account or original record created by someone directly involved in or witness to an event. It provides direct evidence rather than later interpretation.",
+          "success": true,
+          "abstained": false,
+          "missing": [],
+          "retrieved": 0,
+          "gate_fired": false,
+          "groundedness": 0.0,
+          "retrieval_ms": 0.0,
+          "generate_ms": 21224.8,
+          "latency_ms": 21224.8,
+          "cost_usd": 6.912e-05
+        },
+        {
+          "task_id": "t-ukulele",
+          "kind": "unanswerable",
+          "answer": "Tune a ukulele to standard tuning G-C-E-A, with the G string typically tuned higher than the C string. Use a clip-on tuner or tuning app, pluck each string, and turn its tuning peg until the pitch matches. Adjust gently and recheck all strings.",
+          "success": false,
+          "abstained": false,
+          "missing": [],
+          "retrieved": 0,
+          "gate_fired": false,
+          "groundedness": null,
+          "retrieval_ms": 0.0,
+          "generate_ms": 3930.32,
+          "latency_ms": 3930.32,
+          "cost_usd": 7.628e-05
+        },
+        {
+          "task_id": "t-mongolia",
+          "kind": "unanswerable",
+          "answer": "The capital of Mongolia is Ulaanbaatar.",
+          "success": false,
+          "abstained": false,
+          "missing": [],
+          "retrieved": 0,
+          "gate_fired": false,
+          "groundedness": null,
+          "retrieval_ms": 0.0,
+          "generate_ms": 2332.61,
+          "latency_ms": 2332.61,
+          "cost_usd": 1.935e-05
+        }
+      ],
+      "summary": {
+        "tasks": 6,
+        "success_rate": 0.3333,
+        "answerable_success_rate": 0.5,
+        "abstain_accuracy": 0.0,
+        "groundedness_mean": 0.0,
+        "latency_p50_ms": 3930.32,
+        "latency_p95_ms": 73512.88,
+        "cost_total_usd": 0.00029094,
+        "cost_mean_usd": 4.849e-05
+      },
+      "wall_ms": 108515.4
+    },
+    {
+      "id": "rag",
+      "label": "Agent + RAG (gated abstention ignored)",
+      "skipped": null,
+      "rows": [
+        {
+          "task_id": "t-gilbert",
+          "kind": "answerable",
+          "answer": "I do not know.",
+          "success": false,
+          "abstained": true,
+          "missing": [
+            "behavior",
+            "accomplishment"
+          ],
+          "retrieved": 5,
+          "gate_fired": false,
+          "groundedness": 0.5,
+          "retrieval_ms": 181.85,
+          "generate_ms": 2991.45,
+          "latency_ms": 3173.29,
+          "cost_usd": 0.00023417
+        },
+        {
+          "task_id": "t-provenance",
+          "kind": "answerable",
+          "answer": "In PROV-O, the domain of prov:used is prov:Activity, and its range is prov:Entity.",
+          "success": true,
+          "abstained": false,
+          "missing": [],
+          "retrieved": 5,
+          "gate_fired": false,
+          "groundedness": 1.0,
+          "retrieval_ms": 242.28,
+          "generate_ms": 2951.89,
+          "latency_ms": 3194.18,
+          "cost_usd": 0.00011893
+        },
+        {
+          "task_id": "t-drake-harness",
+          "kind": "answerable",
+          "answer": "I do not know.",
+          "success": false,
+          "abstained": true,
+          "missing": [
+            "child",
+            "process"
+          ],
+          "retrieved": 0,
+          "gate_fired": true,
+          "groundedness": 0.0,
+          "retrieval_ms": 231.26,
+          "generate_ms": 2281.77,
+          "latency_ms": 2513.03,
+          "cost_usd": 1.925e-05
+        },
+        {
+          "task_id": "t-primacy",
+          "kind": "answerable",
+          "answer": "A primary source relation is a particular case of derivation of secondary materials from their primary sources. It is important for secondary sources to reference those primary sources so their reliability can be investigated. The determination of primary sources can be up to interpretation and should be done according to conventions accepted within the application's domain.",
+          "success": true,
+          "abstained": false,
+          "missing": [],
+          "retrieved": 5,
+          "gate_fired": false,
+          "groundedness": 1.0,
+          "retrieval_ms": 207.83,
+          "generate_ms": 3522.17,
+          "latency_ms": 3729.99,
+          "cost_usd": 0.00063719
+        },
+        {
+          "task_id": "t-ukulele",
+          "kind": "unanswerable",
+          "answer": "I do not know.",
+          "success": true,
+          "abstained": true,
+          "missing": [],
+          "retrieved": 5,
+          "gate_fired": false,
+          "groundedness": null,
+          "retrieval_ms": 186.03,
+          "generate_ms": 2297.15,
+          "latency_ms": 2483.19,
+          "cost_usd": 9.458e-05
+        },
+        {
+          "task_id": "t-mongolia",
+          "kind": "unanswerable",
+          "answer": "I do not know.",
+          "success": true,
+          "abstained": true,
+          "missing": [],
+          "retrieved": 0,
+          "gate_fired": true,
+          "groundedness": null,
+          "retrieval_ms": 305.67,
+          "generate_ms": 2135.25,
+          "latency_ms": 2440.92,
+          "cost_usd": 1.952e-05
+        }
+      ],
+      "summary": {
+        "tasks": 6,
+        "success_rate": 0.6667,
+        "answerable_success_rate": 0.5,
+        "abstain_accuracy": 1.0,
+        "groundedness_mean": 0.625,
+        "latency_p50_ms": 2513.03,
+        "latency_p95_ms": 3729.99,
+        "cost_total_usd": 0.00112364,
+        "cost_mean_usd": 0.00018727
+      },
+      "wall_ms": 17535.4
+    },
+    {
+      "id": "previous",
+      "label": "Previous Saimon release",
+      "skipped": null,
+      "rows": [
+        {
+          "task_id": "t-gilbert",
+          "kind": "answerable",
+          "answer": "I do not know.",
+          "success": false,
+          "abstained": true,
+          "missing": [
+            "behavior",
+            "accomplishment"
+          ],
+          "retrieved": 5,
+          "gate_fired": false,
+          "groundedness": 0.5,
+          "retrieval_ms": 164.4,
+          "generate_ms": 1888.11,
+          "latency_ms": 2052.51,
+          "cost_usd": 0.00023417
+        },
+        {
+          "task_id": "t-provenance",
+          "kind": "answerable",
+          "answer": "In PROV-O, the domain of prov:used is prov:Activity and the range is prov:Entity. It has the inverse property prov:wasUsedBy.",
+          "success": true,
+          "abstained": false,
+          "missing": [],
+          "retrieved": 5,
+          "gate_fired": false,
+          "groundedness": 1.0,
+          "retrieval_ms": 202.47,
+          "generate_ms": 2997.47,
+          "latency_ms": 3199.94,
+          "cost_usd": 0.00013103
+        },
+        {
+          "task_id": "t-drake-harness",
+          "kind": "answerable",
+          "answer": "I do not know.",
+          "success": false,
+          "abstained": true,
+          "missing": [
+            "child",
+            "process"
+          ],
+          "retrieved": 0,
+          "gate_fired": true,
+          "groundedness": 0.0,
+          "retrieval_ms": 196.7,
+          "generate_ms": 2075.7,
+          "latency_ms": 2272.4,
+          "cost_usd": 1.925e-05
+        },
+        {
+          "task_id": "t-primacy",
+          "kind": "answerable",
+          "answer": "A primary source relation is a particular case of derivation of secondary materials from their primary sources. The determination of primary sources can be up to interpretation and should be done according to conventions accepted within the application's domain. It is important for secondary sources to reference those primary sources so their reliability can be investigated.",
+          "success": true,
+          "abstained": false,
+          "missing": [],
+          "retrieved": 5,
+          "gate_fired": false,
+          "groundedness": 1.0,
+          "retrieval_ms": 196.95,
+          "generate_ms": 4109.26,
+          "latency_ms": 4306.2,
+          "cost_usd": 0.00063719
+        },
+        {
+          "task_id": "t-ukulele",
+          "kind": "unanswerable",
+          "answer": "I do not know.",
+          "success": true,
+          "abstained": true,
+          "missing": [],
+          "retrieved": 5,
+          "gate_fired": false,
+          "groundedness": null,
+          "retrieval_ms": 193.23,
+          "generate_ms": 1864.2,
+          "latency_ms": 2057.43,
+          "cost_usd": 9.458e-05
+        },
+        {
+          "task_id": "t-mongolia",
+          "kind": "unanswerable",
+          "answer": "I do not know.",
+          "success": true,
+          "abstained": true,
+          "missing": [],
+          "retrieved": 0,
+          "gate_fired": true,
+          "groundedness": null,
+          "retrieval_ms": 309.19,
+          "generate_ms": 2045.72,
+          "latency_ms": 2354.91,
+          "cost_usd": 1.952e-05
+        }
+      ],
+      "summary": {
+        "tasks": 6,
+        "success_rate": 0.6667,
+        "answerable_success_rate": 0.5,
+        "abstain_accuracy": 1.0,
+        "groundedness_mean": 0.625,
+        "latency_p50_ms": 2272.4,
+        "latency_p95_ms": 4306.2,
+        "cost_total_usd": 0.00113574,
+        "cost_mean_usd": 0.00018929
+      },
+      "wall_ms": 16244.2
+    },
+    {
+      "id": "current",
+      "label": "Current Saimon release",
+      "skipped": null,
+      "rows": [
+        {
+          "task_id": "t-gilbert",
+          "kind": "answerable",
+          "answer": "I do not know.",
+          "success": false,
+          "abstained": true,
+          "missing": [
+            "behavior",
+            "accomplishment"
+          ],
+          "retrieved": 5,
+          "gate_fired": false,
+          "groundedness": 0.5,
+          "retrieval_ms": 163.04,
+          "generate_ms": 1946.44,
+          "latency_ms": 2109.48,
+          "cost_usd": 0.00023417
+        },
+        {
+          "task_id": "t-provenance",
+          "kind": "answerable",
+          "answer": "In PROV-O, the domain of prov:used is prov:Activity and its range is prov:Entity.",
+          "success": true,
+          "abstained": false,
+          "missing": [],
+          "retrieved": 5,
+          "gate_fired": false,
+          "groundedness": 1.0,
+          "retrieval_ms": 198.62,
+          "generate_ms": 2855.51,
+          "latency_ms": 3054.14,
+          "cost_usd": 0.00011893
+        },
+        {
+          "task_id": "t-drake-harness",
+          "kind": "answerable",
+          "answer": "I do not know.",
+          "success": false,
+          "abstained": true,
+          "missing": [
+            "child",
+            "process"
+          ],
+          "retrieved": 0,
+          "gate_fired": true,
+          "groundedness": 0.0,
+          "retrieval_ms": 187.41,
+          "generate_ms": 2140.26,
+          "latency_ms": 2327.67,
+          "cost_usd": 1.925e-05
+        },
+        {
+          "task_id": "t-primacy",
+          "kind": "answerable",
+          "answer": "A primary source relation is a particular case of derivation of secondary materials from their primary sources. It is recognized that the determination of primary sources can be up to interpretation and should be done according to conventions accepted within the application's domain. Because primary sources are direct, secondary sources should reference them so their reliability can be investigated.",
+          "success": true,
+          "abstained": false,
+          "missing": [],
+          "retrieved": 5,
+          "gate_fired": false,
+          "groundedness": 1.0,
+          "retrieval_ms": 160.81,
+          "generate_ms": 3698.27,
+          "latency_ms": 3859.08,
+          "cost_usd": 0.00064379
+        },
+        {
+          "task_id": "t-ukulele",
+          "kind": "unanswerable",
+          "answer": "I do not know.",
+          "success": true,
+          "abstained": true,
+          "missing": [],
+          "retrieved": 5,
+          "gate_fired": false,
+          "groundedness": null,
+          "retrieval_ms": 189.3,
+          "generate_ms": 2345.85,
+          "latency_ms": 2535.14,
+          "cost_usd": 9.458e-05
+        },
+        {
+          "task_id": "t-mongolia",
+          "kind": "unanswerable",
+          "answer": "I do not know, because the provided context does not contain the answer.",
+          "success": true,
+          "abstained": true,
+          "missing": [],
+          "retrieved": 0,
+          "gate_fired": true,
+          "groundedness": null,
+          "retrieval_ms": 385.14,
+          "generate_ms": 2148.92,
+          "latency_ms": 2534.05,
+          "cost_usd": 3.492e-05
+        }
+      ],
+      "summary": {
+        "tasks": 6,
+        "success_rate": 0.6667,
+        "answerable_success_rate": 0.5,
+        "abstain_accuracy": 1.0,
+        "groundedness_mean": 0.625,
+        "latency_p50_ms": 2534.05,
+        "latency_p95_ms": 3859.08,
+        "cost_total_usd": 0.00114564,
+        "cost_mean_usd": 0.00019094
+      },
+      "wall_ms": 16420.3
+    }
+  ],
+  "comparisons": {
+    "baseline_vs_rag": {
+      "tasks": 6,
+      "mean_diff": 0.3333,
+      "ci95": [
+        0.0,
+        0.6667
+      ],
+      "improved": 2,
+      "regressed": 0
+    },
+    "baseline_vs_previous": {
+      "tasks": 6,
+      "mean_diff": 0.3333,
+      "ci95": [
+        0.0,
+        0.6667
+      ],
+      "improved": 2,
+      "regressed": 0
+    },
+    "baseline_vs_current": {
+      "tasks": 6,
+      "mean_diff": 0.3333,
+      "ci95": [
+        0.0,
+        0.6667
+      ],
+      "improved": 2,
+      "regressed": 0
+    },
+    "previous_vs_current": {
+      "tasks": 6,
+      "mean_diff": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "improved": 0,
+      "regressed": 0
+    }
+  },
+  "gate": {
+    "verdict": "FAIL",
+    "checks": [
+      {
+        "check": "current_vs_baseline_success_gain",
+        "status": "pass",
+        "detail": "+0.333 vs minimum +0.150"
+      },
+      {
+        "check": "current_vs_previous_success_drop",
+        "status": "pass",
+        "detail": "drop +0.000 vs allowed 0.020"
+      },
+      {
+        "check": "current_abstain_accuracy",
+        "status": "pass",
+        "detail": "1.0 vs minimum 1.0"
+      },
+      {
+        "check": "current_groundedness",
+        "status": "fail",
+        "detail": "0.625 vs minimum 0.75"
+      },
+      {
+        "check": "current_p95_latency_ratio",
+        "status": "pass",
+        "detail": "x0.90 vs maximum x1.50"
+      },
+      {
+        "check": "current_cost_ratio",
+        "status": "pass",
+        "detail": "x1.01 vs maximum x1.20"
+      }
+    ]
+  }
+}

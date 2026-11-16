@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "description": "Paired tasks for release A/B. Every required fact was read out of a passage the corpus returns for that query, so a failure means the release did not retrieve or use what is there - not that the question was unanswerable.",
+  "tasks": [
+    {
+      "id": "t-gilbert",
+      "kind": "answerable",
+      "query": "What does Gilbert's Behavior Engineering Model distinguish?",
+      "must_include": [
+        "behavior",
+        "accomplishment"
+      ]
+    },
+    {
+      "id": "t-provenance",
+      "kind": "answerable",
+      "query": "In PROV-O, what are the domain and range of prov:used?",
+      "must_include": [
+        "activity",
+        "entity"
+      ]
+    },
+    {
+      "id": "t-drake-harness",
+      "kind": "answerable",
+      "query": "In Drake, what is a harness?",
+      "must_include": [
+        "child",
+        "process"
+      ]
+    },
+    {
+      "id": "t-primacy",
+      "kind": "answerable",
+      "query": "What is a primary source relation?",
+      "must_include": [
+        "primary",
+        "source"
+      ]
+    },
+    {
+      "id": "t-ukulele",
+      "kind": "unanswerable",
+      "query": "How do you tune a ukulele?",
+      "must_include": []
+    },
+    {
+      "id": "t-mongolia",
+      "kind": "unanswerable",
+      "query": "What is the capital of Mongolia?",
+      "must_include": []
+    }
+  ]
+}

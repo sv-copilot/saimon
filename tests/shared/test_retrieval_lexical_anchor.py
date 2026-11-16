@@ -83,7 +83,10 @@ class TestRerankEndToEnd:
         out = rerank("pgvector hnsw index", candidates, RerankConfig())
         assert out.fail_safe_fired is False
         assert out.lexical_support is True
-        assert out.ranked[0]["relevance_score"] >= 0.8
+        # The contract is "kept and clears the floor", not a particular score: the lexical
+        # half is absolute coverage now, so a 2-of-3-token passage cannot reach the blend
+        # the old per-query normalisation inflated every top hit to.
+        assert out.ranked[0]["relevance_score"] >= RerankConfig().min_relevance
 
 
 class TestGenericWordsDoNotAnchor:

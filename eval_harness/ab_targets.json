@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "description": "Pre-registered release goals. A release fails the gate when any arm-relative threshold is missed. Thresholds are relative, never absolute counts: an absolute number breaks the moment a task is added.",
+  "thresholds": {
+    "current_vs_baseline_success_gain": 0.15,
+    "current_vs_previous_success_drop_max": 0.02,
+    "current_abstain_accuracy_min": 1.0,
+    "current_p95_latency_ratio_max": 1.5,
+    "current_cost_ratio_vs_previous_max": 1.2,
+    "current_groundedness_min": 0.75
+  },
+  "notes": [
+    "current_vs_previous_success_drop_max is allowed to be small and positive: a release may trade 2 points of success for a large latency or cost win.",
+    "abstain_accuracy is measured only on unanswerable tasks and is expected to be 1.0; a single fabricated answer fails it.",
+    "groundedness is the fraction of required facts present in the retrieved context, so a high answer score on weak retrieval is visible rather than hidden."
+  ]
+}

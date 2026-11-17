@@ -134,7 +134,8 @@ async def embed(args) -> int:
     total = 0
     started = time.time()
     try:
-        for collection in EMBED_PRIORITY:
+        order = args.only or EMBED_PRIORITY
+        for collection in order:
             while True:
                 rows = await conn.fetch(
                     "SELECT id, body FROM knowledge_graph_nodes "

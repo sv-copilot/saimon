@@ -109,3 +109,25 @@ async def test_bibliography_line_is_not_support() -> None:
     items = await collect_corpus_evidence(
         _DB(), "Tversky and Kahneman (1974) showed that an initial number anchors later judgments.")
     assert items == []
+
+
+def test_year_alone_does_not_satisfy_the_subject() -> None:
+    claim = "Tversky and Kahneman (1974) showed that an initial number anchors later judgments."
+    passage = "Minsky (1974) introduced frames as a way to represent stereotyped situations."
+    assert subject_missing(claim, passage) is True
+    assert classify_stance(claim, passage) == "mentions"
+
+
+@pytest.mark.asyncio
+async def test_document_path_can_carry_the_subject() -> None:
+    class _DB:
+        async def fetch(self, sql, *args):
+            return [{"id": "00000000-0000-4000-8000-00000000000c",
+                     "title": "Slice lifecycle state model",
+                     "body": ("This document defines the canonical lifecycle states for slices "
+                              "tracked in the planning tree, and the states they move through."),
+                     "content_type": "source_document", "doi": "",
+                     "path": "drake-governance/.docs/slice_lifecycle_state_model.md"}]
+
+    items = await collect_corpus_evidence(_DB(), "Drake has lifecycle states for slices.")
+    assert items and items[0]["polarity"] == "supports"

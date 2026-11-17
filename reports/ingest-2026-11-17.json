@@ -1,9 +1,9 @@
 {
- "recorded_at": "2026-11-17T09:41:59+00:00",
+ "recorded_at": "2026-11-17T09:55:04+00:00",
  "chunks_by_collection": {
   "governance": {
    "chunks": 7468,
-   "embedded": 299
+   "embedded": 2508
   },
   "vault": {
    "chunks": 5847,
@@ -19,23 +19,23 @@
   },
   "drake_public": {
    "chunks": 332,
-   "embedded": 0
+   "embedded": 332
   },
   "saimon_self": {
    "chunks": 178,
-   "embedded": 0
+   "embedded": 120
   },
   "site_content": {
    "chunks": 141,
-   "embedded": 0
+   "embedded": 141
   },
   "drake_pmo": {
    "chunks": 123,
-   "embedded": 0
+   "embedded": 123
   },
   "kdp": {
    "chunks": 25,
-   "embedded": 11
+   "embedded": 25
   }
  },
  "documents_by_source": {
@@ -76,11 +76,11 @@
    "chunks": 785
   }
  },
+ "method": "scripts/bulk_ingest.py --write (batch 500, idempotent by metadata.sha256)",
+ "embedding": "scripts/bulk_ingest.py --embed, single process with OMP_NUM_THREADS=6, 3.9-4.8 embeds/s",
  "totals": {
   "chunks": 16054,
-  "embedded": 310,
+  "embedded": 3249,
   "documents": 6742
- },
- "method": "scripts/bulk_ingest.py --write (batch 500, idempotent by metadata.sha256)",
- "embedding": "scripts/bulk_ingest.py --embed, 3 shards, resumable"
+ }
 }

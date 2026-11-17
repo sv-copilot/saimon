@@ -132,9 +132,18 @@ def anchor_terms(claim: str) -> list[str]:
     return [token for token in claim_tokens(text) if len(token) >= _LONG_ANCHOR]
 
 
+def name_anchors(claim: str) -> list[str]:
+    """Anchors that are names rather than years.
+
+    A year alone must not satisfy the subject gate: "Minsky (1974)" contains
+    1974 and says nothing about Tversky or Kahneman.
+    """
+    return [anchor for anchor in anchor_terms(claim) if not _YEAR_RE.fullmatch(anchor)]
+
+
 def subject_missing(claim: str, passage: str) -> bool:
     """True when the claim names a subject the passage never mentions."""
-    anchors = anchor_terms(claim)
+    anchors = name_anchors(claim) or anchor_terms(claim)
     if not anchors:
         return False
     lowered = (passage or "").lower()
@@ -289,7 +298,8 @@ def _evidence_sql(scoped: bool) -> str:
     scope_clause = "\n  AND universe_id = ANY($3::uuid[])" if scoped else ""
     return f"""
 SELECT id, title, body, content_type,
-       COALESCE(metadata->>'doi', '') AS doi
+       COALESCE(metadata->>'doi', '') AS doi,
+       COALESCE(metadata->>'path', '') AS path
 FROM knowledge_graph_nodes
 WHERE content_type IN ('fulltext_document', 'fulltext_chunk', 'claim')
   AND COALESCE(metadata->>'status', 'ready') <> 'failed'
@@ -344,11 +354,19 @@ async def collect_corpus_evidence(
         sentence = best_sentence(text, claim)
         # Density has to live in the sentence that will be quoted. A chunk that
         # mentions "Kahneman" in a reference list and shares nothing else is not
-        # evidence that the claim is true.
-        if subject_missing(claim, sentence):
+        # evidence that the claim is true. The title counts for the subject
+        # because a document is about what it is named, even when the quoted
+        # sentence is a table row that repeats the name once.
+        # The path counts too: a governance document about slice states need not
+        # repeat the word "Drake", but it lives in drake-governance/.docs.
+        titled = f"{row.get('path') or ''} {row.get('title') or ''}. {sentence}"
+        if subject_missing(claim, titled):
             continue
         score = support_score(claim, sentence)
-        if score < MIN_SUPPORT_TOKENS:
+        # Without a named subject every matching word is generic, so the bar
+        # rises: "acceptance" and "order" appear in a carmaker's annual report.
+        required = MIN_SUPPORT_TOKENS if name_anchors(claim) else MIN_SUPPORT_TOKENS + 1
+        if score < required:
             continue
         quote = sentence if len(sentence) >= MIN_QUOTE_CHARS else quote_from(
             str(row.get("body") or ""), claim)
@@ -362,9 +380,9 @@ async def collect_corpus_evidence(
                 "doi": row.get("doi") or None,
                 "overlap_tokens": score,
                 "quote": quote,
-                "polarity": _invert_stance(classify_stance(claim, sentence))
+                "polarity": _invert_stance(classify_stance(claim, titled))
                 if negated_claim
-                else classify_stance(claim, sentence),
+                else classify_stance(claim, titled),
             }
         )
 

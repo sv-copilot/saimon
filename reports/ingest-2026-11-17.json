@@ -1,0 +1,86 @@
+{
+ "recorded_at": "2026-11-17T09:41:59+00:00",
+ "chunks_by_collection": {
+  "governance": {
+   "chunks": 7468,
+   "embedded": 299
+  },
+  "vault": {
+   "chunks": 5847,
+   "embedded": 0
+  },
+  "novel_canon": {
+   "chunks": 1155,
+   "embedded": 0
+  },
+  "writing": {
+   "chunks": 785,
+   "embedded": 0
+  },
+  "drake_public": {
+   "chunks": 332,
+   "embedded": 0
+  },
+  "saimon_self": {
+   "chunks": 178,
+   "embedded": 0
+  },
+  "site_content": {
+   "chunks": 141,
+   "embedded": 0
+  },
+  "drake_pmo": {
+   "chunks": 123,
+   "embedded": 0
+  },
+  "kdp": {
+   "chunks": 25,
+   "embedded": 11
+  }
+ },
+ "documents_by_source": {
+  "drake": {
+   "documents": 39,
+   "chunks": 332
+  },
+  "drake_pmo": {
+   "documents": 40,
+   "chunks": 123
+  },
+  "governance": {
+   "documents": 2264,
+   "chunks": 7468
+  },
+  "kdp": {
+   "documents": 3,
+   "chunks": 25
+  },
+  "needle": {
+   "documents": 155,
+   "chunks": 1155
+  },
+  "saimon_self": {
+   "documents": 24,
+   "chunks": 178
+  },
+  "site": {
+   "documents": 28,
+   "chunks": 141
+  },
+  "vault": {
+   "documents": 4033,
+   "chunks": 5847
+  },
+  "writing": {
+   "documents": 156,
+   "chunks": 785
+  }
+ },
+ "totals": {
+  "chunks": 16054,
+  "embedded": 310,
+  "documents": 6742
+ },
+ "method": "scripts/bulk_ingest.py --write (batch 500, idempotent by metadata.sha256)",
+ "embedding": "scripts/bulk_ingest.py --embed, 3 shards, resumable"
+}

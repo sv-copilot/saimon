@@ -29,7 +29,15 @@ _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 # Words that appear everywhere and therefore prove nothing on their own.
 _STOPWORDS = frozenset(
-    ["a", "an", "and", "are", "as", "at", "be", "been", "by", "can", "could", "do", "does", "did", "for", "from", "has", "have", "had", "how", "in", "into", "is", "it", "its", "of", "on", "or", "that", "the", "their", "them", "then", "there", "these", "this", "to", "was", "were", "what", "when", "where", "which", "who", "why", "will", "with", "would", "you", "your"]
+    ["a", "an", "and", "are", "as", "at", "be", "been", "by", "can", "could", "do", "does", "did", "for", "from", "has", "have", "had", "how", "in", "into", "is", "it", "its", "of", "on", "or", "that", "the", "their", "them", "then", "there", "these", "this", "to", "was", "were", "what", "when", "where", "which", "who", "why", "will", "with", "would", "you", "your",
+     # Function words and contraction fragments that carry no claim: "wasn't" 
+     # splits into "wasn" and "t", and "about" matched a sentence that had 
+     # nothing to do with the claim.
+     "about", "wasn", "isn", "aren", "weren", "doesn", "didn", "don", "won",
+     "wouldn", "couldn", "shouldn", "much", "rather", "than", "also", "just",
+     "very", "more", "most", "some", "such", "them", "they", "their", "this",
+     "these", "those", "other", "into", "over", "under", "between", "after",
+     "before", "during", "while", "through", "both", "each", "same", "own"]
 )
 
 # Negation cues that flip a passage's stance. Only phrasal or unambiguous forms
@@ -339,6 +347,11 @@ def _polarity(claim: str, titled: str, sentence: str) -> str:
     if stance == "mentions":
         return stance
     matched = [t for t in claim_tokens(claim) if t in titled.lower()]
+    # A negated claim is easy to "contradict": any affirmative sentence that
+    # names the subject and one generic word reads as the opposite assertion.
+    # Require a third shared term before a contradiction is allowed.
+    if claim_is_negated(claim) and len(matched) < MIN_SUPPORT_TOKENS + 1:
+        return "mentions"
     passage_negated = sentence_negates(sentence, matched)
     return "supports" if passage_negated == claim_is_negated(claim) else "contradicts"
 

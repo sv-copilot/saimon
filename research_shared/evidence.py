@@ -303,7 +303,7 @@ SELECT id, title, body, content_type,
 FROM knowledge_graph_nodes
 WHERE content_type IN ('fulltext_document', 'fulltext_chunk', 'claim')
   AND COALESCE(metadata->>'status', 'ready') <> 'failed'
-  AND (title ILIKE ANY($1) OR body ILIKE ANY($1)){scope_clause}
+  AND (title ILIKE ANY($1) OR body ILIKE ANY($1) OR COALESCE(metadata->>'path', '') ILIKE ANY($1)){scope_clause}
 ORDER BY id
 LIMIT $2
 """
@@ -365,7 +365,7 @@ async def collect_corpus_evidence(
         score = support_score(claim, sentence)
         # Without a named subject every matching word is generic, so the bar
         # rises: "acceptance" and "order" appear in a carmaker's annual report.
-        required = MIN_SUPPORT_TOKENS if name_anchors(claim) else MIN_SUPPORT_TOKENS + 1
+        required = MIN_SUPPORT_TOKENS if name_anchors(claim) else MIN_SUPPORT_TOKENS + 2
         if score < required:
             continue
         quote = sentence if len(sentence) >= MIN_QUOTE_CHARS else quote_from(

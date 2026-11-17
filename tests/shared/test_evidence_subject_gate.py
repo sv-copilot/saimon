@@ -131,3 +131,11 @@ async def test_document_path_can_carry_the_subject() -> None:
 
     items = await collect_corpus_evidence(_DB(), "Drake has lifecycle states for slices.")
     assert items and items[0]["polarity"] == "supports"
+
+
+def test_evidence_sql_can_find_a_subject_by_path() -> None:
+    from research_shared.evidence import EVIDENCE_SQL
+
+    assert "metadata->>'path'" in EVIDENCE_SQL, (
+        "a governance document need not repeat the product name in its body; "
+        "without the path predicate it is unreachable by subject")

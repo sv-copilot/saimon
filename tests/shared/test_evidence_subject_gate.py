@@ -88,3 +88,24 @@ async def test_negated_claim_about_the_same_subject_still_contradicts() -> None:
 
 def test_anchorless_claim_is_not_gated() -> None:
     assert subject_missing("", "anything") is False
+
+
+BIBLIOGRAPHY = (
+    "Knowledge graphs matter for retrieval. References: Tversky, A., & Kahneman, D. "
+    "(1974). Judgment under uncertainty: heuristics and biases. Science, 185(4157), "
+    "1124-1131."
+)
+
+
+@pytest.mark.asyncio
+async def test_bibliography_line_is_not_support() -> None:
+    # A reference entry names the author and the year and asserts nothing.
+    class _DB:
+        async def fetch(self, sql, *args):
+            return [{"id": "00000000-0000-4000-8000-00000000000b",
+                     "title": "Knowledge Graphs (Hogan et al.)",
+                     "body": BIBLIOGRAPHY, "content_type": "fulltext_chunk", "doi": ""}]
+
+    items = await collect_corpus_evidence(
+        _DB(), "Tversky and Kahneman (1974) showed that an initial number anchors later judgments.")
+    assert items == []

@@ -59,6 +59,10 @@ SOURCES = [
     Source("needle", "/src/needle", "novel_canon", "novel_canon", "work/needle"),
     Source("kdp", "/src/kdp", "kdp", "kdp_listing", "work/hand-recovery"),
     Source("saimon_self", "/src/saimon", "saimon_self", "product_doc", "saimon"),
+    Source("site_pages", "/src/sitepages", "site_content", "page", "spencervaradi-site/src/pages"),
+    Source("site_data", "/src/sitedata", "site_content", "site_data", "spencervaradi-site/src/data"),
+    Source("writer_rules", "/src/writer_rules", "writing_rules", "style_rule",
+           ".hermes/profiles/writer/skills"),
     Source("vault", "/src/vault", "vault", "vault_note", "vaults/workspace"),
 ]
 
@@ -134,7 +138,7 @@ def iter_files(source: Source, host_mode: bool = False) -> list[Path]:
             p = Path(dirpath) / name
             if p.suffix.lower() in SKIP_SUFFIX:
                 continue
-            if p.suffix.lower() not in {".md", ".markdown", ".mdx", ".txt", ".json", ".yaml", ".yml"}:
+            if p.suffix.lower() not in {".md", ".markdown", ".mdx", ".txt", ".json", ".yaml", ".yml", ".astro", ".ts"}:
                 continue
             if any(x in str(p) for x in source.exclude):
                 continue

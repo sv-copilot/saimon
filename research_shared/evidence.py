@@ -164,6 +164,43 @@ def support_score(claim: str, passage: str) -> int:
     return sum(1 for token in claim_tokens(claim) if token in passage_tokens)
 
 
+_REFERENCE_HINTS = re.compile(
+    r"\bpp?\.\s*\d|\bvol\.\s*\d|\bdoi\b|\bet al\.,?\s*\(?\d{4}|\b\d{1,3}:\d{1,4}[-\u2013]\d",
+    re.IGNORECASE)
+
+
+def looks_like_reference(sentence: str) -> bool:
+    """True for a bibliography line rather than a statement.
+
+    A reference entry names an author and a year, so it clears every lexical
+    gate while asserting nothing. Two markers together — a year in parentheses
+    and a page range, volume, DOI or "et al." — are enough to skip it.
+    """
+    text = sentence or ""
+    if not re.search(r"\(\d{4}[a-z]?\)", text):
+        return False
+    return bool(_REFERENCE_HINTS.search(text))
+
+
+def best_sentence(passage: str, claim: str) -> str:
+    """The sentence that shares the most with the claim.
+
+    Evidence has to be quotable if it is to be checked by a reader. A 1,400
+    character chunk can mention a name once in a reference list and share
+    nothing else; the sentence that carries the overlap is what should be cited
+    and what should decide the verdict.
+    """
+    candidates = [s.strip() for s in _SENTENCE_RE.findall(passage or "") if s.strip()]
+    assertions = [s for s in candidates if not looks_like_reference(s)]
+    if assertions:
+        candidates = assertions
+    if not candidates:
+        return (passage or "").strip()
+    scored = [(support_score(claim, sentence), len(sentence), sentence) for sentence in candidates]
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return scored[0][2] if scored else (passage or "").strip()
+
+
 def quote_from(passage: str, claim: str, width: int = 240) -> str:
     """The passage window around the first matching token, for citation."""
     tokens = claim_tokens(claim)
@@ -304,12 +341,17 @@ async def collect_corpus_evidence(
     evidence: list[dict[str, Any]] = []
     for row in rows:
         text = f"{row.get('title') or ''} {row.get('body') or ''}"
-        if subject_missing(claim, text):
+        sentence = best_sentence(text, claim)
+        # Density has to live in the sentence that will be quoted. A chunk that
+        # mentions "Kahneman" in a reference list and shares nothing else is not
+        # evidence that the claim is true.
+        if subject_missing(claim, sentence):
             continue
-        score = support_score(claim, text)
+        score = support_score(claim, sentence)
         if score < MIN_SUPPORT_TOKENS:
             continue
-        quote = quote_from(str(row.get("body") or ""), claim)
+        quote = sentence if len(sentence) >= MIN_QUOTE_CHARS else quote_from(
+            str(row.get("body") or ""), claim)
         if len(quote) < MIN_QUOTE_CHARS:
             continue
         evidence.append(
@@ -320,9 +362,9 @@ async def collect_corpus_evidence(
                 "doi": row.get("doi") or None,
                 "overlap_tokens": score,
                 "quote": quote,
-                "polarity": _invert_stance(classify_stance(claim, text))
+                "polarity": _invert_stance(classify_stance(claim, sentence))
                 if negated_claim
-                else classify_stance(claim, text),
+                else classify_stance(claim, sentence),
             }
         )
 

@@ -52,8 +52,11 @@ class FakeDB:
 def test_evidence_sql_orders_before_limiting() -> None:
     # Without ORDER BY the planner is free to return a different 200 rows per
     # execution, which is how one claim produced two answers across 18 calls.
-    assert "ORDER BY id" in EVIDENCE_SQL
+    # Title matches sort first, but `id` remains the tiebreak so two rows that
+    # share a title cannot swap places between calls.
+    assert "ORDER BY" in EVIDENCE_SQL
     assert EVIDENCE_SQL.index("ORDER BY") < EVIDENCE_SQL.index("LIMIT")
+    assert EVIDENCE_SQL.rstrip().split("LIMIT")[0].rstrip().endswith("id")
 
 
 @pytest.mark.asyncio

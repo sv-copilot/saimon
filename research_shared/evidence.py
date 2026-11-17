@@ -191,6 +191,28 @@ def looks_like_reference(sentence: str) -> bool:
     return bool(_REFERENCE_HINTS.search(text))
 
 
+def _merge_table_blocks(passage: str) -> str:
+    """Join contiguous table rows so a table reads as one statement.
+
+    Rows carry no full stop, so each one was a "sentence" of two or three words
+    and no row alone cleared the density bar. A lifecycle table therefore looked
+    like five unrelated lines rather than the list of states it is.
+    """
+    merged: list[str] = []
+    block: list[str] = []
+    for line in (passage or "").splitlines():
+        if line.strip().startswith("|"):
+            block.append(line.strip())
+            continue
+        if block:
+            merged.append(" ".join(block))
+            block = []
+        merged.append(line)
+    if block:
+        merged.append(" ".join(block))
+    return "\n".join(merged)
+
+
 def best_sentence(passage: str, claim: str) -> str:
     """The sentence that shares the most with the claim.
 
@@ -199,7 +221,7 @@ def best_sentence(passage: str, claim: str) -> str:
     nothing else; the sentence that carries the overlap is what should be cited
     and what should decide the verdict.
     """
-    candidates = [s.strip() for s in _SENTENCE_RE.findall(passage or "") if s.strip()]
+    candidates = [s.strip() for s in _SENTENCE_RE.findall(_merge_table_blocks(passage)) if s.strip()]
     assertions = [s for s in candidates if not looks_like_reference(s)]
     if assertions:
         candidates = assertions
@@ -301,10 +323,10 @@ SELECT id, title, body, content_type,
        COALESCE(metadata->>'doi', '') AS doi,
        COALESCE(metadata->>'path', '') AS path
 FROM knowledge_graph_nodes
-WHERE content_type IN ('fulltext_document', 'fulltext_chunk', 'claim')
+WHERE content_type IN ('fulltext_document', 'fulltext_chunk', 'claim', 'source_document')
   AND COALESCE(metadata->>'status', 'ready') <> 'failed'
   AND (title ILIKE ANY($1) OR body ILIKE ANY($1) OR COALESCE(metadata->>'path', '') ILIKE ANY($1)){scope_clause}
-ORDER BY id
+ORDER BY (CASE WHEN title ILIKE ANY($1) THEN 0 ELSE 1 END), id
 LIMIT $2
 """
 
@@ -338,9 +360,13 @@ async def collect_corpus_evidence(
     if universe_ids is not None and not universe_ids:
         return []
 
-    # Search on the claim's subject, not on its first few words: "product" and
-    # "teams" outrank "janis" in claim order and return the wrong corpus.
-    terms = anchor_terms(claim)[:4] or tokens[:6]
+    # Search on the claim's specific words, not on its subject alone: "drake"
+    # appears in every governance document, so a subject-only query orders
+    # thousands of rows by id and cuts the one document that answers the claim
+    # before it is scored.
+    anchors = anchor_terms(claim)
+    specific = [t for t in tokens if len(t) >= 6 and t not in anchors]
+    terms = (specific or anchors or tokens)[:5]
     patterns = [f"%{token}%" for token in terms]
     if universe_ids is None:
         rows = await db.fetch(EVIDENCE_SQL, patterns, limit)

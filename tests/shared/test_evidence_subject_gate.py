@@ -158,3 +158,21 @@ def test_table_rows_are_scored_as_one_statement() -> None:
     claim = "Drake has lifecycle states, from proposed to archived."
     sentence = best_sentence(TABLE_CHUNK, claim)
     assert support_score(claim, sentence) >= 2, sentence
+
+
+@pytest.mark.asyncio
+async def test_negated_claim_is_supported_by_the_same_negation() -> None:
+    # The operator's own post says "Janis wasn't writing about product teams".
+    # The cue is separated from "product" by "writing about", so the strict
+    # window found no negation and inversion turned agreement into contradiction.
+    class _DB:
+        async def fetch(self, sql, *args):
+            return [{"id": "00000000-0000-4000-8000-00000000000d",
+                     "title": "Groupthink in product decisions",
+                     "body": ("Janis wasn't writing about product teams. He studied "
+                              "foreign-policy decisions made under pressure."),
+                     "content_type": "source_document", "doi": "",
+                     "path": "spencervaradi-site/src/content/blog/groupthink.md"}]
+
+    items = await collect_corpus_evidence(_DB(), "Janis wasn't writing about product teams.")
+    assert items and items[0]["polarity"] == "supports"

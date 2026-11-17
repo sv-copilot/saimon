@@ -116,11 +116,14 @@ async def test_empty_scope_is_a_refusal_not_a_widening() -> None:
             "contradicts",
         ),
         (
+            # Shares "pgvector", "supports" and "indexes" but never mentions
+            # HNSW, so it says nothing about the claim. Before the subject gate
+            # this counted as supporting evidence.
             (
                 "pgvector supports cosine distance and inner product operators. "
                 "The manual lists both for the vector type."
             ),
-            "supports",
+            "mentions",
         ),
     ],
 )

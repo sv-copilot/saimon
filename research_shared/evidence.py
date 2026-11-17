@@ -295,6 +295,26 @@ def classify_stance(claim: str, passage: str) -> str:
     return "supports"
 
 
+def sentence_negates(sentence: str, matched: list[str]) -> bool:
+    """True when the sentence carries a negation tied to one of the matched terms.
+
+    Looser than ``classify_stance``'s 25-character window: "Janis wasn't writing
+    about product teams" puts "writing about" between the cue and the term, and
+    the strict window then reported no negation at all. For deciding whether a
+    passage agrees with a negated claim, the cue only has to sit in the same
+    sentence and before the term.
+    """
+    lowered = (sentence or "").lower()
+    for token in matched:
+        at = lowered.find(token)
+        if at == -1:
+            continue
+        before = lowered[:at]
+        if any(re.search(rf"\b{re.escape(cue)}\b", before) for cue in _NEGATION_CUES):
+            return True
+    return False
+
+
 def claim_is_negated(claim: str) -> bool:
     """True when the claim itself asserts the negative.
 
@@ -305,6 +325,22 @@ def claim_is_negated(claim: str) -> bool:
     """
     text = (claim or "").lower()
     return any(re.search(rf"\b{re.escape(cue)}\b", text) for cue in _NEGATION_CUES)
+
+
+def _polarity(claim: str, titled: str, sentence: str) -> str:
+    """Direction of the passage relative to the claim.
+
+    A negated claim is not simply the inverse of a positive passage. It is
+    supported by a passage that also negates, so the two polarities are compared
+    rather than one being flipped: "Janis wasn't writing about product teams" is
+    supported by a post that says the same thing.
+    """
+    stance = classify_stance(claim, titled)
+    if stance == "mentions":
+        return stance
+    matched = [t for t in claim_tokens(claim) if t in titled.lower()]
+    passage_negated = sentence_negates(sentence, matched)
+    return "supports" if passage_negated == claim_is_negated(claim) else "contradicts"
 
 
 def _invert_stance(polarity: str) -> str:
@@ -373,7 +409,6 @@ async def collect_corpus_evidence(
     else:
         rows = await db.fetch(EVIDENCE_SQL_SCOPED, patterns, limit, sorted(universe_ids))
 
-    negated_claim = claim_is_negated(claim)
     evidence: list[dict[str, Any]] = []
     for row in rows:
         text = f"{row.get('title') or ''} {row.get('body') or ''}"
@@ -406,9 +441,7 @@ async def collect_corpus_evidence(
                 "doi": row.get("doi") or None,
                 "overlap_tokens": score,
                 "quote": quote,
-                "polarity": _invert_stance(classify_stance(claim, titled))
-                if negated_claim
-                else classify_stance(claim, titled),
+                "polarity": _polarity(claim, titled, sentence),
             }
         )
 

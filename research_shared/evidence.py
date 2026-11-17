@@ -79,6 +79,67 @@ MIN_SUPPORT_TOKENS = 2
 MIN_QUOTE_CHARS = 60
 MAX_EVIDENCE_ITEMS = 5
 
+# Anchor terms: what ties a passage to the claim's subject. A proper noun, a
+# year, or a long word. Generic terms ("product", "teams", "writing") do not
+# qualify, because a passage that shares only those says nothing about the
+# claim. This is the gate that stops "Janis wasn't writing about product teams"
+# being contradicted by a chapter of Shape Up.
+_PROPER_RE = re.compile(r"\b[A-Z][A-Za-z][A-Za-z'-]{1,}\b")
+_YEAR_RE = re.compile(r"\b(?:1[89]|20)\d{2}\b")
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+_LONG_ANCHOR = 9
+
+# Words that open a sentence as grammar, not as a name.
+_SENTENCE_STARTERS = frozenset(
+    ["a", "an", "and", "as", "at", "but", "by", "every", "for", "from", "he", "her",
+     "here", "his", "how", "i", "if", "in", "is", "it", "its", "many", "more", "most",
+     "my", "no", "not", "of", "on", "one", "only", "or", "our", "she", "so", "some",
+     "that", "the", "their", "them", "then", "there", "these", "they", "this",
+     "those", "to", "two", "under", "was", "we", "were", "what", "when", "where",
+     "which", "while", "who", "why", "with", "you", "your"]
+)
+
+
+def anchor_terms(claim: str) -> list[str]:
+    """Distinctive subject terms of a claim, lowercased.
+
+    Proper nouns (excluding a sentence's first word, which is capitalised by
+    grammar rather than by being a name), years, then long words as a fallback
+    when the claim names nothing. Empty means the claim offers no anchor, in
+    which case the gate stays open.
+    """
+    text = (claim or "").strip()
+    if not text:
+        return []
+    anchors: list[str] = []
+    for sentence in _SENTENCE_SPLIT_RE.split(text):
+        words = re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]*", sentence)
+        for index, word in enumerate(words):
+            if not word[:1].isupper() or len(word) < 3:
+                continue
+            # A sentence opens with a capital by grammar, so only starters that
+            # could not be ordinary sentence words ("The", "This", "We") count
+            # as names when they sit first.
+            if index == 0 and word.lower() in _SENTENCE_STARTERS:
+                continue
+            if word.lower() not in anchors:
+                anchors.append(word.lower())
+    for match in _YEAR_RE.finditer(text):
+        if match.group(0) not in anchors:
+            anchors.append(match.group(0))
+    if anchors:
+        return anchors
+    return [token for token in claim_tokens(text) if len(token) >= _LONG_ANCHOR]
+
+
+def subject_missing(claim: str, passage: str) -> bool:
+    """True when the claim names a subject the passage never mentions."""
+    anchors = anchor_terms(claim)
+    if not anchors:
+        return False
+    lowered = (passage or "").lower()
+    return not any(anchor in lowered for anchor in anchors)
+
 # How many rows to pull before ranking. The old value (40) with no ORDER BY made
 # the verdict depend on the planner's row order; this one is larger and stable.
 DEFAULT_EVIDENCE_LIMIT = 200
@@ -133,6 +194,12 @@ def classify_stance(claim: str, passage: str) -> str:
     invent one, so the rules are deliberately narrow.
     """
     text = (passage or "").lower()
+    if subject_missing(claim, passage):
+        # Sharing "product" and "teams" is not evidence about Janis. Without
+        # this gate the negation rule below turned a generic overlap into
+        # "contradicts", which is how an unrelated chapter of Shape Up was
+        # recorded as refuting a claim about groupthink.
+        return "mentions"
     matched = [t for t in claim_tokens(claim) if t in text]
     if len(matched) < MIN_SUPPORT_TOKENS:
         return "mentions"
@@ -224,7 +291,10 @@ async def collect_corpus_evidence(
     if universe_ids is not None and not universe_ids:
         return []
 
-    patterns = [f"%{token}%" for token in tokens[:6]]
+    # Search on the claim's subject, not on its first few words: "product" and
+    # "teams" outrank "janis" in claim order and return the wrong corpus.
+    terms = anchor_terms(claim)[:4] or tokens[:6]
+    patterns = [f"%{token}%" for token in terms]
     if universe_ids is None:
         rows = await db.fetch(EVIDENCE_SQL, patterns, limit)
     else:
@@ -234,6 +304,8 @@ async def collect_corpus_evidence(
     evidence: list[dict[str, Any]] = []
     for row in rows:
         text = f"{row.get('title') or ''} {row.get('body') or ''}"
+        if subject_missing(claim, text):
+            continue
         score = support_score(claim, text)
         if score < MIN_SUPPORT_TOKENS:
             continue

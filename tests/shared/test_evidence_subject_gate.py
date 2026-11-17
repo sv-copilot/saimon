@@ -139,3 +139,22 @@ def test_evidence_sql_can_find_a_subject_by_path() -> None:
     assert "metadata->>'path'" in EVIDENCE_SQL, (
         "a governance document need not repeat the product name in its body; "
         "without the path predicate it is unreachable by subject")
+
+
+TABLE_CHUNK = """## Canonical states
+
+| State | Meaning |
+| --- | --- |
+| `proposed` | Idea captured, no detail |
+| `shaped` | Requirements documented |
+| `ready` | Dependencies met |
+| `archived` | Cancelled or blocked |
+"""
+
+
+def test_table_rows_are_scored_as_one_statement() -> None:
+    from research_shared.evidence import best_sentence, support_score
+
+    claim = "Drake has lifecycle states, from proposed to archived."
+    sentence = best_sentence(TABLE_CHUNK, claim)
+    assert support_score(claim, sentence) >= 2, sentence

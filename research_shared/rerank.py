@@ -161,6 +161,26 @@ def passage_text(row: dict[str, Any]) -> str:
     return _passage_text(row)
 
 
+# Words that shape a question but say nothing about its subject. Coverage is
+# measured over content, and a natural-language question carries two or three of
+# these per clause: "What did cycle 039 decide about loading the portfolio into
+# the knowledge graph" scored 0.0 against the document that answers it, while
+# "cycle 039 ingest portfolio" found it immediately.
+_QUERY_FILLERS = frozenset(
+    ["what", "which", "who", "whom", "whose", "when", "where", "why", "how",
+     "did", "does", "do", "done", "is", "are", "was", "were", "be", "been", "being",
+     "have", "has", "had", "can", "could", "should", "would", "will", "shall", "may",
+     "might", "must", "about", "into", "from", "for", "with", "without", "over",
+     "under", "between", "after", "before", "during", "while", "through", "and",
+     "or", "but", "if", "then", "than", "that", "this", "these", "those", "there",
+     "here", "it", "its", "we", "you", "they", "them", "their", "our", "your", "my",
+     "me", "he", "she", "his", "her", "also", "just", "very", "more", "most", "some",
+     "any", "all", "each", "both", "other", "another", "such", "same", "so", "not",
+     "no", "yes", "please", "tell", "explain", "according", "context", "passage",
+     "document", "documents", "say", "says", "said", "much", "many"]
+)
+
+
 def support_tokens(query: str) -> set[str]:
     """Query tokens that can carry topical support.
 
@@ -169,7 +189,7 @@ def support_tokens(query: str) -> set[str]:
     story-mapping page at 0.732 (observed live, 2026-11-08). A query that is
     *only* numeric keeps its digits so code and year lookups still work.
     """
-    tokens = content_tokens(query)
+    tokens = content_tokens(query) - _QUERY_FILLERS
     non_numeric = {token for token in tokens if not token.isdigit()}
     return non_numeric or tokens
 

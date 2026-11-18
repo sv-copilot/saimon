@@ -54,14 +54,25 @@ def fake_generate_factory(arm_id: str):
 
 
 def live_generate_factory(model: str):
+    """One generation per call, with a client built inside the loop.
+
+    The underlying AsyncOpenAI client binds to the event loop that created it,
+    and asyncio.run opens a new loop every call. Reusing one client worked for
+    the first task and then hung forever on the second, which is why the first
+    full run produced an empty log.
+    """
     from research_shared.llm import LLMClient, LLMConfig
 
+    # One loop, one client, kept open across calls. The client binds to the loop
+    # that created it: asyncio.run per call worked once, then hung on the second
+    # task, and a client per call raised "Event loop is closed" during cleanup.
+    loop = asyncio.new_event_loop()
     cfg = LLMConfig.from_env()
     cfg.model = model
     client = LLMClient(cfg)
 
     def generate(prompt: str) -> str:
-        return asyncio.run(client.generate(prompt))
+        return loop.run_until_complete(client.generate(prompt))
 
     return generate
 

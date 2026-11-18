@@ -22,6 +22,7 @@ import jwt
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, EmailStr, field_validator
 
+from research_shared.config_guard import resolve_jwt_secret
 from research_shared.db import DatabaseConfig, DatabasePool
 
 # ---------------------------------------------------------------------------
@@ -29,9 +30,7 @@ from research_shared.db import DatabaseConfig, DatabasePool
 # ---------------------------------------------------------------------------
 
 # Production without a secret is a startup failure, not a silent fallback:
-# the default below is published in this repository.
-from research_shared.config_guard import resolve_jwt_secret
-
+# the default is published in this repository.
 _JWT_SECRET = resolve_jwt_secret()
 _JWT_ALGORITHM = "HS256"
 _ACCESS_TOKEN_EXPIRE_MINUTES = 30

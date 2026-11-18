@@ -469,55 +469,6 @@ def abstain_reason(
     return None
 
 
-_PROPER_ANCHOR = re.compile(r"\b[A-Z][A-Za-z][A-Za-z'-]{1,}\b")
-_YEAR4 = re.compile(r"^(?:19|20)\d{2}$")
-_QUESTION_STARTERS = frozenset(
-    ["what", "which", "who", "whom", "whose", "when", "where", "why", "how", "is",
-     "are", "was", "were", "does", "do", "did", "can", "could", "should", "would",
-     "will", "the", "a", "an", "in", "on", "at", "for", "from", "to", "and", "but",
-     "if", "while", "there", "this", "that", "these", "those", "it", "we", "you",
-     "they", "i", "my", "our", "your", "their", "has", "have", "had", "tell", "name"]
-)
-
-
-def query_anchors(query: str) -> list[str]:
-    """Named subjects the answering passage has to mention.
-
-    A question about the Redis cache is not answered by a document about the
-    deployment pipeline that shares 'cache' and 'security'. Proper nouns are the
-    cheapest signal that the passage is about the thing being asked about, and
-    the corpus now holds enough unrelated fields that generic words match
-    everywhere.
-    """
-    anchors: list[str] = []
-    for sentence in re.split(r"(?<=[.!?])\s+", (query or "").strip()):
-        words = re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]*", sentence)
-        for index, word in enumerate(words):
-            if not word[:1].isupper() or len(word) < 3:
-                continue
-            if index == 0 and word.lower() in _QUESTION_STARTERS:
-                continue
-            if word.lower() not in anchors:
-                anchors.append(word.lower())
-    return [anchor for anchor in anchors if not _YEAR4.match(anchor)]
-
-
-def _anchor_present(anchor: str, passage: str) -> bool:
-    """Anchor match that survives spacing: "Element451" and "Element 451" agree."""
-    lowered = (passage or "").lower()
-    if anchor in lowered:
-        return True
-    return anchor.replace(" ", "") in lowered.replace(" ", "")
-
-
-def anchors_missing(query: str, passage: str) -> bool:
-    """True when the question names something the passage never mentions."""
-    anchors = query_anchors(query)
-    if not anchors:
-        return False
-    return not any(_anchor_present(anchor, passage) for anchor in anchors)
-
-
 def rerank(
     query: str,
     candidates: list[dict[str, Any]],
@@ -595,26 +546,10 @@ def rerank(
         else 0.0
     )
     top_coverage = float(scored[0].get("coverage_score") or 0.0) if scored else 0.0
-    # A named subject works as a filter before it works as a refusal. If any
-    # candidate mentions the thing the question names, rank among those: a
-    # passage from the right document often omits the product name in the chunk
-    # that carries the fact. Only when nothing in the pool mentions it is the
-    # honest answer "not in the corpus".
-    anchors = query_anchors(query)
-    missing_subject = False
-    if anchors and scored:
-        matching = [c for c in scored if any(_anchor_present(a, _passage_text(c)) for a in anchors)]
-        if matching:
-            scored = matching
-        else:
-            missing_subject = True
-    if missing_subject:
-        fail_safe_fired, top_score, margin_gap = True, gate_score, 0.0
-    else:
-        fail_safe_fired, top_score, margin_gap = gate_decision(
-            scored, cfg, lexical_support, gate_score=gate_score, coverage=top_coverage
-        )
-    reason = "missing_subject" if missing_subject else (
+    fail_safe_fired, top_score, margin_gap = gate_decision(
+        scored, cfg, lexical_support, gate_score=gate_score, coverage=top_coverage
+    )
+    reason = (
         abstain_reason(
             scored, cfg, lexical_support, gate_score=gate_score,
             coverage=float(scored[0].get("coverage_score") or 0.0) if scored else None,

@@ -41,7 +41,7 @@ from ingest_sources import (
 
 BATCH = 500
 EMBED_PRIORITY = ["site_content", "drake_pmo", "drake_public", "kdp", "saimon_self",
-                  "novel_canon", "writing", "governance", "vault"]
+                  "novel_canon", "writing", "writing_rules", "governance", "vault"]
 
 
 async def _flush(conn, pending: list[tuple], totals: dict) -> None:

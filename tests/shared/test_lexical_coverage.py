@@ -60,3 +60,21 @@ class TestNonsenseStopsAtTheGate:
         )
         assert out.fail_safe_fired is False
         assert out.ranked[0]["coverage_score"] == 1.0
+
+
+def test_question_form_scores_like_the_keyword_form() -> None:
+    """A question and its keywords must retrieve the same passage.
+
+    "What did cycle 039 decide about loading the portfolio into the knowledge
+    graph" scored 0.0 against the document that answers it, because 'what',
+    'did', 'about' and 'into' counted as content.
+    """
+    from research_shared.rerank import lexical_coverage, support_tokens
+
+    passage = (
+        "Cycle 039 decided to ingest the portfolio into the knowledge graph: "
+        "six thousand seven hundred documents, sixteen thousand chunks."
+    )
+    question = "What did cycle 039 decide about loading the portfolio into the knowledge graph?"
+    assert {"what", "did", "about", "into"}.isdisjoint(support_tokens(question))
+    assert lexical_coverage(question, passage) >= 0.5

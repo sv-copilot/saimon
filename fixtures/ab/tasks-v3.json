@@ -1,0 +1,640 @@
+{
+ "schema_version": 3,
+ "description": "Sixty-nine tasks: 55 answerable across ten collections (portfolio plus cooking, outdoors, data, delivery, finance) and 14 unanswerable near-misses. Reference tasks carry `gold`, the source document, so recall is measured apart from grounding.",
+ "tasks": [
+  {
+   "id": "g-039-ingest",
+   "kind": "answerable",
+   "collection": "governance",
+   "query": "What did cycle 039 decide about loading the portfolio into the knowledge graph?",
+   "must_include": [
+    "ingest",
+    "portfolio"
+   ]
+  },
+  {
+   "id": "g-lifecycle-states",
+   "kind": "answerable",
+   "collection": "governance",
+   "query": "Which lifecycle states can a Drake slice be in, and which one is terminal?",
+   "must_include": [
+    "archived",
+    "validated"
+   ]
+  },
+  {
+   "id": "g-pmo-private",
+   "kind": "answerable",
+   "collection": "governance",
+   "query": "Why is drake-pmo kept private?",
+   "must_include": [
+    "private"
+   ]
+  },
+  {
+   "id": "g-offer-price",
+   "kind": "answerable",
+   "collection": "governance",
+   "query": "What does the Know Your Cash diagnostic cost?",
+   "must_include": [
+    "1,500"
+   ]
+  },
+  {
+   "id": "g-offer-buyer",
+   "kind": "answerable",
+   "collection": "governance",
+   "query": "Who is the buyer for the outbound consulting offer?",
+   "must_include": [
+    "bookkeeper"
+   ]
+  },
+  {
+   "id": "g-gate-baseline",
+   "kind": "answerable",
+   "collection": "governance",
+   "query": "When is an un-authored CHECK treated as a baseline gap rather than a work failure?",
+   "must_include": [
+    "check",
+    "baseline"
+   ]
+  },
+  {
+   "id": "g-dependency-tree",
+   "kind": "answerable",
+   "collection": "governance",
+   "query": "What does the slice dependency tree validator check?",
+   "must_include": [
+    "dependency"
+   ]
+  },
+  {
+   "id": "g-branch-model",
+   "kind": "answerable",
+   "collection": "governance",
+   "query": "What did the branch model simplification proposal recommend?",
+   "must_include": [
+    "branch"
+   ]
+  },
+  {
+   "id": "g-watchdog",
+   "kind": "answerable",
+   "collection": "governance",
+   "query": "What did the watchdog decision say about service health reporting?",
+   "must_include": [
+    "health"
+   ]
+  },
+  {
+   "id": "g-staging-path",
+   "kind": "answerable",
+   "collection": "governance",
+   "query": "Where does the staging compose project live?",
+   "must_include": [
+    "planning"
+   ]
+  },
+  {
+   "id": "v-comcast",
+   "kind": "answerable",
+   "collection": "vault",
+   "query": "How much field hardware was exposed by the old Comcast design tool?",
+   "must_include": [
+    "100m"
+   ]
+  },
+  {
+   "id": "v-warehouse",
+   "kind": "answerable",
+   "collection": "vault",
+   "query": "How many tables did the Postgres warehouse entity model have?",
+   "must_include": [
+    "40"
+   ]
+  },
+  {
+   "id": "v-omne",
+   "kind": "answerable",
+   "collection": "vault",
+   "query": "Which company did Spencer run between 2015 and 2017?",
+   "must_include": [
+    "omne"
+   ]
+  },
+  {
+   "id": "v-securecore",
+   "kind": "answerable",
+   "collection": "vault",
+   "query": "What was SecureCore built to do?",
+   "must_include": [
+    "securecore"
+   ]
+  },
+  {
+   "id": "v-element451",
+   "kind": "answerable",
+   "collection": "vault",
+   "query": "What does the Element451 implementation lead note describe?",
+   "must_include": [
+    "element451"
+   ]
+  },
+  {
+   "id": "v-job-target",
+   "kind": "answerable",
+   "collection": "vault",
+   "query": "What role is the job search aimed at?",
+   "must_include": [
+    "product manager"
+   ]
+  },
+  {
+   "id": "n-opening",
+   "kind": "answerable",
+   "collection": "novel_canon",
+   "query": "What is the title of Needle's first chapter?",
+   "must_include": [
+    "pan",
+    "dusk"
+   ]
+  },
+  {
+   "id": "n-protagonist",
+   "kind": "answerable",
+   "collection": "novel_canon",
+   "query": "Who is the protagonist of Needle?",
+   "must_include": [
+    "cal",
+    "mulgrew"
+   ]
+  },
+  {
+   "id": "n-setting",
+   "kind": "answerable",
+   "collection": "novel_canon",
+   "query": "What is the tower called in Needle's setting?",
+   "must_include": [
+    "aurum"
+   ]
+  },
+  {
+   "id": "n-continuity",
+   "kind": "answerable",
+   "collection": "novel_canon",
+   "query": "What must be read before drafting a Needle chapter?",
+   "must_include": [
+    "stub"
+   ]
+  },
+  {
+   "id": "n-chapters",
+   "kind": "answerable",
+   "collection": "writing",
+   "query": "How is the bad penny manuscript organised?",
+   "must_include": [
+    "chapter"
+   ]
+  },
+  {
+   "id": "s-safety",
+   "kind": "answerable",
+   "collection": "site_content",
+   "query": "What does the site say about psychological safety in retrospectives?",
+   "must_include": [
+    "psychological safety"
+   ]
+  },
+  {
+   "id": "s-gilbert-box",
+   "kind": "answerable",
+   "collection": "site_content",
+   "query": "What is the first box of Gilbert's Behavior Engineering Model?",
+   "must_include": [
+    "data"
+   ]
+  },
+  {
+   "id": "s-offline",
+   "kind": "answerable",
+   "collection": "site_content",
+   "query": "Which case study covers an offline-first emergency response tool?",
+   "must_include": [
+    "offline"
+   ]
+  },
+  {
+   "id": "s-preflight",
+   "kind": "answerable",
+   "collection": "site_content",
+   "query": "How many stages does the Drake CI preflight have?",
+   "must_include": [
+    "17"
+   ]
+  },
+  {
+   "id": "d-licence",
+   "kind": "answerable",
+   "collection": "drake_public",
+   "query": "What licence is Drake released under?",
+   "must_include": [
+    "apache"
+   ]
+  },
+  {
+   "id": "d-harnesses",
+   "kind": "answerable",
+   "collection": "drake_public",
+   "query": "Which coding agents does Drake support?",
+   "must_include": [
+    "claude",
+    "codex"
+   ]
+  },
+  {
+   "id": "p-work-order",
+   "kind": "answerable",
+   "collection": "drake_pmo",
+   "query": "What does a work order need before it can be automated?",
+   "must_include": [
+    "acceptance",
+    "command"
+   ]
+  },
+  {
+   "id": "p-seam",
+   "kind": "answerable",
+   "collection": "drake_pmo",
+   "query": "What does the PMO hand to Drake, and what does it never write?",
+   "must_include": [
+    "tree"
+   ]
+  },
+  {
+   "id": "k-price",
+   "kind": "answerable",
+   "collection": "kdp",
+   "query": "What price does the hand-recovery listing use?",
+   "must_include": [
+    "14.95"
+   ]
+  },
+  {
+   "id": "k-gaps",
+   "kind": "answerable",
+   "collection": "kdp",
+   "query": "What does the hand-recovery gaps document flag?",
+   "must_include": [
+    "gap"
+   ]
+  },
+  {
+   "id": "c-maillard",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "maillard",
+   "query": "Why does bread brown in the oven?",
+   "must_include": [
+    "amino",
+    "sugar"
+   ]
+  },
+  {
+   "id": "c-sousvide",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "sous vide",
+   "query": "How does sous vide cooking hold a precise temperature?",
+   "must_include": [
+    "vacuum",
+    "water bath"
+   ]
+  },
+  {
+   "id": "c-sourdough",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "sourdough",
+   "query": "What makes sourdough rise without commercial yeast?",
+   "must_include": [
+    "lactobacilli",
+    "yeast"
+   ]
+  },
+  {
+   "id": "c-braising",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "braising",
+   "query": "What cooking method uses a covered pot with liquid at low heat?",
+   "must_include": [
+    "braising",
+    "moist"
+   ]
+  },
+  {
+   "id": "c-emulsion",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "emulsion",
+   "query": "How do oil and water stay mixed in a sauce?",
+   "must_include": [
+    "emulsion",
+    "droplets"
+   ]
+  },
+  {
+   "id": "c-ferment",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "fermentation",
+   "query": "What do microorganisms do to food during fermentation?",
+   "must_include": [
+    "bacteria",
+    "carbohydrate"
+   ]
+  },
+  {
+   "id": "o-rotation",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "crop rotation",
+   "query": "Why rotate crops between seasons?",
+   "must_include": [
+    "nutrients",
+    "pests"
+   ]
+  },
+  {
+   "id": "o-soilph",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "soil ph",
+   "query": "How does soil pH affect what a plant can absorb?",
+   "must_include": [
+    "alkaline",
+    "acidic"
+   ]
+  },
+  {
+   "id": "o-compost",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "compost",
+   "query": "What turns garden waste into compost?",
+   "must_include": [
+    "decomposition",
+    "organic"
+   ]
+  },
+  {
+   "id": "o-fly",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "fly fishing",
+   "query": "What is the difference between fly fishing and bait fishing?",
+   "must_include": [
+    "fly",
+    "weight"
+   ]
+  },
+  {
+   "id": "o-archery",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "archery",
+   "query": "What equipment does an archer need besides a bow?",
+   "must_include": [
+    "arrow",
+    "string"
+   ]
+  },
+  {
+   "id": "d-simpson",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "simpson",
+   "query": "How can a trend in every subgroup reverse in the combined data?",
+   "must_include": [
+    "paradox",
+    "confounding"
+   ]
+  },
+  {
+   "id": "d-boxplot",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "box plot",
+   "query": "What do the parts of a box plot show about a distribution?",
+   "must_include": [
+    "quartile",
+    "median"
+   ]
+  },
+  {
+   "id": "d-pca",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "principal component",
+   "query": "What does principal component analysis reduce?",
+   "must_include": [
+    "variance",
+    "components"
+   ]
+  },
+  {
+   "id": "d-choropleth",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "choropleth",
+   "query": "When is a choropleth map misleading?",
+   "must_include": [
+    "colour",
+    "area"
+   ]
+  },
+  {
+   "id": "d-effect",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "effect size",
+   "query": "Why report an effect size rather than only a p value?",
+   "must_include": [
+    "magnitude",
+    "significance"
+   ]
+  },
+  {
+   "id": "m-cpm",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "critical path",
+   "query": "How is the critical path through a project found?",
+   "must_include": [
+    "longest",
+    "dependencies"
+   ]
+  },
+  {
+   "id": "m-toc",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "theory of constraints",
+   "query": "What does the theory of constraints say limits throughput?",
+   "must_include": [
+    "bottleneck",
+    "constraint"
+   ]
+  },
+  {
+   "id": "m-kanban",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "kanban",
+   "query": "What does a Kanban board limit?",
+   "must_include": [
+    "work in progress",
+    "visual"
+   ]
+  },
+  {
+   "id": "m-evm",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "earned value",
+   "query": "How does earned value management measure schedule performance?",
+   "must_include": [
+    "earned value",
+    "variance"
+   ]
+  },
+  {
+   "id": "f-cash",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "cash flow",
+   "query": "What does cash flow measure that profit does not?",
+   "must_include": [
+    "liquidity",
+    "cash"
+   ]
+  },
+  {
+   "id": "f-margin",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "gross margin",
+   "query": "How is gross margin calculated?",
+   "must_include": [
+    "revenue",
+    "cost"
+   ]
+  },
+  {
+   "id": "f-ar",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "accounts receivable",
+   "query": "What are accounts receivable?",
+   "must_include": [
+    "invoice",
+    "payment"
+   ]
+  },
+  {
+   "id": "f-opp",
+   "kind": "answerable",
+   "collection": "reference",
+   "gold": "opportunity cost",
+   "query": "What is the opportunity cost of a choice?",
+   "must_include": [
+    "alternative",
+    "best"
+   ]
+  },
+  {
+   "id": "u-redis",
+   "kind": "unanswerable",
+   "query": "What did the 2024 Saimon security audit find about the Redis cache?",
+   "must_include": []
+  },
+  {
+   "id": "u-kubernetes",
+   "kind": "unanswerable",
+   "query": "Which Kubernetes operator does Saimon use for autoscaling?",
+   "must_include": []
+  },
+  {
+   "id": "u-audio-royalty",
+   "kind": "unanswerable",
+   "query": "What royalty rate does the hand-recovery plan assume for audiobooks?",
+   "must_include": []
+  },
+  {
+   "id": "u-editor",
+   "kind": "unanswerable",
+   "query": "Who is Needle's editor at the publisher?",
+   "must_include": []
+  },
+  {
+   "id": "u-board",
+   "kind": "unanswerable",
+   "query": "What did the March 2025 board meeting decide about hiring?",
+   "must_include": []
+  },
+  {
+   "id": "u-aws",
+   "kind": "unanswerable",
+   "query": "Which AWS region hosts the Saimon production database?",
+   "must_include": []
+  },
+  {
+   "id": "u-enterprise",
+   "kind": "unanswerable",
+   "query": "What is the current price of Drake's enterprise tier?",
+   "must_include": []
+  },
+  {
+   "id": "u-2023-pricing",
+   "kind": "unanswerable",
+   "query": "What did the 2023 user research study conclude about pricing?",
+   "must_include": []
+  },
+  {
+   "id": "u-saffron",
+   "kind": "unanswerable",
+   "query": "What temperature does the recipe use for roasting saffron chicken?",
+   "must_include": []
+  },
+  {
+   "id": "u-nato",
+   "kind": "unanswerable",
+   "query": "Which NATO standard governs drone radio frequencies?",
+   "must_include": []
+  },
+  {
+   "id": "u-latitude",
+   "kind": "unanswerable",
+   "query": "What latitude does the vineyard sit at?",
+   "must_include": []
+  },
+  {
+   "id": "u-sql",
+   "kind": "unanswerable",
+   "query": "Which SQL isolation level does the billing service use?",
+   "must_include": []
+  },
+  {
+   "id": "u-patent",
+   "kind": "unanswerable",
+   "query": "What is the patent number for the SwiftGrip knife handle?",
+   "must_include": []
+  },
+  {
+   "id": "u-oak",
+   "kind": "unanswerable",
+   "query": "How many years does a white oak take to season before coopering?",
+   "must_include": []
+  }
+ ]
+}

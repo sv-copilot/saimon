@@ -78,3 +78,15 @@ def test_question_form_scores_like_the_keyword_form() -> None:
     question = "What did cycle 039 decide about loading the portfolio into the knowledge graph?"
     assert {"what", "did", "about", "into"}.isdisjoint(support_tokens(question))
     assert lexical_coverage(question, passage) >= 0.5
+
+
+def test_identifiers_survive_but_years_do_not() -> None:
+    """A number that identifies a document is content; a year is not."""
+    from research_shared.rerank import support_tokens
+
+    assert "039" in support_tokens("What did cycle 039 decide about the portfolio?")
+    # Two-digit numbers stay out: content_tokens drops tokens shorter than
+    # three characters, and a bare "17" in prose is not distinctive enough to
+    # be worth the noise it lets in.
+    assert "17" not in support_tokens("How many stages does the CI preflight have, 17?")
+    assert "2024" not in support_tokens("who won the 2024 super bowl")

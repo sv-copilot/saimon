@@ -40,7 +40,7 @@ from ingest_sources import (
 )
 
 BATCH = 500
-EMBED_PRIORITY = ["site_content", "drake_pmo", "drake_public", "kdp", "saimon_self",
+EMBED_PRIORITY = ["site_content", "drake_pmo", "drake_public", "kdp", "saimon_self", "reference",
                   "novel_canon", "writing", "writing_rules", "governance", "vault"]
 
 

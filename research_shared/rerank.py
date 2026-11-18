@@ -502,20 +502,13 @@ def query_anchors(query: str) -> list[str]:
     return [anchor for anchor in anchors if not _YEAR4.match(anchor)]
 
 
-def _anchor_present(anchor: str, passage: str) -> bool:
-    """Anchor match that survives spacing: "Element451" and "Element 451" agree."""
-    lowered = (passage or "").lower()
-    if anchor in lowered:
-        return True
-    return anchor.replace(" ", "") in lowered.replace(" ", "")
-
-
 def anchors_missing(query: str, passage: str) -> bool:
     """True when the question names something the passage never mentions."""
     anchors = query_anchors(query)
     if not anchors:
         return False
-    return not any(_anchor_present(anchor, passage) for anchor in anchors)
+    lowered = (passage or "").lower()
+    return not any(anchor in lowered for anchor in anchors)
 
 
 def rerank(
@@ -595,19 +588,10 @@ def rerank(
         else 0.0
     )
     top_coverage = float(scored[0].get("coverage_score") or 0.0) if scored else 0.0
-    # A named subject works as a filter before it works as a refusal. If any
-    # candidate mentions the thing the question names, rank among those: a
-    # passage from the right document often omits the product name in the chunk
-    # that carries the fact. Only when nothing in the pool mentions it is the
-    # honest answer "not in the corpus".
-    anchors = query_anchors(query)
-    missing_subject = False
-    if anchors and scored:
-        matching = [c for c in scored if any(_anchor_present(a, _passage_text(c)) for a in anchors)]
-        if matching:
-            scored = matching
-        else:
-            missing_subject = True
+    # A named subject that never appears is not a weak answer, it is a different
+    # question. Checked before the numeric gate so the reason is reported as what
+    # it is.
+    missing_subject = bool(scored) and anchors_missing(query, _passage_text(scored[0]))
     if missing_subject:
         fail_safe_fired, top_score, margin_gap = True, gate_score, 0.0
     else:

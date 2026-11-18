@@ -166,7 +166,7 @@ jobs:
         run: |
           set -euo pipefail
           SSH_OPTS="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
-          STAGING_PATH="${{ vars.SAIMON_STAGING_PATH || '/srv/saimon' }}"
+          STAGING_PATH="${{ vars.SAIMON_STAGING_PATH || '/data/planning/saimon' }}"
           # Name the path in the failure. The job previously died on
           # "cd /srv/saimon: No such file or directory" after the image had been
           # pushed, which reads like a deploy problem rather than a wrong
@@ -181,15 +181,19 @@ jobs:
           SSH_USER: ${{ secrets.STAGING_USER }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_ACTOR: ${{ github.actor }}
+          STAGING_PATH: ${{ vars.SAIMON_STAGING_PATH || '/data/planning/saimon' }}
         run: |
           set -euo pipefail
           SSH_OPTS="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
           {
             printf 'GHCR_TOKEN=%q\n' "$GHCR_TOKEN"
             printf 'GHCR_ACTOR=%q\n' "$GHCR_ACTOR"
+            printf 'STAGING_PATH=%q\n' "$STAGING_PATH"
             cat <<'REMOTE'
           set -euo pipefail
-          cd /srv/saimon
+          # The compose project on the staging host is /data/planning/saimon,
+          # not /srv/saimon; this was the path the job could not find.
+          cd "$STAGING_PATH"
           echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
           echo "Pulling latest rc image..."
           docker compose -f docker-compose.yml -f docker-compose.staging.yml pull

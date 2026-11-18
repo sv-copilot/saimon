@@ -22,13 +22,16 @@ import jwt
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, EmailStr, field_validator
 
+from research_shared.config_guard import resolve_jwt_secret
 from research_shared.db import DatabaseConfig, DatabasePool
 
 # ---------------------------------------------------------------------------
 # config
 # ---------------------------------------------------------------------------
 
-_JWT_SECRET = _os.environ.get("SAIMON_JWT_SECRET", "dev-secret-change-in-prod")
+# Production without a secret is a startup failure, not a silent fallback:
+# the default is published in this repository.
+_JWT_SECRET = resolve_jwt_secret()
 _JWT_ALGORITHM = "HS256"
 _ACCESS_TOKEN_EXPIRE_MINUTES = 30
 _REFRESH_TOKEN_EXPIRE_DAYS = 7

@@ -181,17 +181,24 @@ _QUERY_FILLERS = frozenset(
 )
 
 
+_YEAR_TOKEN = re.compile(r"^(?:19|20)\d{2}$")
+
+
 def support_tokens(query: str) -> set[str]:
     """Query tokens that can carry topical support.
 
-    Pure digits are excluded: a year ("2024") is a value, not evidence, and one
-    shared year was enough to keep "who won the 2024 super bowl" alive against a
-    story-mapping page at 0.732 (observed live, 2026-11-08). A query that is
-    *only* numeric keeps its digits so code and year lookups still work.
+    A four-digit year ("2024") is a value, not evidence, and one shared year was
+    enough to keep "who won the 2024 super bowl" alive against a story-mapping
+    page at 0.732 (observed live, 2026-11-08). Other numbers are identifiers:
+    "039" in a decision log, "17" in a stage count. Those count.
     """
     tokens = content_tokens(query) - _QUERY_FILLERS
-    non_numeric = {token for token in tokens if not token.isdigit()}
-    return non_numeric or tokens
+    # Only years are dropped. Dropping every digit took the anchor out of
+    # "cycle 039" and "the 17-stage preflight": the one token that identifies
+    # the document stopped counting, and a query about a decision log ranked
+    # papers about knowledge graphs instead.
+    non_year = {token for token in tokens if not _YEAR_TOKEN.match(token)}
+    return non_year or tokens
 
 
 def has_lexical_support(query: str, text: str, min_overlap: int | None = None) -> bool:

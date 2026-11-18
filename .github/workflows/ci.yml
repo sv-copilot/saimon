@@ -166,8 +166,14 @@ jobs:
         run: |
           set -euo pipefail
           SSH_OPTS="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
-          ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" 'set -e; cd /srv/saimon; stamp=$(date +%Y%m%d); cp -n docker-compose.yml docker-compose.yml.bak-$stamp; cp -n docker-compose.staging.yml docker-compose.staging.yml.bak-$stamp; cp -n schema.sql schema.sql.bak-$stamp'
-          scp $SSH_OPTS docker-compose.yml docker-compose.staging.yml schema.sql "$SSH_USER@$SSH_HOST:/srv/saimon/"
+          STAGING_PATH="${{ vars.SAIMON_STAGING_PATH || '/srv/saimon' }}"
+          # Name the path in the failure. The job previously died on
+          # "cd /srv/saimon: No such file or directory" after the image had been
+          # pushed, which reads like a deploy problem rather than a wrong
+          # assumption about where staging lives.
+          ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" "test -d '$STAGING_PATH' || { echo \"staging path '$STAGING_PATH' does not exist on this host; set the repository variable SAIMON_STAGING_PATH\"; exit 17; }"
+          ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" "set -e; cd '$STAGING_PATH'; stamp=\$(date +%Y%m%d); cp -n docker-compose.yml docker-compose.yml.bak-\$stamp; cp -n docker-compose.staging.yml docker-compose.staging.yml.bak-\$stamp; cp -n schema.sql schema.sql.bak-\$stamp"
+          scp $SSH_OPTS docker-compose.yml docker-compose.staging.yml schema.sql "$SSH_USER@$SSH_HOST:$STAGING_PATH/"
 
       - name: Deploy via SSH
         env:

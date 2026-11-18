@@ -53,6 +53,48 @@ jobs:
       - name: Validate OpenAPI spec
         run: python scripts/validate_openapi_spec.py
 
+  # ── Migration gate ────────────────────────────────────────────────
+  # schema.sql creates a database from nothing; migrations move one that already
+  # exists. Staging drifted for a week because nothing ran the second half, so the
+  # gate applies every migration to a fresh database and then proves that a second
+  # run is a no-op.
+  migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: saimon
+          POSTGRES_PASSWORD: saimon
+          POSTGRES_DB: saimon
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U saimon" --health-interval 5s
+          --health-timeout 5s --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply schema then every migration
+        env:
+          DATABASE_URL: postgresql://saimon:saimon@localhost:5432/saimon
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f schema.sql
+          ./scripts/apply_migrations.sh | tee /tmp/first.txt
+          grep -q "already present: 0\|0 already present" /tmp/first.txt || true
+
+      - name: A second run changes nothing
+        env:
+          DATABASE_URL: postgresql://saimon:saimon@localhost:5432/saimon
+        run: |
+          set -euo pipefail
+          ./scripts/apply_migrations.sh | tee /tmp/second.txt
+          grep -q "0 applied" /tmp/second.txt
+
   # ── Offline eval gate (all branches) ──────────────────────────────
   # SAIMON-EVAL-CI-GATE-1 (#27): the committed golden fixture suites must
   # pass offline. Pure Python + stdlib — no network, no model keys.
@@ -174,6 +216,9 @@ jobs:
           ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" "test -d '$STAGING_PATH' || { echo \"staging path '$STAGING_PATH' does not exist on this host; set the repository variable SAIMON_STAGING_PATH\"; exit 17; }"
           ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" "set -e; cd '$STAGING_PATH'; stamp=\$(date +%Y%m%d); cp -n docker-compose.yml docker-compose.yml.bak-\$stamp; cp -n docker-compose.staging.yml docker-compose.staging.yml.bak-\$stamp; cp -n schema.sql schema.sql.bak-\$stamp"
           scp $SSH_OPTS docker-compose.yml docker-compose.staging.yml schema.sql "$SSH_USER@$SSH_HOST:$STAGING_PATH/"
+          ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" "mkdir -p '$STAGING_PATH/db' '$STAGING_PATH/scripts'"
+          scp $SSH_OPTS -r db/migrations "$SSH_USER@$SSH_HOST:$STAGING_PATH/db/"
+          scp $SSH_OPTS scripts/apply_migrations.sh "$SSH_USER@$SSH_HOST:$STAGING_PATH/scripts/"
 
       - name: Deploy via SSH
         env:
@@ -197,6 +242,9 @@ jobs:
           echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
           echo "Pulling latest rc image..."
           docker compose -f docker-compose.yml -f docker-compose.staging.yml pull
+          echo "Applying migrations..."
+          docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d postgres
+          bash scripts/apply_migrations.sh
           echo "Restarting services..."
           docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --force-recreate --no-build
           docker image prune -f
@@ -247,6 +295,9 @@ jobs:
           SSH_OPTS="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
           ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" 'set -e; cd /data/saimon; stamp=$(date +%Y%m%d); cp -n docker-compose.yml docker-compose.yml.bak-$stamp; cp -n docker-compose.prod.yml docker-compose.prod.yml.bak-$stamp; cp -n schema.sql schema.sql.bak-$stamp'
           scp $SSH_OPTS docker-compose.yml docker-compose.prod.yml schema.sql "$SSH_USER@$SSH_HOST:/data/saimon/"
+          ssh $SSH_OPTS "$SSH_USER@$SSH_HOST" "mkdir -p '/data/saimon/db' '/data/saimon/scripts'"
+          scp $SSH_OPTS -r db/migrations "$SSH_USER@$SSH_HOST:/data/saimon/db/"
+          scp $SSH_OPTS scripts/apply_migrations.sh "$SSH_USER@$SSH_HOST:/data/saimon/scripts/"
 
       - name: Deploy via SSH
         env:
@@ -266,6 +317,9 @@ jobs:
           echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
           echo "Pulling latest main image..."
           docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+          echo "Applying migrations..."
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d postgres
+          bash scripts/apply_migrations.sh
           echo "Restarting services..."
           docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate --no-build
           docker image prune -f

@@ -8,6 +8,30 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 
 -- ---------------------------------------------------------------------------
+-- users, refresh_tokens — created by api-mcp at runtime in an older release.
+-- They are declared here because knowledge_graph_nodes.user_id references them:
+-- a schema applied to an empty database failed on that foreign key, so the file
+-- could never bootstrap a fresh instance. api-mcp's own migration is idempotent
+-- and now a no-op against this.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS users (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email           TEXT NOT NULL UNIQUE,
+    display_name    TEXT NOT NULL,
+    password_hash   TEXT NOT NULL,
+    is_admin        BOOLEAN NOT NULL DEFAULT false,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    token           TEXT PRIMARY KEY,
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at      TIMESTAMPTZ NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ---------------------------------------------------------------------------
 -- content_type_registry — extensible content type definitions
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS content_type_registry (

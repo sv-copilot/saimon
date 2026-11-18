@@ -72,14 +72,19 @@ ALTER TABLE public.observations
 CREATE INDEX IF NOT EXISTS knowledge_graph_nodes_collection_idx ON public.knowledge_graph_nodes (collection);
 CREATE INDEX IF NOT EXISTS knowledge_graph_nodes_universe_idx ON public.knowledge_graph_nodes (universe_id);
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO api_mcp;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO search_mcp;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO generate_mcp;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO export_mcp;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO evaluate_mcp;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO verify_mcp;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO explore_mcp;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO domain_mcp;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO crew_mcp;
+-- Grants only where the role exists: on a fresh database the per-service roles
+-- are created by db/init-roles.sh at container init, which has not run when a
+-- migration applies to a bare schema.
+DO $$
+DECLARE role_name text;
+BEGIN
+    FOREACH role_name IN ARRAY ARRAY['api_mcp','search_mcp','generate_mcp','export_mcp',
+                                     'evaluate_mcp','verify_mcp','explore_mcp','domain_mcp','crew_mcp']
+    LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
+            EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I', role_name);
+        END IF;
+    END LOOP;
+END $$;
 
 COMMIT;

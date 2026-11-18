@@ -11,6 +11,8 @@ Auth approach:
 
 from __future__ import annotations
 
+import atexit
+import logging
 import os as _os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -20,6 +22,8 @@ from uuid import uuid4
 import bcrypt
 import jwt
 from fastapi import FastAPI, HTTPException, Request
+from posthog import Posthog, identify_context
+from posthog.integrations.asgi import PosthogASGIMiddleware
 from pydantic import BaseModel, EmailStr, field_validator
 
 from research_shared.config_guard import resolve_jwt_secret
@@ -35,6 +39,88 @@ _JWT_SECRET = resolve_jwt_secret()
 _JWT_ALGORITHM = "HS256"
 _ACCESS_TOKEN_EXPIRE_MINUTES = 30
 _REFRESH_TOKEN_EXPIRE_DAYS = 7
+
+
+def _build_posthog_client() -> Posthog | None:
+    """Create the process-wide PostHog client when it is configured."""
+    project_token = _os.environ.get("POSTHOG_PROJECT_TOKEN", "").strip()
+    host = _os.environ.get("POSTHOG_HOST", "").strip()
+    environment = _os.environ.get("SAIMON_ENV", "development").strip().lower()
+
+    if not project_token or not host:
+        if environment not in {"production", "prod"}:
+            missing_var = "POSTHOG_PROJECT_TOKEN" if not project_token else "POSTHOG_HOST"
+            logging.getLogger("saimon.api").warning(
+                "%s variable required by PostHog is missing or un-configured, this causes events to be silently missed. This error stops appearing once %s is configured",
+                missing_var,
+                missing_var,
+            )
+        return None
+
+    try:
+        return Posthog(
+            project_token,
+            host=host,
+            enable_exception_autocapture=True,
+        )
+    except Exception:
+        logging.getLogger("saimon.api").warning(
+            "PostHog client initialization failed", exc_info=True
+        )
+        return None
+
+
+posthog_client = _build_posthog_client()
+if posthog_client is not None:
+    atexit.register(posthog_client.shutdown)
+
+
+def _configure_posthog_log_exporter() -> tuple[logging.Logger, Any | None]:
+    """Export only the purpose-built PostHog logger through OTLP."""
+    logger = logging.getLogger("saimon.posthog.logs")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    project_token = _os.environ.get("POSTHOG_PROJECT_TOKEN", "").strip()
+    host = _os.environ.get("POSTHOG_HOST", "").strip()
+    if not project_token or not host:
+        return logger, None
+
+    try:
+        from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+        from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+        from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+
+        logger_provider = LoggerProvider()
+        logger_provider.add_log_record_processor(
+            BatchLogRecordProcessor(
+                OTLPLogExporter(
+                    endpoint=f"{host.rstrip('/')}/i/v1/logs",
+                    headers={"Authorization": f"Bearer {project_token}"},
+                )
+            )
+        )
+        logger.addHandler(LoggingHandler(logger_provider=logger_provider))
+        return logger, logger_provider
+    except Exception:
+        logging.getLogger("saimon.api").warning(
+            "PostHog log exporter initialization failed", exc_info=True
+        )
+        return logger, None
+
+
+posthog_logs_logger, _posthog_log_provider = _configure_posthog_log_exporter()
+
+
+def _capture_event(event: str, properties: dict[str, Any] | None = None) -> None:
+    """Capture analytics without interrupting an API request on failure."""
+    if posthog_client is None:
+        return
+
+    try:
+        posthog_client.capture(event, properties=properties)
+    except Exception:
+        logging.getLogger("saimon.api").warning("PostHog capture failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +189,26 @@ async def _lifespan(app: FastAPI):
             logging.getLogger("saimon.api").warning("DB init failed: %s", e)
             _db_pool = None
 
+    posthog_logs_logger.info(
+        "api_service_started",
+        extra={"service": "api-mcp", "database_configured": _db_pool is not None},
+    )
     yield
+
+    posthog_logs_logger.info("api_service_stopping", extra={"service": "api-mcp"})
+    if _posthog_log_provider is not None:
+        try:
+            _posthog_log_provider.force_flush(timeout_millis=5000)
+            _posthog_log_provider.shutdown()
+        except Exception:
+            logging.getLogger("saimon.api").warning("PostHog log flush failed", exc_info=True)
+
+    # Flush PostHog events before the process exits.
+    if posthog_client is not None:
+        try:
+            posthog_client.flush()
+        except Exception:
+            logging.getLogger("saimon.api").warning("PostHog flush failed", exc_info=True)
 
     # Shutdown: close pool
     if _db_pool is not None:
@@ -115,6 +220,8 @@ async def _lifespan(app: FastAPI):
 
 
 app = FastAPI(title="api-mcp", version="0.1.0", lifespan=_lifespan)
+if posthog_client is not None:
+    app.add_middleware(PosthogASGIMiddleware, client=posthog_client)
 
 # ---------------------------------------------------------------------------
 # backend injection
@@ -272,6 +379,33 @@ def _verify_password(password: str, password_hash: str) -> bool:
 # JWT middleware dependency
 # ---------------------------------------------------------------------------
 
+def _identify_authenticated_user(
+    user_id: str,
+    *,
+    email: str,
+    display_name: str,
+    is_admin: bool,
+) -> None:
+    """Attach the authenticated user to the active request's PostHog context."""
+    if posthog_client is None:
+        return
+
+    try:
+        identify_context(user_id)
+        posthog_client.set(
+            distinct_id=user_id,
+            properties={
+                "$email": email,
+                "$name": display_name,
+                "is_admin": is_admin,
+            },
+        )
+    except Exception:
+        logging.getLogger("saimon.api").warning(
+            "PostHog identity update failed", exc_info=True
+        )
+
+
 async def _get_current_user(request: Request) -> dict:
     """Extract and validate Bearer token, return user dict from DB."""
     auth_header = request.headers.get("Authorization", "")
@@ -293,6 +427,17 @@ async def _get_current_user(request: Request) -> dict:
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
+    # The ASGI middleware owns this request's context. Bind the authenticated
+    # UUID as soon as it is available so downstream events and errors inherit it.
+    user_id = str(user_id)
+    if posthog_client is not None:
+        try:
+            identify_context(user_id)
+        except Exception:
+            logging.getLogger("saimon.api").warning(
+                "PostHog context identification failed", exc_info=True
+            )
+
     # Look up user in DB
     if _db_pool is not None:
         row = await _db_pool.fetchrow(
@@ -301,7 +446,15 @@ async def _get_current_user(request: Request) -> dict:
         )
         if row is None:
             raise HTTPException(status_code=401, detail="User not found")
-        return dict(row)
+
+        user = dict(row)
+        _identify_authenticated_user(
+            user_id,
+            email=user["email"],
+            display_name=user["display_name"],
+            is_admin=user["is_admin"],
+        )
+        return user
 
     raise HTTPException(status_code=401, detail="Database not available")
 
@@ -335,6 +488,10 @@ async def health():
             }
         except Exception:  # noqa: BLE001 — degrade to error state on any DB failure
             checks = {"database": "error"}
+    posthog_logs_logger.info(
+        "api_health_checked",
+        extra={"database_status": checks["database"]},
+    )
     return finalize_health({"status": "ok", "service": "api-mcp", "checks": checks})
 
 
@@ -378,6 +535,14 @@ async def register(body: RegisterRequest):
         password_hash,
     )
 
+    _identify_authenticated_user(
+        str(user_id),
+        email=body.email,
+        display_name=body.display_name,
+        is_admin=False,
+    )
+    _capture_event("user_registered")
+
     return {
         "user": {
             "id": str(user_id),
@@ -404,6 +569,12 @@ async def login(body: LoginRequest):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     user_id = str(row["id"])
+    _identify_authenticated_user(
+        user_id,
+        email=row["email"],
+        display_name=row["display_name"],
+        is_admin=row["is_admin"],
+    )
 
     # Create tokens
     access_token = _create_access_token(user_id, row["email"])
@@ -418,6 +589,7 @@ async def login(body: LoginRequest):
         user_id,
         expires_at,
     )
+    _capture_event("user_logged_in", {"is_admin": row["is_admin"]})
 
     return {
         "access_token": access_token,
@@ -448,6 +620,19 @@ async def token(body: TokenRefreshRequest):
     if payload.get("type") != "refresh":
         raise HTTPException(status_code=401, detail="Token is not a refresh token")
 
+    user_id = payload.get("sub")
+    email = payload.get("email", "")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid refresh token payload")
+
+    if posthog_client is not None:
+        try:
+            identify_context(str(user_id))
+        except Exception:
+            logging.getLogger("saimon.api").warning(
+                "PostHog context identification failed", exc_info=True
+            )
+
     # Verify refresh token exists in DB
     jti = payload.get("jti")
     if jti:
@@ -456,11 +641,6 @@ async def token(body: TokenRefreshRequest):
         )
         if stored is None:
             raise HTTPException(status_code=401, detail="Refresh token not found")
-
-    user_id = payload.get("sub")
-    email = payload.get("email", "")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid refresh token payload")
 
     # Look up email if not in payload (refresh tokens may not carry email)
     if not email:
@@ -471,6 +651,7 @@ async def token(body: TokenRefreshRequest):
             email = row["email"]
 
     access_token = _create_access_token(str(user_id), email)
+    _capture_event("access_token_refreshed")
     return {"access_token": access_token, "token_type": "bearer"}
 
 
@@ -533,6 +714,10 @@ async def create_session(request: Request, body: CreateSessionRequest | None = N
         session_id,
         user_id,
         title,
+    )
+    _capture_event(
+        "chat_session_created",
+        {"has_custom_title": title != "New Chat", "title_length": len(title)},
     )
 
     return {
@@ -658,6 +843,10 @@ async def add_message(session_id: str, body: AddMessageRequest, request: Request
     await _db_pool.execute(
         "UPDATE chat_sessions SET updated_at = NOW() WHERE id = $1", session_id
     )
+    _capture_event(
+        "chat_message_added",
+        {"message_role": body.role, "content_length": len(body.content)},
+    )
 
     return {
         "message": {
@@ -692,6 +881,7 @@ async def update_session(session_id: str, body: UpdateSessionRequest, request: R
         body.title,
         session_id,
     )
+    _capture_event("chat_session_updated", {"title_length": len(body.title)})
 
     # Return updated session
     updated = await _db_pool.fetchrow(
@@ -733,6 +923,7 @@ async def delete_session(session_id: str, request: Request):
         raise HTTPException(status_code=403, detail="Access denied")
 
     await _db_pool.execute("DELETE FROM chat_sessions WHERE id = $1", session_id)
+    _capture_event("chat_session_deleted")
 
 
 # ---------------------------------------------------------------------------
@@ -777,6 +968,15 @@ async def create_document(body: CreateDocumentRequest, request: Request):
         """INSERT INTO documents (id, user_id, session_id, title, content, content_type)
            VALUES ($1, $2, $3, $4, $5, $6)""",
         doc_id, user_id, body.session_id, body.title, body.content, body.content_type,
+    )
+    _capture_event(
+        "document_created",
+        {
+            "content_type": body.content_type,
+            "content_length": len(body.content),
+            "has_session": body.session_id is not None,
+            "title_length": len(body.title),
+        },
     )
 
     return {
@@ -933,6 +1133,20 @@ async def update_document(document_id: str, body: UpdateDocumentRequest, request
             f"UPDATE documents SET {set_clause} WHERE id = ${idx}",
             *params,
         )
+        _capture_event(
+            "document_updated",
+            {
+                "updated_fields": [
+                    field
+                    for field, value in (
+                        ("title", body.title),
+                        ("content", body.content),
+                        ("metadata", body.metadata),
+                    )
+                    if value is not None
+                ]
+            },
+        )
 
     # Return updated document
     updated = await _db_pool.fetchrow(
@@ -976,4 +1190,5 @@ async def delete_document(document_id: str, request: Request):
         raise HTTPException(status_code=403, detail="Access denied")
 
     await _db_pool.execute("DELETE FROM documents WHERE id = $1", document_id)
+    _capture_event("document_deleted")
 

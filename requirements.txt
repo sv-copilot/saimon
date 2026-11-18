@@ -21,3 +21,7 @@ pyjwt==2.15.1
 bcrypt==4.2.1
 boto3==1.35.92
 pypdf>=4.2.0
+posthog>=7.69.0,<8
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-exporter-otlp

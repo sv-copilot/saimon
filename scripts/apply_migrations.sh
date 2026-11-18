@@ -40,8 +40,17 @@ psql_invoke() {
     fi
 }
 
-psql_run() { psql_invoke query -At "$@"; }
-psql_file() { psql_invoke exec -q -f -; }
+# stdin is closed for every call: the deploy pipes this script into `bash -s`,
+# so a client that reads stdin consumes the rest of the deploy script and the
+# job "succeeds" after applying migrations without ever restarting a service.
+psql_run() { psql_invoke query -At "$@" < /dev/null; }
+
+# SQL is passed as an argument rather than on stdin for the same reason.
+apply_file() {
+    local sql
+    sql="$(cat "$1")"
+    psql_invoke exec -q -c "$sql" < /dev/null
+}
 
 psql_run -c "CREATE TABLE IF NOT EXISTS schema_migrations (
     version text PRIMARY KEY,
@@ -87,7 +96,7 @@ for file in "${files[@]}"; do
     fi
 
     echo "applying: $version"
-    if ! psql_file < "$file"; then
+    if ! apply_file "$file"; then
         echo "FAILED: $version" >&2
         exit 1
     fi

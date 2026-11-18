@@ -59,6 +59,7 @@ SOURCES = [
     Source("needle", "/src/needle", "novel_canon", "novel_canon", "work/needle"),
     Source("kdp", "/src/kdp", "kdp", "kdp_listing", "work/hand-recovery"),
     Source("saimon_self", "/src/saimon", "saimon_self", "product_doc", "saimon"),
+    Source("reference", "/src/reference", "reference", "reference_article", "reference"),
     Source("site_pages", "/src/sitepages", "site_content", "page", "spencervaradi-site/src/pages"),
     Source("site_data", "/src/sitedata", "site_content", "site_data", "spencervaradi-site/src/data"),
     Source("writer_rules", "/src/writer_rules", "writing_rules", "style_rule",

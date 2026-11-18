@@ -588,7 +588,11 @@ async def _retrieve_and_rerank(
 
     # Retrieve a broader candidate pool than the final top-K so the reranker
     # can narrow by relevance rather than by adapter order.
-    candidate_limit = max(limit * 2, config.top_k)
+    # Twice the requested depth was six candidates for a limit of three: the
+    # right document had to be in the top three of each path to survive at all.
+    # A wider pool costs one pass over the candidates and lets the reranker
+    # actually rank instead of choosing between what happened to arrive.
+    candidate_limit = max(limit * 4, config.top_k * 2)
 
     candidates = await _search_candidates(query, candidate_limit, user_id, fact_filter, universe_ids)
     if not allow_failed:

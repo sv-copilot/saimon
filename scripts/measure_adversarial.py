@@ -60,7 +60,13 @@ def main() -> int:
         results = data.get("results") or []
         blob = " ".join((r.get("body") or "") + " " + (r.get("title") or "")
                         for r in results).lower()
-        has_correction = any(token.lower() in blob for token in task.get("correction", []))
+        # The retrieval layer counts as having caught the premise when it either
+        # returns the fact that contradicts the question, or flags the conflict
+        # outright ("the corpus says eleven, you said twelve").
+        conflict = bool(data.get("premise_conflict"))
+        has_correction = conflict or any(
+            token.lower() in blob for token in task.get("correction", [])
+        )
         if not results:
             outcome = "silent"
             silent += 1
@@ -71,6 +77,8 @@ def main() -> int:
             outcome = "fooled"
             fooled += 1
         rows.append({"id": task["id"], "outcome": outcome, "hits": len(results),
+                     "conflict": conflict,
+                     "numbers": data.get("conflicting_numbers") or [],
                      "top": (results[0].get("title") if results else None)})
 
     total = len(tasks)

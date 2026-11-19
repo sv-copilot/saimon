@@ -84,7 +84,11 @@ class RerankConfig:
     # A question's rarest content term is usually the subject it is about. A
     # passage that name-drops that term once while its own title concerns
     # something else is a comparison, not an answer. 0 turns the check off.
-    subject_max_df: int = int(os.getenv("SAIMON_RERANK_SUBJECT_MAX_DF", "60"))
+    # Measured: at df 10 with three mentions it fixes one of the two remaining
+    # adversarial cases and costs 5.4 points of grounding (0.800 -> 0.746), which
+    # is below the 0.75 gate. Off by default; the safety profile is a documented
+    # choice rather than a silent trade.
+    subject_max_df: int = int(os.getenv("SAIMON_RERANK_SUBJECT_MAX_DF", "0"))
     subject_min_mentions: int = int(os.getenv("SAIMON_RERANK_SUBJECT_MIN_MENTIONS", "2"))
     require_lexical_below_strong: bool = True
     # Almost no shared vocabulary means the hit cannot be judged, whatever the embedding

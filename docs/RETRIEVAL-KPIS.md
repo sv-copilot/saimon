@@ -25,3 +25,25 @@ Coverage is the safety dial, not a free parameter: 0.25 → 0.55 raises abstenti
 and cuts grounding from 0.800 to 0.618. For client-facing use where a confident wrong answer is
 expensive, `SAIMON_RERANK_MIN_COVERAGE=0.55` is the profile to run; for an operator who will read the
 sources, 0.25 answers more questions.
+
+## The subject check (2026-11-19)
+
+Two adversarial cases survived the IDF work: `a-twelve` and `a-heroku`. Both are subject
+mismatches — the passage contains every word of the question while being about something else.
+`a-heroku` returned a Coolify comparison note because it is the corpus's only sentence containing
+"Heroku".
+
+A deterministic check: a question's rarest measured content term (df ≤ N, alphabetic, ≥ 4 chars) must
+be evidenced by the document itself — in its title, its path, or mentioned M times in the passage.
+
+| N / M | grounding | recall@8 | MRR | abstention | adversarial defended |
+|---|---|---|---|---|---|
+| off | **0.800** | **0.958** | **0.899** | 0.571 | 0.875 |
+| 20 / 2 | 0.709 | 0.833 | 0.802 | 0.786 | 0.938 |
+| 10 / 3 | 0.746 | 0.875 | 0.816 | 0.786 | 0.938 |
+| 60 / 3 | 0.636 | 0.667 | 0.667 | 0.929 | 0.938 |
+
+Every setting fixes exactly one adversarial case and costs between 5 and 16 points of grounding.
+Default is **off**: the check fixes a real failure but is not free, and 0.746 sits just under the
+0.75 gate. `SAIMON_RERANK_SUBJECT_MAX_DF=10 SAIMON_RERANK_SUBJECT_MIN_MENTIONS=3` is the profile for
+a pipeline where a confident wrong sentence is more expensive than a missing answer.

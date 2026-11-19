@@ -69,3 +69,22 @@ class TestAbsentTermRefuses:
             corpus_size=10000,
         )
         assert outcome.abstain_reason != "absent_term"
+
+
+class TestWeightsCannotRefuseEverything:
+    """A negative weight made every query abstain — the gate looked strict, not broken."""
+
+    def test_weights_are_positive_whatever_the_frequency(self):
+        weights = idf_weights(
+            {"saimon": 1600, "knowledge": 2000, "heroku": 1}, 24000,
+            ["saimon", "knowledge", "heroku"],
+        )
+        assert all(value > 0.0 for value in weights.values())
+
+    def test_a_frequent_term_still_covers_its_own_passage(self):
+        weights = idf_weights({"saimon": 1600}, 24000, ["saimon"])
+        assert lexical_coverage("saimon", "saimon runs on hetzner", weights) == 1.0
+
+    def test_no_corpus_size_means_equal_weights(self):
+        weights = idf_weights({"a": 9000, "b": 3}, None, ["a", "b"])
+        assert weights == {"a": 1.0, "b": 1.0}

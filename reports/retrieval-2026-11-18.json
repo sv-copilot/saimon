@@ -1,0 +1,224 @@
+{
+ "k": 8,
+ "tasks": {
+  "answerable": 55,
+  "unanswerable": 14
+ },
+ "grounding_at_k": 0.7636,
+ "recall_at_k": 0.9167,
+ "mrr": 0.8576,
+ "gold_tasks": 24,
+ "abstention_rate": 0.5714,
+ "false_answers": [
+  "u-redis",
+  "u-audio-royalty",
+  "u-editor",
+  "u-enterprise",
+  "u-saffron",
+  "u-latitude"
+ ],
+ "latency_p50_ms": 418.1,
+ "latency_p95_ms": 577.5,
+ "by_collection": {
+  "drake_pmo": {
+   "n": 2,
+   "grounded": 1,
+   "recalled": 0,
+   "grounding": 0.5,
+   "recall": 0.0
+  },
+  "drake_public": {
+   "n": 2,
+   "grounded": 1,
+   "recalled": 0,
+   "grounding": 0.5,
+   "recall": 0.0
+  },
+  "governance": {
+   "n": 10,
+   "grounded": 7,
+   "recalled": 0,
+   "grounding": 0.7,
+   "recall": 0.0
+  },
+  "kdp": {
+   "n": 2,
+   "grounded": 2,
+   "recalled": 0,
+   "grounding": 1.0,
+   "recall": 0.0
+  },
+  "novel_canon": {
+   "n": 4,
+   "grounded": 1,
+   "recalled": 0,
+   "grounding": 0.25,
+   "recall": 0.0
+  },
+  "reference": {
+   "n": 24,
+   "grounded": 21,
+   "recalled": 22,
+   "grounding": 0.875,
+   "recall": 0.917
+  },
+  "site_content": {
+   "n": 4,
+   "grounded": 4,
+   "recalled": 0,
+   "grounding": 1.0,
+   "recall": 0.0
+  },
+  "vault": {
+   "n": 6,
+   "grounded": 5,
+   "recalled": 0,
+   "grounding": 0.833,
+   "recall": 0.0
+  },
+  "writing": {
+   "n": 1,
+   "grounded": 0,
+   "recalled": 0,
+   "grounding": 0.0,
+   "recall": 0.0
+  }
+ },
+ "misses": [
+  {
+   "id": "g-039-ingest",
+   "collection": "governance",
+   "missing": [
+    "ingest",
+    "portfolio"
+   ],
+   "gold_rank": 0,
+   "hits": 8,
+   "abstain": null
+  },
+  {
+   "id": "g-branch-model",
+   "collection": "governance",
+   "missing": [
+    "branch"
+   ],
+   "gold_rank": 0,
+   "hits": 0,
+   "abstain": "coverage"
+  },
+  {
+   "id": "g-watchdog",
+   "collection": "governance",
+   "missing": [
+    "health"
+   ],
+   "gold_rank": 0,
+   "hits": 0,
+   "abstain": "no_lexical_support"
+  },
+  {
+   "id": "v-element451",
+   "collection": "vault",
+   "missing": [
+    "element451"
+   ],
+   "gold_rank": 0,
+   "hits": 0,
+   "abstain": "missing_subject"
+  },
+  {
+   "id": "n-opening",
+   "collection": "novel_canon",
+   "missing": [
+    "pan",
+    "dusk"
+   ],
+   "gold_rank": 0,
+   "hits": 8,
+   "abstain": null
+  },
+  {
+   "id": "n-protagonist",
+   "collection": "novel_canon",
+   "missing": [
+    "cal",
+    "mulgrew"
+   ],
+   "gold_rank": 0,
+   "hits": 0,
+   "abstain": "no_lexical_support"
+  },
+  {
+   "id": "n-continuity",
+   "collection": "novel_canon",
+   "missing": [
+    "stub"
+   ],
+   "gold_rank": 0,
+   "hits": 0,
+   "abstain": "coverage"
+  },
+  {
+   "id": "n-chapters",
+   "collection": "writing",
+   "missing": [
+    "chapter"
+   ],
+   "gold_rank": 0,
+   "hits": 0,
+   "abstain": "coverage"
+  },
+  {
+   "id": "d-harnesses",
+   "collection": "drake_public",
+   "missing": [
+    "codex"
+   ],
+   "gold_rank": 0,
+   "hits": 8,
+   "abstain": null
+  },
+  {
+   "id": "p-work-order",
+   "collection": "drake_pmo",
+   "missing": [
+    "acceptance"
+   ],
+   "gold_rank": 0,
+   "hits": 8,
+   "abstain": null
+  },
+  {
+   "id": "c-maillard",
+   "collection": "reference",
+   "missing": [
+    "amino"
+   ],
+   "gold_rank": 4,
+   "hits": 8,
+   "abstain": null
+  },
+  {
+   "id": "m-kanban",
+   "collection": "reference",
+   "missing": [
+    "work in progress",
+    "visual"
+   ],
+   "gold_rank": 0,
+   "hits": 0,
+   "abstain": "missing_subject"
+  },
+  {
+   "id": "f-ar",
+   "collection": "reference",
+   "missing": [
+    "invoice",
+    "payment"
+   ],
+   "gold_rank": 0,
+   "hits": 0,
+   "abstain": "coverage"
+  }
+ ]
+}

@@ -74,6 +74,12 @@ class RerankConfig:
     max_requery: int = DEFAULT_MAX_REQUERY
     lexical_weight: float = DEFAULT_LEXICAL_WEIGHT
     semantic_weight: float = DEFAULT_SEMANTIC_WEIGHT
+    # A document's chunks are near-duplicates. Eight of them is one paragraph
+    # repeated while the sentence that answers the question sits in the ninth.
+    max_chunks_per_document: int = 3
+    # A query term in the title is a stronger signal than the same term in a
+    # long body: the document is about it.
+    title_weight: float = 0.08
     require_lexical_below_strong: bool = True
     # Almost no shared vocabulary means the hit cannot be judged, whatever the embedding
     # says. Calibrated, not guessed: a majority requirement (0.5) refused legitimate
@@ -523,8 +529,12 @@ def rerank(
         if similarity is not None:
             semantic = max(0.0, min(1.0, float(similarity)))
 
+        title_terms = set(content_tokens(str(candidate.get("title") or "")))
+        query_terms = set(support_tokens(query))
+        overlap = len(query_terms.intersection(title_terms)) / len(query_terms) if query_terms else 0.0
         final_score = (
             cfg.lexical_weight * lexical_norm + cfg.semantic_weight * semantic
+            + cfg.title_weight * overlap
         )
 
         item = dict(candidate)
@@ -535,6 +545,23 @@ def rerank(
         scored.append(item)
 
     scored.sort(key=lambda r: r["relevance_score"], reverse=True)
+
+    # Cap how many chunks one document may contribute, keeping the ranked order
+    # otherwise intact. Grounding is a question about coverage, and coverage is
+    # what a list of nine near-identical chunks cannot provide.
+    def _document_key(item: dict) -> str:
+        return str(item.get("title") or "").split(" [")[0].strip().lower()
+
+    diversified: list[dict] = []
+    seen: dict[str, int] = {}
+    for item in scored:
+        key = _document_key(item)
+        if seen.get(key, 0) >= cfg.max_chunks_per_document:
+            continue
+        seen[key] = seen.get(key, 0) + 1
+        diversified.append(item)
+    if len(diversified) >= k:
+        scored = diversified
     lexical_support = (
         has_lexical_support(query, _passage_text(scored[0])) if scored else True
     )

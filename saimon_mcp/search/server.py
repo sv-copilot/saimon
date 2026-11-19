@@ -701,6 +701,11 @@ async def _retrieve_and_rerank(
         "abstain_reason": outcome.abstain_reason,
         "lexical_support": outcome.lexical_support,
         "requery_count": requery_count,
+        # The passage is about the right thing and states a different number
+        # than the question does. A generator that ignores this writes the
+        # question's premise back as if it were the corpus's answer.
+        "premise_conflict": outcome.premise_conflict,
+        "conflicting_numbers": outcome.conflicting_numbers,
     }
 
 

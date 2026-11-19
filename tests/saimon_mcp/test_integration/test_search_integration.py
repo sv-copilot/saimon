@@ -188,15 +188,19 @@ class TestSearchUserScoping:
             headers={"X-Saimon-API-Key": api_key},
         )
         assert response.status_code == 200
-        # Verify SQL includes "user_id IS NULL" clause
+        # Verify the retrieval SQL includes the "user_id IS NULL" clause. Every
+        # executed statement is inspected: the request also reads corpus
+        # statistics, which are global by nature and carry no scoping.
         mock_db.fetch.assert_called()
-        sql = mock_db.fetch.call_args[0][0]
-        assert "user_id IS NULL" in sql, (
-            f"Default search should filter to shared-only: {sql}"
+        statements = [call[0][0] for call in mock_db.fetch.call_args_list]
+        scoped = [sql for sql in statements if "user_id IS NULL" in sql]
+        assert scoped, (
+            "Default search should filter to shared-only: " f"{statements}"
         )
-        # Should NOT have "user_id = " (only IS NULL)
-        assert "user_id = $" not in sql, (
-            f"Should not include user_id = param when no user_id given: {sql}"
+        # Should NOT have "user_id = $" (only IS NULL)
+        assert not [statement for statement in statements if "user_id = $" in statement], (
+            "Should not include user_id = param when no user_id given: "
+            f"{statements}"
         )
 
     def test_search_with_user_id_returns_user_plus_shared(
@@ -233,9 +237,14 @@ class TestSearchUserScoping:
         )
         assert response.status_code == 200
         mock_db.fetch.assert_called()
-        sql = mock_db.fetch.call_args[0][0]
-        assert "user_id = $" in sql or "user_id = $1" in sql, (
-            f"Search with user_id should include user_id = param: {sql}"
+        statements = [call[0][0] for call in mock_db.fetch.call_args_list]
+        sql = next(
+            (statement for statement in statements if "user_id = $" in statement
+             or "user_id = $1" in statement),
+            "",
+        )
+        assert sql, (
+            f"Search with user_id should include user_id = param: {statements}"
         )
         assert "user_id IS NULL" in sql, (
             f"Search with user_id should also include shared: {sql}"

@@ -37,6 +37,8 @@ WHERE body ~* ('\\m' || $1 || '\\M')
 COUNT_CHUNKS_SQL = "SELECT count(*) AS n FROM knowledge_graph_nodes"
 
 _lookup_cache: dict[str, int] = {}
+_size_cache: int | None = None
+_size_cache: int | None = None
 
 
 async def _ensure_table(pool: Any) -> bool:
@@ -87,12 +89,16 @@ async def corpus_term_stats(
             LOGGER.warning("corpus_term_df read failed; counting directly")
             missing = [term for term in missing if term not in known]
 
-    if missing:
+    global _size_cache
+    if corpus_size is None:
+        corpus_size = _size_cache
+    if corpus_size is None:
         try:
             row = await pool.fetchrow(COUNT_CHUNKS_SQL)
-            corpus_size = int(row["n"]) if row else corpus_size
+            corpus_size = int(row["n"]) if row else None
+            _size_cache = corpus_size
         except Exception:  # noqa: BLE001
-            LOGGER.warning("chunk count unavailable; idf uses the stored size")
+            LOGGER.warning("chunk count unavailable; idf uses a placeholder size")
         for term in missing:
             try:
                 counted = await pool.fetchrow(COUNT_DF_SQL, term)
@@ -127,9 +133,16 @@ def idf_weights(
     rather than 0.0, so coverage never divides by zero and a query made entirely
     of common words still has an arithmetic meaning.
     """
-    size = max(int(corpus_size or 0), 1)
+    if not corpus_size:
+        # Without a corpus size there is no frequency to compare against. Equal
+        # weights leave the gate exactly as it was rather than inventing one.
+        return {term: 1.0 for term in terms}
+    size = max(int(corpus_size), 1)
     weights: dict[str, float] = {}
     for term in terms:
         df = int(document_frequency.get(term, 0))
-        weights[term] = math.log((size + 1) / (df + 1)) + 1.0
+        # Positive by construction: log(1 + N/(df+1)) is 0.69 for a term in every
+        # chunk and grows without bound for a term in none. A formula that can go
+        # negative turns a weak match into a total refusal.
+        weights[term] = math.log(1.0 + size / (df + 1.0))
     return weights

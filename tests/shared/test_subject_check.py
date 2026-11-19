@@ -19,6 +19,7 @@ def cand(title: str, body: str, similarity: float = 0.95, path: str = "") -> dic
     }
 
 
+SUBJECT_ON = RerankConfig(subject_max_df=60, subject_min_mentions=2)
 DF = {"saimon": 1600, "move": 500, "heroku": 1, "coolify": 40, "paas": 90}
 
 QUESTION = "When did Saimon move off Heroku?"
@@ -31,7 +32,7 @@ class TestSubjectCheck:
             "Coolify is a self-hosted PaaS. Alternatives include Heroku, which "
             "charges per dyno. Saimon runs elsewhere; the move was not recorded.",
         )
-        outcome = rerank(QUESTION, [note], RerankConfig(), corpus_df=DF, corpus_size=24000)
+        outcome = rerank(QUESTION, [note], SUBJECT_ON, corpus_df=DF, corpus_size=24000)
         assert outcome.fail_safe_fired
         assert outcome.abstain_reason == "subject"
         assert outcome.ranked == []
@@ -42,7 +43,7 @@ class TestSubjectCheck:
             "Saimon moved off Heroku in March and now runs on Hetzner.",
             path="governance/heroku-migration.md",
         )
-        outcome = rerank(QUESTION, [note], RerankConfig(), corpus_df=DF, corpus_size=24000)
+        outcome = rerank(QUESTION, [note], SUBJECT_ON, corpus_df=DF, corpus_size=24000)
         assert outcome.abstain_reason != "subject"
         assert outcome.ranked
 
@@ -51,7 +52,7 @@ class TestSubjectCheck:
             "Infrastructure notes",
             "We left Heroku. Heroku billed per dyno and the Saimon move saved money.",
         )
-        outcome = rerank(QUESTION, [note], RerankConfig(), corpus_df=DF, corpus_size=24000)
+        outcome = rerank(QUESTION, [note], SUBJECT_ON, corpus_df=DF, corpus_size=24000)
         assert outcome.abstain_reason != "subject"
 
     def test_a_common_rarest_term_skips_the_check(self):
@@ -68,3 +69,8 @@ class TestSubjectCheck:
             corpus_df=DF, corpus_size=24000,
         )
         assert outcome.abstain_reason != "subject"
+
+
+    def test_the_default_is_off(self):
+        """It fixes one adversarial case and costs five points of grounding."""
+        assert RerankConfig().subject_max_df == 0

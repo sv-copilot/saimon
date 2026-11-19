@@ -536,21 +536,37 @@ def query_numerals(query: str) -> set[str]:
     return _numerals(query)
 
 
-def numeral_conflict(query: str, passage: str) -> tuple[bool, list[str]]:
-    """Does the passage assert a different number than the question does?
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
-    True only when the question names a number, the passage does not contain it,
-    and the passage names a different one. A passage with no numbers at all is
-    silent on the claim, not in conflict with it.
+
+def numeral_conflict(query: str, passage: str) -> tuple[bool, list[str]]:
+    """Does the passage assert a different number *about the same thing*?
+
+    A number anywhere in the passage is not evidence: a chronology note full of
+    years would contradict every question in the corpus. The comparison runs per
+    sentence, and only sentences that share at least two of the question's terms
+    count. That keeps "which twelve states" against "eleven states, from shaped
+    to archived" and drops "written in 2021" from the argument.
     """
     asked = query_numerals(query)
     if not asked:
         return False, []
-    stated = _numerals(passage)
-    if asked & stated:
+    terms = {_fold_plural(token) for token in support_tokens(query)} - asked
+    if not terms:
         return False, []
-    differing = sorted(stated - asked)
-    return (bool(differing), differing[:3])
+
+    passages = [passage] if len(passage) < 400 else _SENTENCE_SPLIT.split(passage)
+    for sentence in passages:
+        shared = terms & {_fold_plural(t) for t in content_tokens(sentence)}
+        if len(shared) < 2:
+            continue
+        stated = _numerals(sentence)
+        if asked & stated:
+            return False, []
+        differing = sorted(number for number in stated if number not in {"0", "1"})
+        if differing:
+            return True, differing[:3]
+    return False, []
 
 
 def _subject_evidenced(

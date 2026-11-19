@@ -84,8 +84,8 @@ class RerankConfig:
     # A question's rarest content term is usually the subject it is about. A
     # passage that name-drops that term once while its own title concerns
     # something else is a comparison, not an answer. 0 turns the check off.
-    subject_max_df: int = 60
-    subject_min_mentions: int = 2
+    subject_max_df: int = int(os.getenv("SAIMON_RERANK_SUBJECT_MAX_DF", "60"))
+    subject_min_mentions: int = int(os.getenv("SAIMON_RERANK_SUBJECT_MIN_MENTIONS", "2"))
     require_lexical_below_strong: bool = True
     # Almost no shared vocabulary means the hit cannot be judged, whatever the embedding
     # says. Calibrated, not guessed: a majority requirement (0.5) refused legitimate

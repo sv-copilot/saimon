@@ -119,6 +119,10 @@ class RerankConfig:
             lexical_weight=float(
                 os.getenv("SAIMON_RERANK_LEXICAL_WEIGHT", str(DEFAULT_LEXICAL_WEIGHT))
             ),
+            max_chunks_per_document=int(
+                os.getenv("SAIMON_RERANK_MAX_CHUNKS_PER_DOC", "3")
+            ),
+            title_weight=float(os.getenv("SAIMON_RERANK_TITLE_WEIGHT", "0.08")),
             semantic_weight=float(
                 os.getenv("SAIMON_RERANK_SEMANTIC_WEIGHT", str(DEFAULT_SEMANTIC_WEIGHT))
             ),

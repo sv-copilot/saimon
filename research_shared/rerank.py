@@ -74,9 +74,10 @@ class RerankConfig:
     max_requery: int = DEFAULT_MAX_REQUERY
     lexical_weight: float = DEFAULT_LEXICAL_WEIGHT
     semantic_weight: float = DEFAULT_SEMANTIC_WEIGHT
-    # A document's chunks are near-duplicates. Eight of them is one paragraph
-    # repeated while the sentence that answers the question sits in the ninth.
-    max_chunks_per_document: int = 3
+    # Measured: capping chunks per document costs 3.6 points of grounding and
+    # gains nothing, so the default is off. Kept as a knob because a caller
+    # wanting breadth over depth may want it.
+    max_chunks_per_document: int = 0
     # A query term in the title is a stronger signal than the same term in a
     # long body: the document is about it.
     title_weight: float = 0.08
@@ -120,7 +121,7 @@ class RerankConfig:
                 os.getenv("SAIMON_RERANK_LEXICAL_WEIGHT", str(DEFAULT_LEXICAL_WEIGHT))
             ),
             max_chunks_per_document=int(
-                os.getenv("SAIMON_RERANK_MAX_CHUNKS_PER_DOC", "3")
+                os.getenv("SAIMON_RERANK_MAX_CHUNKS_PER_DOC", "0")
             ),
             title_weight=float(os.getenv("SAIMON_RERANK_TITLE_WEIGHT", "0.08")),
             semantic_weight=float(

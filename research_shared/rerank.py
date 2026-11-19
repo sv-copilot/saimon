@@ -533,8 +533,16 @@ def rerank(
         # Only a term the statistics actually looked at can be called absent.
         # A token missing from the map was never measured, and guessing that it
         # is absent would refuse every reformulated query.
+        # Numbers, years and short fragments are not evidence of a false premise:
+        # "039" missing from the vocabulary says nothing about whether the corpus
+        # discusses cycle 39. Only a real word the corpus has never used counts.
         absent_terms = sorted(
-            term for term in support if term in folded_df and folded_df[term] == 0
+            term
+            for term in support
+            if term in folded_df
+            and folded_df[term] == 0
+            and term.isalpha()
+            and len(term) >= 4
         )
         corpus_weights = idf_weights(
             {term: folded_df.get(term, 0) for term in support}, corpus_size, support

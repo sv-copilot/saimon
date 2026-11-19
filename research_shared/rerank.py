@@ -81,6 +81,11 @@ class RerankConfig:
     # A query term in the title is a stronger signal than the same term in a
     # long body: the document is about it.
     title_weight: float = 0.08
+    # A question's rarest content term is usually the subject it is about. A
+    # passage that name-drops that term once while its own title concerns
+    # something else is a comparison, not an answer. 0 turns the check off.
+    subject_max_df: int = 60
+    subject_min_mentions: int = 2
     require_lexical_below_strong: bool = True
     # Almost no shared vocabulary means the hit cannot be judged, whatever the embedding
     # says. Calibrated, not guessed: a majority requirement (0.5) refused legitimate
@@ -491,6 +496,44 @@ def abstain_reason(
     return None
 
 
+def _subject_evidenced(
+    query: str,
+    candidate: dict[str, Any],
+    corpus_df: dict[str, int],
+    config: RerankConfig,
+) -> bool:
+    """Does this document *concern* the rarest subject the question names?
+
+    Distinguishes a document about Heroku from a document that mentions Heroku
+    once while discussing something else. Only rare terms qualify: a query whose
+    rarest word appears in hundreds of chunks has no single subject to check.
+    """
+    if config.subject_max_df <= 0:
+        return True
+    support = {_fold_plural(token) for token in support_tokens(query)}
+    folded_df = {_fold_plural(term): count for term, count in corpus_df.items()}
+    measured = {term: folded_df[term] for term in support if term in folded_df}
+    if not measured:
+        return True
+    subject = min(measured, key=lambda term: measured[term])
+    if measured[subject] > config.subject_max_df:
+        return True
+
+    metadata = candidate.get("metadata") or {}
+    path = str(metadata.get("path") or "") if isinstance(metadata, dict) else ""
+    title = str(candidate.get("title") or "")
+    if subject in title.lower() or subject in path.lower():
+        return True
+
+    body = str(candidate.get("body") or "").lower()
+    hits = len(re.findall(r"\b" + re.escape(subject) + r"\b", body))
+    if hits >= config.subject_min_mentions:
+        return True
+    # A plural or inflection of the subject counts as mentioning it.
+    stem = subject[:-1] if subject.endswith("s") and len(subject) > 4 else subject
+    return stem != subject and len(re.findall(r"\b" + re.escape(stem), body)) >= config.subject_min_mentions
+
+
 def rerank(
     query: str,
     candidates: list[dict[str, Any]],
@@ -644,6 +687,20 @@ def rerank(
     )
     second_score = float(scored[1]["relevance_score"]) if len(scored) > 1 else 0.0
     ranked = [] if fail_safe_fired else scored[:k]
+
+    # Subject check last: the words are all there, but the document may be about
+    # something else. Drop a passage whose own subject differs from the question's
+    # and take the next one; if none survives, the honest answer is nothing.
+    if ranked and corpus_df is not None and not fail_safe_fired:
+        supported = [
+            item for item in ranked if _subject_evidenced(query, item, corpus_df, cfg)
+        ]
+        if not supported:
+            fail_safe_fired = True
+            reason = "subject"
+            ranked = []
+        else:
+            ranked = supported
 
     return RerankOutcome(
         ranked=ranked,

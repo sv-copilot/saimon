@@ -60,8 +60,10 @@ async def corpus_term_stats(
     if not wanted or pool is None:
         return {}, corpus_size
 
-    if not await _ensure_table(pool):
-        return {}, corpus_size
+    # A missing cache costs latency, not correctness. Counting every query is
+    # slow; returning nothing because the cache table could not be created would
+    # silently disable the weighting while looking like it worked.
+    cache_ok = await _ensure_table(pool)
 
     known: dict[str, int] = {}
     missing: list[str] = []
@@ -71,7 +73,7 @@ async def corpus_term_stats(
         else:
             missing.append(term)
 
-    if missing:
+    if missing and cache_ok:
         try:
             rows = await pool.fetch(
                 "SELECT term, df FROM corpus_term_df WHERE term = ANY($1::text[])",
@@ -100,6 +102,8 @@ async def corpus_term_stats(
                 continue
             known[term] = df
             _lookup_cache[term] = df
+            if not cache_ok:
+                continue
             try:
                 await pool.execute(
                     "INSERT INTO corpus_term_df (term, df) VALUES ($1, $2) "

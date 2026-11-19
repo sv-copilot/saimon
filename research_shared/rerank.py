@@ -20,7 +20,7 @@ import math
 import os
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -152,6 +152,12 @@ class RerankOutcome:
     fail_safe_fired: bool
     lexical_support: bool = True
     abstain_reason: str | None = None
+    # A number in the question that the passage contradicts: "which twelve
+    # lifecycle states" against a passage that says eleven. The passage is the
+    # right subject and the wrong premise, which is exactly the case a coverage
+    # gate cannot see and a generator will happily write over.
+    premise_conflict: bool = False
+    conflicting_numbers: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -500,6 +506,53 @@ def abstain_reason(
     return None
 
 
+_NUMBER_WORDS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+    "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "hundred": 100,
+    "thousand": 1000,
+}
+_NUMERAL_RE = re.compile(r"[a-z]+|\d+")
+
+
+def _numerals(text: str) -> set[str]:
+    """Number words and digits, normalised to their string form.
+
+    "12" and "twelve" are the same claim; a comparison that missed that would
+    read a digit passage as contradicting a worded question.
+    """
+    found: set[str] = set()
+    for token in _NUMERAL_RE.findall(text.lower()):
+        if token.isdigit():
+            found.add(str(int(token)))
+        elif token in _NUMBER_WORDS:
+            found.add(str(_NUMBER_WORDS[token]))
+    return found
+
+
+def query_numerals(query: str) -> set[str]:
+    return _numerals(query)
+
+
+def numeral_conflict(query: str, passage: str) -> tuple[bool, list[str]]:
+    """Does the passage assert a different number than the question does?
+
+    True only when the question names a number, the passage does not contain it,
+    and the passage names a different one. A passage with no numbers at all is
+    silent on the claim, not in conflict with it.
+    """
+    asked = query_numerals(query)
+    if not asked:
+        return False, []
+    stated = _numerals(passage)
+    if asked & stated:
+        return False, []
+    differing = sorted(stated - asked)
+    return (bool(differing), differing[:3])
+
+
 def _subject_evidenced(
     query: str,
     candidate: dict[str, Any],
@@ -621,12 +674,21 @@ def rerank(
         if similarity is not None:
             semantic = max(0.0, min(1.0, float(similarity)))
 
+        asked_numbers = query_numerals(query)
+        passage_body = _passage_text(candidate)
+        if asked_numbers and asked_numbers & _numerals(passage_body):
+            # The passage states the number the question asks about: it is
+            # answering this question, not a neighbouring one.
+            final_score_bonus = 0.05
+        else:
+            final_score_bonus = 0.0
         title_terms = set(content_tokens(str(candidate.get("title") or "")))
         query_terms = set(support_tokens(query))
         overlap = len(query_terms.intersection(title_terms)) / len(query_terms) if query_terms else 0.0
         final_score = (
             cfg.lexical_weight * lexical_norm + cfg.semantic_weight * semantic
             + cfg.title_weight * overlap
+            + final_score_bonus
         )
 
         item = dict(candidate)
@@ -706,6 +768,15 @@ def rerank(
         else:
             ranked = supported
 
+    conflict, differing = (False, [])
+    if ranked and query_numerals(query):
+        conflict, differing = False, []
+        for item in ranked:
+            found, numbers = numeral_conflict(query, _passage_text(item))
+            if found:
+                conflict, differing = True, numbers
+                break
+
     return RerankOutcome(
         ranked=ranked,
         top_score=top_score,
@@ -716,4 +787,6 @@ def rerank(
         fail_safe_fired=fail_safe_fired,
         lexical_support=lexical_support,
         abstain_reason=reason,
+        premise_conflict=conflict,
+        conflicting_numbers=differing,
     )

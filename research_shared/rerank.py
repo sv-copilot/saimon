@@ -243,7 +243,9 @@ def _fold_plural(token: str) -> str:
     return token
 
 
-def lexical_coverage(query: str, text: str) -> float:
+def lexical_coverage(
+    query: str, text: str, weights: dict[str, float] | None = None
+) -> float:
     """Fraction of the query's content tokens that *text* actually contains (0.0-1.0).
 
     Absolute, not relative: a passage covering one of three query tokens scores 0.33
@@ -256,7 +258,16 @@ def lexical_coverage(query: str, text: str) -> float:
     if not query_tokens:
         return 0.0
     text_tokens = {_fold_plural(token) for token in content_tokens(text)}
-    return len(query_tokens & text_tokens) / len(query_tokens)
+    if not weights:
+        return len(query_tokens & text_tokens) / len(query_tokens)
+    folded_weights = {_fold_plural(term): value for term, value in weights.items()}
+    total = sum(folded_weights.get(token, 1.0) for token in query_tokens)
+    if total <= 0.0:
+        return 0.0
+    covered = sum(
+        folded_weights.get(token, 1.0) for token in query_tokens & text_tokens
+    )
+    return covered / total
 
 
 def bm25_scores(
@@ -488,6 +499,8 @@ def rerank(
     embed_fn: Callable[[str], list[float] | None] | None = None,
     passage_embed_fn: Callable[[str], list[float] | None] | None = None,
     top_k: int | None = None,
+    corpus_df: dict[str, int] | None = None,
+    corpus_size: int | None = None,
 ) -> RerankOutcome:
     """Score *candidates* against *query* and return the ranked top-K.
 
@@ -510,7 +523,26 @@ def rerank(
     # under the floor ("spec driven development agent drift" abstained at reason "floor").
     # The gate uses coverage; ranking keeps the scoring the rest of the system calibrated
     # against.
-    coverage_raw = [lexical_coverage(query, passage) for passage in passages]
+    corpus_weights: dict[str, float] | None = None
+    absent_terms: list[str] = []
+    if corpus_df is not None:
+        from research_shared.term_stats import idf_weights
+
+        support = {_fold_plural(token) for token in support_tokens(query)}
+        folded_df = {_fold_plural(term): count for term, count in corpus_df.items()}
+        # Only a term the statistics actually looked at can be called absent.
+        # A token missing from the map was never measured, and guessing that it
+        # is absent would refuse every reformulated query.
+        absent_terms = sorted(
+            term for term in support if term in folded_df and folded_df[term] == 0
+        )
+        corpus_weights = idf_weights(
+            {term: folded_df.get(term, 0) for term in support}, corpus_size, support
+        )
+
+    coverage_raw = [
+        lexical_coverage(query, passage, weights=corpus_weights) for passage in passages
+    ]
 
     query_embedding: list[float] | None = None
     if embed_fn is not None:
@@ -584,13 +616,23 @@ def rerank(
     fail_safe_fired, top_score, margin_gap = gate_decision(
         scored, cfg, lexical_support, gate_score=gate_score, coverage=top_coverage
     )
+    # A content term that appears nowhere in the corpus cannot be evidenced by
+    # any passage: the question asks about something the corpus has never heard
+    # of. Refuse on that alone rather than trusting a coverage score diluted by
+    # the words the question shares with everything else.
+    if absent_terms:
+        fail_safe_fired = True
+        abstain_reason_override = "absent_term"
+    else:
+        abstain_reason_override = None
+
     reason = (
         abstain_reason(
             scored, cfg, lexical_support, gate_score=gate_score,
             coverage=float(scored[0].get("coverage_score") or 0.0) if scored else None,
         )
-        if fail_safe_fired
-        else None
+        if fail_safe_fired and abstain_reason_override is None
+        else abstain_reason_override
     )
     second_score = float(scored[1]["relevance_score"]) if len(scored) > 1 else 0.0
     ranked = [] if fail_safe_fired else scored[:k]

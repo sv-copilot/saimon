@@ -567,6 +567,23 @@ async def _search_candidates(
     return _merge_results(vector_results, keyword_results, limit)
 
 
+async def _corpus_statistics(query: str) -> tuple[dict[str, int] | None, int | None]:
+    """Document frequency for the query's content terms, or nothing.
+
+    Without a database the gate keeps its old unweighted behaviour — worse, but
+    honest about what it could not measure.
+    """
+    if _db_pool is None:
+        return None, None
+    from research_shared.rerank import support_tokens
+    from research_shared.term_stats import corpus_term_stats
+
+    try:
+        return await corpus_term_stats(_db_pool, support_tokens(query))
+    except Exception:  # noqa: BLE001 - statistics are an improvement, not a dependency
+        return None, None
+
+
 async def _retrieve_and_rerank(
     query: str,
     limit: int,
@@ -602,11 +619,14 @@ async def _retrieve_and_rerank(
     from research_shared.review import filter_by_review
 
     candidates = filter_by_review(candidates, review_statuses)
+    corpus_df, corpus_size = await _corpus_statistics(query)
     outcome = rerank(
         query, candidates, config,
         embed_fn=embed_fn,
         passage_embed_fn=_rerank_passage_embed_fn() if _prefixes_on() else None,
         top_k=limit,
+        corpus_df=corpus_df,
+        corpus_size=corpus_size,
     )
 
     requery_count = 0
@@ -633,11 +653,14 @@ async def _retrieve_and_rerank(
         from research_shared.review import filter_by_review as _filter_review
 
         requery_candidates = _filter_review(requery_candidates, review_statuses)
+        requery_df, requery_size = await _corpus_statistics(reformulated)
         outcome = rerank(
             reformulated, requery_candidates, config,
             embed_fn=embed_fn,
             passage_embed_fn=_rerank_passage_embed_fn() if _prefixes_on() else None,
             top_k=limit,
+            corpus_df=requery_df,
+            corpus_size=requery_size,
         )
         # The reformulator's own words must not rescue a query that shares no
         # vocabulary with the corpus: support is judged against the ORIGINAL

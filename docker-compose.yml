@@ -261,6 +261,8 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       SEARCH_MCP_URL: ${SEARCH_MCP_URL:-http://search-mcp:8001}
+      # Each service holds its own key; the crew calls search as a client.
+      SEARCH_API_KEY: ${SAIMON_SEARCH_API_KEY:-sk-test-search-key}
       VERIFY_MCP_URL: ${VERIFY_MCP_URL:-http://verify-mcp:8005}
       EXPLORE_MCP_URL: ${EXPLORE_MCP_URL:-http://explore-mcp:8006}
       PLANNING_CHECKOUT_PATH: ${PLANNING_CHECKOUT_PATH:-/srv/planning}

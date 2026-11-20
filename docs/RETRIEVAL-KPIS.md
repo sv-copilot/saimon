@@ -84,3 +84,18 @@ The four-arm A/B at depth ten is the first run to clear the release gate:
 Gate: **PASS** — gain +0.246 over baseline (95% CI 0.087–0.406, minimum +0.150),
 grounding 0.818 against a 0.75 floor, abstention 1.000. The `previous` arm is
 skipped because there is no semver-tagged release to point at yet.
+
+## Fusion weights (2026-11-20)
+
+Lexical against semantic, five settings, same 69 tasks at k=10:
+
+| lexical / semantic | grounding | recall@10 | MRR | abstention |
+|---|---|---|---|---|
+| 0.4 / 0.6 | 0.782 | 0.958 | 0.894 | 0.714 |
+| 0.5 / 0.5 | 0.800 | 0.958 | 0.927 | 0.571 |
+| **0.6 / 0.4** | **0.818** | 0.958 | 0.927 | 0.571 |
+| 0.7 / 0.3 | 0.818 | 0.958 | 0.927 | 0.571 |
+| 0.8 / 0.2 | 0.818 | 0.958 | 0.927 | 0.571 |
+
+A plateau from 0.6 upward. Default is 0.6/0.4 — the start of the plateau, which keeps
+semantic weight for paraphrase while taking the grounding gain.

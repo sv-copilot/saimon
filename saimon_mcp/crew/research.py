@@ -42,7 +42,14 @@ def _search_url() -> str:
 
 
 def _api_key() -> str:
-    return (os.getenv("SAIMON_API_KEY") or "").split(",")[0].strip()
+    """The search service's client key, not the crew's own.
+
+    Services each hold a distinct key (docker-compose sets SAIMON_API_KEY per
+    service); presenting the crew's key to search earned "Invalid API key" and
+    the tool reported an empty corpus.
+    """
+    key = os.getenv("SEARCH_API_KEY") or os.getenv("SAIMON_API_KEY") or ""
+    return key.split(",")[0].strip()
 
 
 def search_passages(topic: str, limit: int = 8) -> list[dict[str, Any]]:

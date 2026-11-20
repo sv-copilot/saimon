@@ -47,3 +47,26 @@ Every setting fixes exactly one adversarial case and costs between 5 and 16 poin
 Default is **off**: the check fixes a real failure but is not free, and 0.746 sits just under the
 0.75 gate. `SAIMON_RERANK_SUBJECT_MAX_DF=10 SAIMON_RERANK_SUBJECT_MIN_MENTIONS=3` is the profile for
 a pipeline where a confident wrong sentence is more expensive than a missing answer.
+
+## Retrieval depth (2026-11-19)
+
+The answer path was retrieving five passages. Depth is the single largest lever measured so far,
+and it cost nothing but tokens:
+
+| passages | answerable success | abstain accuracy | context groundedness |
+|---|---|---|---|
+| 5 | 0.418 | 1.000 | 0.745 |
+| 8 | 0.564 | 0.929 | 0.800 |
+| 10 | **0.564** | **1.000** | **0.818** |
+
+Same 69 tasks, same model, same prompt; only the number of passages changes. At five, fourteen of
+the fifty-five answerable tasks had none of their required facts in the context — the model was
+being asked to answer from silence.
+
+Ten rather than eight because abstention held at 1.000 while eight let one unanswerable question
+through. The reference harness now defaults to ten, which is also the search service's documented
+default; clients that pass five are under-retrieving.
+
+Prompt changes were also tried and rejected on measurement: an instruction demanding exact figures
+scored 0.346 against the shipped 0.418, and an extractive variant that quotes the supporting
+sentence also scored 0.346.

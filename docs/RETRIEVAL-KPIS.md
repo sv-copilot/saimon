@@ -70,3 +70,17 @@ default; clients that pass five are under-retrieving.
 Prompt changes were also tried and rejected on measurement: an instruction demanding exact figures
 scored 0.346 against the shipped 0.418, and an extractive variant that quotes the supporting
 sentence also scored 0.346.
+
+### Confirmation run (2026-11-19, depth 10)
+
+The four-arm A/B at depth ten is the first run to clear the release gate:
+
+| arm | success | answerable success | abstention | groundedness |
+|---|---|---|---|---|
+| baseline (no retrieval) | 0.391 | 0.382 | 0.429 | 0.000 |
+| RAG | 0.609 | 0.509 | 1.000 | 0.818 |
+| current | **0.638** | **0.545** | **1.000** | **0.818** |
+
+Gate: **PASS** — gain +0.246 over baseline (95% CI 0.087–0.406, minimum +0.150),
+grounding 0.818 against a 0.75 floor, abstention 1.000. The `previous` arm is
+skipped because there is no semver-tagged release to point at yet.

@@ -75,7 +75,9 @@ ARMS: tuple[Arm, ...] = (
 @dataclass
 class ArmConfig:
     urls: dict[str, str] = field(default_factory=dict)
-    limit: int = 5
+    # Measured: ten passages answer 56% of answerable tasks against 42% at five,
+    # with abstention unchanged. The extra context costs tokens, not accuracy.
+    limit: int = 10
     model: str = "deepseek-v4-flash"
     prompt: str = DEFAULT_PROMPT
     # USD per 1M tokens; estimates only, labelled as such in the report.

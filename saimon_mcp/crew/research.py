@@ -1,107 +1,162 @@
-"""crew.research@v1 — research-analyst crew (SAIMON-CREW-RESEARCH-1).
+"""crew.research@v1 — grounded research, with the search step done explicitly.
 
-Answers a topic by chaining saimon tools (knowledge-graph search, verification,
-source discovery) with grounded evidence. Never invents content a tool did not
-return; responses separate confirmed / inferred / unavailable. Session context
-is bounded to the last N messages.
+The previous version built a CrewAI agent and told it to use its tools. No tools
+were ever attached, so the agent had nothing to call; and the deployed image does
+not carry the optional crewai dependency, so the tool returned "crew LLM
+unavailable — crewai import failed" while the service reported healthy.
+
+Retrieval is not something a prompt can ask for. This module searches the
+knowledge graph, hands the passages to the model, and refuses to produce a
+"confirmed" list when retrieval returned nothing — the three-part answer
+describes what the corpus supports, not what the model remembers.
 """
 
 from __future__ import annotations
 
 import json as _json
+import logging as _logging
+import os
 from typing import Any
 
-from saimon_mcp.crew.llm import make_crew_llm
+_log = _logging.getLogger("saimon.crew.research")
 
-_RESEARCH_PROMPT = """You are a research analyst. Answer the topic using ONLY
-the evidence your tools return (knowledge-graph search, claim verification,
-source discovery).
+_PROMPT = """Answer the topic using ONLY the numbered passages below.
 
-Separate your answer into exactly three arrays:
-- "confirmed": facts a tool directly returned
-- "inferred": reasonable inference from confirmed facts (explicitly labelled)
-- "unavailable": what you could not determine from the tools
+Return a JSON object with exactly three arrays:
+- "confirmed": facts stated in the passages, each as a sentence
+- "inferred": conclusions that follow from confirmed facts but are not stated
+- "unavailable": aspects of the topic the passages do not address
 
-NEVER invent content a tool did not return. If a tool returns nothing, report it
-under "unavailable" — do not fabricate.
+Quote names, numbers and identifiers exactly as the passage writes them. Do not
+use knowledge from outside the passages.
+
+Passages:
+{context}
 
 TOPIC: {topic}
 """
 
 
-def build_research_crew(llm: Any, max_messages: int = 10) -> Any:
-    """Build the single-agent research crew with bounded context."""
-    from crewai import Agent, Crew, Process, Task
+def _search_url() -> str:
+    return os.getenv("SEARCH_MCP_URL", "http://search-mcp:8001").rstrip("/")
 
-    agent = Agent(
-        role="Research Analyst",
-        goal="Answer a topic with grounded saimon evidence, never inventing.",
-        backstory=(
-            "You answer research topics using only tool-returned evidence. "
-            "Context is bounded to the last N messages."
-        ),
-        llm=llm,
-        verbose=False,
+
+def _api_key() -> str:
+    return (os.getenv("SAIMON_API_KEY") or "").split(",")[0].strip()
+
+
+def search_passages(topic: str, limit: int = 8) -> list[dict[str, Any]]:
+    """Retrieve passages from the knowledge graph. Empty list on any failure.
+
+    A retrieval failure reads as no evidence rather than an exception: the tool
+    contract has a channel for "unavailable", and a raised error would turn a
+    quiet corpus into a 500.
+    """
+    import urllib.error
+    import urllib.request
+    import uuid
+
+    key = _api_key()
+    if not key:
+        return []
+    body = _json.dumps({
+        "trace_id": str(uuid.uuid4()),
+        "content_type": "crew_research",
+        "parameters": {"query": topic, "limit": limit},
+    }).encode()
+    request = urllib.request.Request(
+        _search_url() + "/tools/search_knowledge_graph",
+        data=body,
+        headers={"Content-Type": "application/json", "X-Saimon-API-Key": key},
+        method="POST",
     )
-    task = Task(
-        description=_RESEARCH_PROMPT,
-        expected_output=(
-            'JSON object with "confirmed", "inferred", "unavailable" arrays.'
-        ),
-        agent=agent,
-        context=[],
-    )
-    return Crew(
-        agents=[agent],
-        tasks=[task],
-        process=Process.sequential,
-        verbose=False,
-        memory=False,
-        max_rpm=10,
-    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            payload = _json.loads(response.read()) or {}
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        _log.warning("crew research retrieval failed: %s", exc)
+        return []
+    results = (payload.get("data") or {}).get("results") or []
+    return [row for row in results if row.get("body")]
+
+
+def format_context(passages: list[dict[str, Any]]) -> str:
+    lines = []
+    for index, row in enumerate(passages, 1):
+        title = row.get("title") or "untitled"
+        body = (row.get("body") or "").strip()
+        lines.append(f"[{index}] {title}: {body}")
+    return "\n\n".join(lines)
+
+
+def parse_answer(raw: str) -> dict[str, Any] | None:
+    """Pull the JSON object out of a model reply, tolerating prose around it."""
+    text = (raw or "").strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end <= start:
+        return None
+    try:
+        parsed = _json.loads(text[start : end + 1])
+    except _json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+
+    def _as_list(value: Any) -> list[str]:
+        return [str(item) for item in value] if isinstance(value, list) else []
+
+    return {
+        "confirmed": _as_list(parsed.get("confirmed")),
+        "inferred": _as_list(parsed.get("inferred")),
+        "unavailable": _as_list(parsed.get("unavailable")),
+    }
 
 
 async def run_research(topic: str, max_messages: int = 10) -> dict[str, Any]:
-    """Run the research crew and parse its grounded, three-part answer.
-
-    The ``crew.research@v1`` tool contract resolves the declared
-    ``saimon.research`` route. On LLM unavailability the ``unavailable`` list
-    carries the honest cause (missing key / crewai import failure / undeclared
-    route) instead of a blanket message.
-    """
-    resolved = make_crew_llm("saimon.research")
-    if resolved.llm is None:
+    """Retrieve, answer from the passages, and say what the corpus does not cover."""
+    del max_messages  # the direct path sends what it retrieved; there is no history
+    passages = search_passages(topic)
+    if not passages:
         return {
             "confirmed": [],
             "inferred": [],
-            "unavailable": [f"crew LLM unavailable — {resolved.reason}"],
+            "unavailable": [
+                (
+                    "no passages retrieved — the corpus has nothing on this "
+                    "topic, or retrieval is unreachable"
+                )
+            ],
         }
 
-    crew = build_research_crew(resolved.llm, max_messages=max_messages)
-    try:
-        result = crew.kickoff(inputs={"topic": topic})
-    except Exception:  # noqa: BLE001 — degrade to "unavailable" on crew failure
+    from research_shared.llm import LLMClient, LLMConfig
+
+    config = LLMConfig.from_env()
+    if not config.api_key:
         return {
             "confirmed": [],
             "inferred": [],
-            "unavailable": ["crew research failed"],
+            "unavailable": ["crew LLM unavailable — DEEPSEEK_API_KEY is not set"],
         }
-    raw = str(getattr(result, "raw", "") or getattr(result, "output", "") or "")
-    try:
-        parsed = _json.loads(raw)
-        if isinstance(parsed, dict):
-            def _as_list(value: Any) -> list:
-                return list(value) if isinstance(value, list) else []
 
-            return {
-                "confirmed": _as_list(parsed.get("confirmed")),
-                "inferred": _as_list(parsed.get("inferred")),
-                "unavailable": _as_list(parsed.get("unavailable")),
-            }
-    except _json.JSONDecodeError:
-        pass
-    return {
-        "confirmed": [],
-        "inferred": [],
-        "unavailable": ["could not parse crew output"],
-    }
+    prompt = _PROMPT.format(context=format_context(passages), topic=topic)
+    try:
+        raw = await LLMClient(config).generate(prompt)
+    except Exception as exc:  # noqa: BLE001 — the contract reports, it does not raise
+        _log.warning("crew research generation failed: %s", exc)
+        return {
+            "confirmed": [],
+            "inferred": [],
+            "unavailable": [f"crew LLM call failed — {type(exc).__name__}"],
+        }
+
+    parsed = parse_answer(raw)
+    if parsed is None:
+        return {
+            "confirmed": [],
+            "inferred": [],
+            "unavailable": ["could not parse crew output"],
+        }
+    parsed["citations"] = [
+        {"title": row.get("title"), "id": row.get("id")} for row in passages
+    ]
+    return parsed

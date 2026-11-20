@@ -1,165 +1,123 @@
-"""Tests for crew.research@v1 (SAIMON-CREW-RESEARCH-1)."""
+"""Tests for crew.research@v1.
+
+The tool previously depended on CrewAI being importable and on an agent having
+tools it was never given. It returned "crewai import failed" in production while
+the service reported healthy, and these tests were skipped whenever crewai was
+absent — which is why nobody noticed. They now exercise the direct path that
+actually runs.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import sys
-from unittest.mock import MagicMock
 
 import pytest
 
-from saimon_mcp.crew.llm import CrewLLMResolution
-
-import pytest
-
-pytest.importorskip("crewai", reason="crew service dependency is optional (requirements-crew.txt)")
+from saimon_mcp.crew import research
 
 
-class _FakeTask:
-    def __init__(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+def passage(title: str, body: str) -> dict:
+    return {"id": title[:8], "title": title, "body": body}
 
 
-class _FakeAgent:
-    def __init__(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+class _FakeClient:
+    def __init__(self, reply: str, *, raises: bool = False) -> None:
+        self.reply = reply
+        self.raises = raises
+        self.prompts: list[str] = []
+
+    async def generate(self, prompt: str) -> str:
+        self.prompts.append(prompt)
+        if self.raises:
+            raise RuntimeError("upstream 502")
+        return self.reply
 
 
-class _FakeCrew:
-    def __init__(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+def patch_llm(monkeypatch: pytest.MonkeyPatch, reply: str, *, raises: bool = False):
+    client = _FakeClient(reply, raises=raises)
+
+    class _Config:
+        api_key = "test-key"
+
+        @classmethod
+        def from_env(cls):
+            return cls()
+
+    class _Client:
+        def __init__(self, config):
+            self._config = config
+
+        async def generate(self, prompt):
+            return await client.generate(prompt)
+
+    monkeypatch.setattr("research_shared.llm.LLMConfig", _Config, raising=False)
+    monkeypatch.setattr("research_shared.llm.LLMClient", _Client, raising=False)
+    return client
 
 
-@pytest.fixture
-def crewai_mock(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    mock = MagicMock()
-    mock.__path__ = []
-    mock.Agent = _FakeAgent
-    mock.Task = _FakeTask
-    mock.Crew = _FakeCrew
-    mock.Process = MagicMock()
-    monkeypatch.setitem(sys.modules, "crewai", mock)
-    return mock
+class TestRetrieval:
+    def test_no_api_key_means_no_passages(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("SAIMON_API_KEY", raising=False)
+        assert research.search_passages("anything") == []
 
-
-class TestResearchCrew:
-    def test_builds_single_research_analyst_agent_with_grounding_rule(
-        self, crewai_mock: MagicMock
-    ) -> None:
-        from saimon_mcp.crew.research import build_research_crew
-
-        crew = build_research_crew(MagicMock(), max_messages=5)
-        assert len(crew.agents) == 1
-        agent = crew.agents[0]
-        assert agent.role == "Research Analyst"
-        task = crew.tasks[0]
-        assert "confirmed" in task.description
-        assert "inferred" in task.description
-        assert "unavailable" in task.description
-        assert "NEVER invent" in task.description
-
-    def test_context_bounded_to_last_n_messages(self, crewai_mock: MagicMock) -> None:
-        from saimon_mcp.crew.research import build_research_crew
-
-        crew = build_research_crew(MagicMock(), max_messages=5)
-        # Bounded context: no chaining, single task, no accumulated history.
-        assert crew.tasks[0].context == []
-        assert "bounded to the last N messages" in crew.agents[0].backstory
+    def test_context_numbers_the_passages(self) -> None:
+        context = research.format_context([
+            passage("Slice lifecycle", "Eleven states."),
+            passage("Seam", "The PMO names slices."),
+        ])
+        assert context.startswith("[1] Slice lifecycle: Eleven states.")
+        assert "[2] Seam:" in context
 
 
 class TestRunResearch:
-    def test_run_research_returns_empty_when_llm_unavailable(
+    def test_no_passages_reports_unavailable_not_invention(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from saimon_mcp.crew import research
-
-        monkeypatch.setattr(
-            research,
-            "make_crew_llm",
-            lambda route: CrewLLMResolution(None, "no DEEPSEEK_API_KEY"),
-        )
-        result = asyncio.run(research.run_research("some topic"))
+        monkeypatch.setattr(research, "search_passages", lambda topic, limit=8: [])
+        result = asyncio.run(research.run_research("a topic the corpus lacks"
+                                                   ""))
         assert result["confirmed"] == []
-        assert result["inferred"] == []
-        assert result["unavailable"]  # graceful degradation, no crash
+        assert "no passages retrieved" in result["unavailable"][0]
 
-    def test_run_research_surfaces_real_llm_reason(
+    def test_answer_is_grounded_in_the_retrieved_passages(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """#190 — the unavailable[] reason must name the true cause, not a
-        blanket 'no DEEPSEEK_API_KEY' when the failure is elsewhere."""
-        from saimon_mcp.crew import research
-
-        real_cause = (
-            "crewai import failed: ModuleNotFoundError: "
-            "No module named 'mcp.shared'"
-        )
         monkeypatch.setattr(
             research,
-            "make_crew_llm",
-            lambda route: CrewLLMResolution(None, real_cause),
+            "search_passages",
+            lambda topic, limit=8: [passage("Slice lifecycle", "A slice has eleven states.")],
         )
+        client = patch_llm(
+            monkeypatch,
+            '{"confirmed": ["A slice has eleven states."], "inferred": [], "unavailable": []}',
+        )
+        result = asyncio.run(research.run_research("How many lifecycle states?"))
+        assert result["confirmed"] == ["A slice has eleven states."]
+        assert result["citations"][0]["title"] == "Slice lifecycle"
+        assert "A slice has eleven states." in client.prompts[0]
+
+    def test_a_failed_call_reports_the_cause_without_raising(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            research, "search_passages", lambda topic, limit=8: [passage("T", "B")]
+        )
+        patch_llm(monkeypatch, "", raises=True)
         result = asyncio.run(research.run_research("topic"))
-        assert result["unavailable"] == [f"crew LLM unavailable — {real_cause}"]
-        assert "no DEEPSEEK_API_KEY" not in result["unavailable"][0]
+        assert result["confirmed"] == []
+        assert "RuntimeError" in result["unavailable"][0]
 
-    def test_run_research_routes_to_declared_saimon_research(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """#190 — crew.research@v1 must resolve the declared saimon.research
-        route; never an undeclared crew.* route."""
-        from saimon_mcp.crew import research
-
-        routes: list[str] = []
-
-        def spy(route: str) -> CrewLLMResolution:
-            routes.append(route)
-            return CrewLLMResolution(MagicMock())
-
-        monkeypatch.setattr(research, "make_crew_llm", spy)
+    def test_malformed_output_is_not_salvaged(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            research, "build_research_crew", lambda llm, max_messages=10: MagicMock()
+            research, "search_passages", lambda topic, limit=8: [passage("T", "B")]
         )
-        asyncio.run(research.run_research("topic"))
-        assert routes == ["saimon.research"]
-
-    def test_run_research_no_invention_on_malformed_output(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from saimon_mcp.crew import research
-
-        fake_llm = MagicMock()
-        fake_crew = MagicMock()
-        fake_crew.kickoff.return_value = MagicMock(raw="not json at all")
-        monkeypatch.setattr(
-            research, "make_crew_llm", lambda route: CrewLLMResolution(fake_llm)
-        )
-        monkeypatch.setattr(research, "build_research_crew", lambda llm, max_messages=10: fake_crew)
-
+        patch_llm(monkeypatch, "I think the answer is probably eleven.")
         result = asyncio.run(research.run_research("topic"))
         assert result["confirmed"] == []
         assert result["unavailable"] == ["could not parse crew output"]
 
-    def test_run_research_parses_grounded_answer(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from saimon_mcp.crew import research
-
-        fake_crew = MagicMock()
-        fake_crew.kickoff.return_value = MagicMock(
-            raw='{"confirmed": ["fact"], "inferred": ["guess"], "unavailable": []}'
+    def test_json_wrapped_in_prose_is_parsed(self) -> None:
+        parsed = research.parse_answer(
+            'Here you go:\n{"confirmed": ["a"], "inferred": [], "unavailable": ["b"]}\nDone.'
         )
-        monkeypatch.setattr(
-            research,
-            "make_crew_llm",
-            lambda route: CrewLLMResolution(MagicMock()),
-        )
-        monkeypatch.setattr(research, "build_research_crew", lambda llm, max_messages=10: fake_crew)
-
-        result = asyncio.run(research.run_research("topic"))
-        assert result["confirmed"] == ["fact"]
-        assert result["inferred"] == ["guess"]
-        assert result["unavailable"] == []
+        assert parsed == {"confirmed": ["a"], "inferred": [], "unavailable": ["b"]}

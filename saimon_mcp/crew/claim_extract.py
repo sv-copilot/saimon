@@ -106,16 +106,25 @@ async def run_extract_claims(source_text: str, max_claims: int = 10) -> list[dic
     if not source_text.strip():
         return []
 
-    resolved = make_crew_llm("saimon.extract_claims")
-    if resolved.llm is None:
-        _log.warning("crew LLM unavailable for extract_claims: %s", resolved.reason)
-        return []
-
     prompt = _EXTRACT_PROMPT.format(source_text=source_text)
     if max_claims > 0:
         prompt += f"\n\nExtract at most {max_claims} claims."
+
+    resolved = make_crew_llm("saimon.extract_claims")
     try:
-        raw = resolved.llm.call([{"role": "user", "content": prompt}])
+        if resolved.llm is not None:
+            raw = resolved.llm.call([{"role": "user", "content": prompt}])
+        else:
+            # crewai is optional and absent from the runtime image; the model
+            # route is the part that matters, so call it directly.
+            _log.info("crewai unavailable (%s); extracting claims directly", resolved.reason)
+            from research_shared.llm import LLMClient, LLMConfig
+
+            config = LLMConfig.from_env()
+            if not config.api_key:
+                _log.warning("crew LLM unavailable for extract_claims: no API key")
+                return []
+            raw = await LLMClient(config).generate(prompt)
     except Exception:  # noqa: BLE001 — fail-closed, never crash
         return []
 
